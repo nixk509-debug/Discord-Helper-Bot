@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertServerSchema, insertSettingsSchema, insertCommandSchema, servers, serverSettings, customCommands } from './schema';
+import { insertServerSchema, insertSettingsSchema, insertCommandSchema, insertEmbedSchema, servers, serverSettings, customCommands, embeds, type Embed } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -17,7 +17,8 @@ export const errorSchemas = {
 // Response models that include relations
 const serverWithRelationsSchema = z.custom<typeof servers.$inferSelect>().and(z.object({
   settings: z.custom<typeof serverSettings.$inferSelect>().optional(),
-  customCommands: z.array(z.custom<typeof customCommands.$inferSelect>()).optional()
+  customCommands: z.array(z.custom<typeof customCommands.$inferSelect>()).optional(),
+  embeds: z.array(z.custom<Embed>()).optional()
 }));
 
 const dashboardStatsSchema = z.object({
@@ -92,6 +93,43 @@ export const api = {
         404: errorSchemas.notFound,
       },
     }
+  },
+  embeds: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/servers/:serverId/embeds' as const,
+      responses: {
+        200: z.array(z.custom<Embed>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/servers/:serverId/embeds' as const,
+      input: insertEmbedSchema,
+      responses: {
+        201: z.custom<Embed>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/embeds/:id' as const,
+      input: insertEmbedSchema.partial(),
+      responses: {
+        200: z.custom<Embed>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/embeds/:id' as const,
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    }
   }
 };
 
@@ -111,3 +149,6 @@ export type DashboardStatsResponse = z.infer<typeof dashboardStatsSchema>;
 export type ServerWithRelations = z.infer<typeof serverWithRelationsSchema>;
 export type UpdateSettingsInput = z.infer<typeof api.settings.update.input>;
 export type CreateCommandInput = z.infer<typeof api.commands.create.input>;
+export type EmbedType = Embed;
+export type CreateEmbedInput = z.infer<typeof api.embeds.create.input>;
+export type UpdateEmbedInput = z.infer<typeof api.embeds.update.input>;

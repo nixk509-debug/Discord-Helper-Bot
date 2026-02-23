@@ -92,7 +92,7 @@ export async function registerRoutes(
       });
       
       const input = inputSchema.parse({ ...req.body, serverId });
-      const created = await storage.createCommand(input);
+      const created = await storage.createCommand(serverId, input);
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -111,6 +111,65 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Invalid command ID" });
     }
     await storage.deleteCommand(id);
+    res.status(204).send();
+  });
+
+  // --- EMBEDS ---
+  app.get(api.embeds.list.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) {
+      return res.status(400).json({ message: "Invalid server ID" });
+    }
+    const embedsList = await storage.getEmbeds(serverId);
+    res.json(embedsList);
+  });
+
+  app.post(api.embeds.create.path, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      const input = api.embeds.create.input.parse(req.body);
+      const created = await storage.createEmbed(serverId, input);
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.embeds.update.path, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid embed ID" });
+      }
+      const input = api.embeds.update.input.parse(req.body);
+      const updated = await storage.updateEmbed(id, input);
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.embeds.delete.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid embed ID" });
+    }
+    await storage.deleteEmbed(id);
     res.status(204).send();
   });
 
@@ -148,8 +207,7 @@ async function seedDatabase() {
       logEvents: ["messageDelete", "memberJoin", "memberLeave"],
     });
 
-    await storage.createCommand({
-      serverId: s1.id,
+    await storage.createCommand(s1.id, {
       name: "rules",
       response: "1. Be respectful. 2. No spamming. 3. Have fun!",
     });
@@ -177,8 +235,7 @@ async function seedDatabase() {
       logEvents: [],
     });
 
-    await storage.createCommand({
-      serverId: s2.id,
+    await storage.createCommand(s2.id, {
       name: "recommend",
       response: "Check out Frieren: Beyond Journey's End!",
     });
