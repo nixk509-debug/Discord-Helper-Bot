@@ -15,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, MessageSquare, Activity, Terminal, Plus, Trash2, Save } from "lucide-react";
+import { Shield, MessageSquare, Activity, Terminal, Plus, Trash2, Save, Settings, Layout } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -110,6 +110,9 @@ export default function ServerSettings() {
           <TabsTrigger value="commands" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5 px-6">
             <Terminal className="w-4 h-4 mr-2" /> Custom Commands
           </TabsTrigger>
+          <TabsTrigger value="embeds" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-2.5 px-6">
+            <Layout className="w-4 h-4 mr-2" /> Embed Builder
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -126,6 +129,10 @@ export default function ServerSettings() {
 
         <TabsContent value="commands">
           <CommandsTab serverId={serverId} commands={server.customCommands || []} toast={toast} />
+        </TabsContent>
+
+        <TabsContent value="embeds">
+          <EmbedBuilderTab serverId={serverId} embeds={server.embeds || []} toast={toast} />
         </TabsContent>
       </Tabs>
     </DashboardLayout>
