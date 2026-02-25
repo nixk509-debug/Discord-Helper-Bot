@@ -1,7 +1,8 @@
-import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, type Interaction, type Message } from "discord.js";
+import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
 import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { economyCommands, handleEconomyCommand } from "./commands/economy";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
@@ -65,12 +66,15 @@ export async function startBot() {
 
     const { commandName } = interaction;
 
+    const economyCommandNames = economyCommands.map((c) => c.name);
     if (commandName === "setup") {
       await handleSetupCommand(interaction);
     } else if (commandName === "premium") {
       await handlePremiumCommand(interaction);
     } else if (commandName === "help") {
       await handleHelpCommand(interaction);
+    } else if (economyCommandNames.includes(commandName)) {
+      await handleEconomyCommand(interaction as ChatInputCommandInteraction);
     }
   });
 
@@ -91,13 +95,14 @@ async function registerSlashCommands(client: Client<true>) {
   const commands = [
     new SlashCommandBuilder()
       .setName("setup")
-      .setDescription("Set up NexBot in this server"),
+      .setDescription("Set up Archivist in this server"),
     new SlashCommandBuilder()
       .setName("premium")
       .setDescription("Check premium status for this server"),
     new SlashCommandBuilder()
       .setName("help")
-      .setDescription("Show NexBot help and dashboard link"),
+      .setDescription("Show Archivist help and dashboard link"),
+    ...economyCommands,
   ];
 
   try {
@@ -146,7 +151,7 @@ async function handleSetupCommand(interaction: any) {
 
     const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}/dashboard/servers/${server.id}`;
     await interaction.reply({
-      content: `Server setup complete! Configure NexBot here: ${dashUrl}`,
+      content: `Server setup complete! Configure Archivist here: ${dashUrl}`,
       ephemeral: true,
     });
   } catch (err) {
@@ -182,10 +187,10 @@ async function handleHelpCommand(interaction: any) {
   const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
   await interaction.reply({
     content: [
-      "**NexBot** — Your all-in-one Discord server manager",
+      "**Archivist** — Your all-in-one Discord server manager",
       "",
       "**Slash Commands:**",
-      "`/setup` — Set up NexBot in this server",
+      "`/setup` — Set up Archivist in this server",
       "`/premium` — Check premium status",
       "`/help` — Show this help message",
       "",

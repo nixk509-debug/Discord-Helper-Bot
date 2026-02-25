@@ -9,6 +9,8 @@ import Login from "@/pages/login";
 import Premium from "@/pages/premium";
 import DashboardOverview from "@/pages/dashboard/index";
 import ServerSettings from "@/pages/dashboard/server";
+import MembersPage from "@/pages/dashboard/members";
+import Marketplace from "@/pages/marketplace";
 
 function Router() {
   return (
@@ -16,8 +18,10 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/login" component={Login} />
       <Route path="/premium" component={Premium} />
+      <Route path="/marketplace" component={Marketplace} />
       <Route path="/dashboard" component={DashboardOverview} />
       <Route path="/dashboard/servers/:id" component={ServerSettings} />
+      <Route path="/dashboard/servers/:id/members" component={MembersPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds } from "@/hooks/use-bot";
+import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
 import { useToast } from "@/hooks/use-toast";
 import {
   UserPlus,
@@ -29,7 +30,7 @@ import {
   Sparkles,
   ArrowRight,
 } from "lucide-react";
-import type { ServerSettings, AutoRole, Embed } from "@shared/schema";
+import type { ServerSettings, AutoRole } from "@shared/schema";
 
 interface WelcomeTabProps {
   serverId: number;
@@ -81,6 +82,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const [welcomeChannelId, setWelcomeChannelId] = useState(settings?.welcomeChannelId ?? "");
   const [welcomeMessage, setWelcomeMessage] = useState(settings?.welcomeMessage ?? "Welcome {user.mention} to **{server}**! You are member #{server.membercount}.");
   const [welcomeEmbedId, setWelcomeEmbedId] = useState<number | null>(settings?.welcomeEmbedId ?? null);
+  const [welcomeEmbedData, setWelcomeEmbedData] = useState<EmbedData | undefined>(undefined);
   const [welcomeDmEnabled, setWelcomeDmEnabled] = useState(settings?.welcomeDmEnabled ?? false);
   const [welcomeDmMessage, setWelcomeDmMessage] = useState(settings?.welcomeDmMessage ?? "Welcome to {server}! Please read the rules.");
 
@@ -88,6 +90,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const [leaveChannelId, setLeaveChannelId] = useState(settings?.leaveChannelId ?? "");
   const [leaveMessage, setLeaveMessage] = useState(settings?.leaveMessage ?? "{user.name} has left the server. We now have {server.membercount} members.");
   const [leaveEmbedId, setLeaveEmbedId] = useState<number | null>(settings?.leaveEmbedId ?? null);
+  const [leaveEmbedData, setLeaveEmbedData] = useState<EmbedData | undefined>(undefined);
 
   const [showPreview, setShowPreview] = useState(false);
   const [addRoleOpen, setAddRoleOpen] = useState(false);
@@ -192,7 +195,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm" data-testid="text-preview-bot-name">NexBot</span>
+                        <span className="font-display font-bold text-sm" data-testid="text-preview-bot-name">Archivist</span>
                         <Badge variant="secondary" className="text-[10px]">BOT</Badge>
                         <span className="text-xs text-muted-foreground">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
@@ -212,7 +215,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm">NexBot</span>
+                        <span className="font-display font-bold text-sm">Archivist</span>
                         <Badge variant="secondary" className="text-[10px]">BOT</Badge>
                       </div>
                       <p className="text-sm mt-1" data-testid="text-preview-dm">{replaceVariables(welcomeDmMessage)}</p>
@@ -231,7 +234,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
                     </div>
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm">NexBot</span>
+                        <span className="font-display font-bold text-sm">Archivist</span>
                         <Badge variant="secondary" className="text-[10px]">BOT</Badge>
                         <span className="text-xs text-muted-foreground">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
@@ -297,26 +300,11 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
             <VariableHints />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Welcome Embed (Optional)</label>
-            <Select
-              value={welcomeEmbedId?.toString() ?? "none"}
-              onValueChange={(v) => setWelcomeEmbedId(v === "none" ? null : parseInt(v))}
-            >
-              <SelectTrigger className="bg-background max-w-md" data-testid="select-welcome-embed">
-                <SelectValue placeholder="No embed" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No embed</SelectItem>
-                {(embeds as Embed[]).map((e) => (
-                  <SelectItem key={e.id} value={e.id.toString()}>
-                    {e.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">Optionally attach a saved embed to the welcome message.</p>
-          </div>
+          <EmbedComposer
+            label="Welcome Embed (Optional)"
+            value={welcomeEmbedData}
+            onChange={setWelcomeEmbedData}
+          />
 
           <Separator className="bg-white/5" />
 
@@ -398,25 +386,11 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
             <VariableHints />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Leave Embed (Optional)</label>
-            <Select
-              value={leaveEmbedId?.toString() ?? "none"}
-              onValueChange={(v) => setLeaveEmbedId(v === "none" ? null : parseInt(v))}
-            >
-              <SelectTrigger className="bg-background max-w-md" data-testid="select-leave-embed">
-                <SelectValue placeholder="No embed" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No embed</SelectItem>
-                {(embeds as Embed[]).map((e) => (
-                  <SelectItem key={e.id} value={e.id.toString()}>
-                    {e.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <EmbedComposer
+            label="Leave Embed (Optional)"
+            value={leaveEmbedData}
+            onChange={setLeaveEmbedData}
+          />
         </CardContent>
       </Card>
 

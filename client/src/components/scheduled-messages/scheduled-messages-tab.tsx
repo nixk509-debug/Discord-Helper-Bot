@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useScheduledMessages, useCreateScheduledMessage, useUpdateScheduledMessage, useDeleteScheduledMessage } from "@/hooks/use-bot";
 import { Clock, Plus, Trash2, Save, Loader2, Hash, Calendar, Play, Pause, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
 
 interface ScheduledMessagesTabProps {
   serverId: number;
@@ -59,6 +60,7 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
   const [cronPreset, setCronPreset] = useState("0 0 * * *");
   const [timezone, setTimezone] = useState("UTC");
   const [msgEnabled, setMsgEnabled] = useState(true);
+  const [embedData, setEmbedData] = useState<EmbedData | undefined>(undefined);
 
   const resetForm = () => {
     setEditingId(null);
@@ -68,6 +70,7 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
     setCronPreset("0 0 * * *");
     setTimezone("UTC");
     setMsgEnabled(true);
+    setEmbedData(undefined);
   };
 
   const openEdit = (msg: any) => {
@@ -79,6 +82,7 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
     setCronPreset(matchedPreset ? msg.cronExpression : "custom");
     setTimezone(msg.timezone || "UTC");
     setMsgEnabled(msg.enabled ?? true);
+    setEmbedData(undefined);
     setDialogOpen(true);
   };
 
@@ -220,6 +224,11 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
                   <p className="text-xs text-muted-foreground">Format: minute hour day-of-month month day-of-week</p>
                 </div>
               )}
+              <EmbedComposer
+                label="Attach Embed (Optional)"
+                value={embedData}
+                onChange={setEmbedData}
+              />
               <div className="flex items-center justify-between gap-4 rounded-lg border border-white/5 bg-background/30 p-3">
                 <p className="text-sm font-medium">Enabled</p>
                 <Switch checked={msgEnabled} onCheckedChange={setMsgEnabled} data-testid="switch-sched-enabled" />

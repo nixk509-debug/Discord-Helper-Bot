@@ -25,6 +25,15 @@ import { ChannelsTab } from "@/components/channels/channels-tab";
 import { ModerationTab } from "@/components/moderation/moderation-tab";
 import { LevelingTab } from "@/components/leveling/leveling-tab";
 import LoggingTab from "@/components/logging/logging-tab";
+import { EconomyTab } from "@/components/economy/economy-tab";
+import { AutomationsTab } from "@/components/automations/automations-tab";
+import { VariablesTab } from "@/components/variables/variables-tab";
+import { InsightsTab } from "@/components/insights/insights-tab";
+import { VerifyTab } from "@/components/verify/verify-tab";
+import { NsfwTab } from "@/components/nsfw/nsfw-tab";
+import { WebhooksTab } from "@/components/webhooks/webhooks-tab";
+import { PollsTab } from "@/components/polls/polls-tab";
+import { GiveawaysTab } from "@/components/giveaways/giveaways-tab";
 
 const generalSchema = z.object({
   prefix: z.string().min(1, "Prefix is required").max(5, "Prefix too long"),
@@ -72,6 +81,7 @@ export default function ServerSettings() {
     scheduled: false,
     tickets: false,
     "audit-logs": !!(server.settings?.logChannelId),
+    "economy": server.settings?.economyEnabled ?? false,
   };
 
   const currentServer = server!;
@@ -102,8 +112,26 @@ export default function ServerSettings() {
         return <ModerationTab serverId={serverId} settings={currentServer.settings} />;
       case "leveling":
         return <LevelingTab serverId={serverId} />;
+      case "economy":
+        return <EconomyTab serverId={serverId} settings={currentServer.settings} />;
       case "audit-logs":
         return <LoggingTab serverId={serverId} />;
+      case "automations":
+        return <AutomationsTab serverId={serverId} />;
+      case "insights":
+        return <InsightsTab serverId={serverId} />;
+      case "variables":
+        return <VariablesTab serverId={serverId} />;
+      case "verify":
+        return <VerifyTab serverId={serverId} settings={currentServer.settings} />;
+      case "nsfw":
+        return <NsfwTab serverId={serverId} settings={currentServer.settings} />;
+      case "webhooks":
+        return <WebhooksTab serverId={serverId} />;
+      case "polls":
+        return <PollsTab serverId={serverId} />;
+      case "giveaways":
+        return <GiveawaysTab serverId={serverId} />;
       default:
         return <PlaceholderModule moduleId={activeModule} />;
     }
@@ -132,6 +160,7 @@ export default function ServerSettings() {
         activeModule={activeModule}
         onModuleChange={setActiveModule}
         moduleStatuses={moduleStatuses}
+        serverId={serverId}
       >
         {renderActiveModule()}
       </ServerSettingsLayout>
@@ -250,7 +279,7 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
                     <FormItem>
                       <FormLabel>Bot Nickname</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="NexBot" className="bg-background max-w-[300px]" data-testid="input-bot-nickname" />
+                        <Input {...field} placeholder="Archivist" className="bg-background max-w-[300px]" data-testid="input-bot-nickname" />
                       </FormControl>
                       <FormDescription>Custom nickname for the bot in this server.</FormDescription>
                       <FormMessage />

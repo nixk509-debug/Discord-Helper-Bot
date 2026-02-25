@@ -578,6 +578,138 @@ export function useDeleteScheduledMessage(serverId: number) {
   });
 }
 
+// --- WEBHOOKS ---
+export function useWebhooks(serverId: number) {
+  return useQuery({
+    queryKey: [`/api/servers/${serverId}/webhooks`],
+    queryFn: async () => {
+      const res = await fetch(`/api/servers/${serverId}/webhooks`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed"); return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+export function useCreateWebhook(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/servers/${serverId}/webhooks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/webhooks`] }),
+  });
+}
+export function useUpdateWebhook(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(`/api/servers/${serverId}/webhooks/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/webhooks`] }),
+  });
+}
+export function useDeleteWebhook(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/servers/${serverId}/webhooks/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/webhooks`] }),
+  });
+}
+
+// --- POLLS ---
+export function usePolls(serverId: number) {
+  return useQuery({
+    queryKey: [`/api/servers/${serverId}/polls`],
+    queryFn: async () => {
+      const res = await fetch(`/api/servers/${serverId}/polls`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed"); return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+export function useCreatePoll(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/servers/${serverId}/polls`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/polls`] }),
+  });
+}
+export function useUpdatePoll(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(`/api/servers/${serverId}/polls/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/polls`] }),
+  });
+}
+export function useDeletePoll(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/servers/${serverId}/polls/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/polls`] }),
+  });
+}
+
+// --- GIVEAWAYS ---
+export function useGiveaways(serverId: number) {
+  return useQuery({
+    queryKey: [`/api/servers/${serverId}/giveaways`],
+    queryFn: async () => {
+      const res = await fetch(`/api/servers/${serverId}/giveaways`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed"); return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+export function useCreateGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/servers/${serverId}/giveaways`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/giveaways`] }),
+  });
+}
+export function useUpdateGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await fetch(`/api/servers/${serverId}/giveaways/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/giveaways`] }),
+  });
+}
+export function useDeleteGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/servers/${serverId}/giveaways/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error("Failed");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [`/api/servers/${serverId}/giveaways`] }),
+  });
+}
+
 // --- AUDIT LOG ---
 export function useAuditLogConfig(serverId: number) {
   return useQuery({

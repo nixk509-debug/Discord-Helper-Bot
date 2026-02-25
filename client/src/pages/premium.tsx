@@ -100,11 +100,11 @@ export default function Premium() {
           <div className="inline-flex items-center gap-2 mb-4">
             <Crown className="w-8 h-8 text-yellow-400" />
             <h1 className="text-4xl font-bold font-display text-foreground" data-testid="text-premium-title">
-              NexBot Premium
+              Archivist Premium
             </h1>
           </div>
           <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-            Unlock the full power of NexBot with advanced features, unlimited commands, and priority support.
+            Unlock the full power of Archivist with advanced features, unlimited commands, and priority support.
           </p>
         </div>
 

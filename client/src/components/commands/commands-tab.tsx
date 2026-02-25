@@ -16,9 +16,33 @@ import {
   Plus, Trash2, Save, Terminal, Search, X, Copy, Eye,
   ChevronDown, ChevronUp, LayoutGrid, List, Settings,
   Shield, Hash, Clock, MessageSquare, Zap, Variable,
-  Edit3, ToggleLeft, ToggleRight, CheckSquare, Power
+  Edit3, ToggleLeft, ToggleRight, CheckSquare, Power,
+  Globe, Play, Check, AlertCircle, Share2, Download, Store
 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import type { CustomCommand } from "@shared/schema";
+import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
+
+interface HttpHeader {
+  key: string;
+  value: string;
+}
+
+interface ResponseMapping {
+  jsonPath: string;
+  saveAs: string;
+}
+
+interface HttpActionConfig {
+  enabled: boolean;
+  url: string;
+  method: string;
+  headers: HttpHeader[];
+  body: string;
+  responseMapping: ResponseMapping[];
+  timeout: number;
+}
 
 interface CommandFormState {
   name: string;
@@ -35,7 +59,18 @@ interface CommandFormState {
   embedResponse: any;
   deleteInvocation: boolean;
   dmResponse: boolean;
+  httpAction: HttpActionConfig;
 }
+
+const DEFAULT_HTTP_ACTION: HttpActionConfig = {
+  enabled: false,
+  url: "",
+  method: "GET",
+  headers: [],
+  body: "",
+  responseMapping: [],
+  timeout: 5000,
+};
 
 const DEFAULT_FORM: CommandFormState = {
   name: "",
@@ -52,6 +87,7 @@ const DEFAULT_FORM: CommandFormState = {
   embedResponse: null,
   deleteInvocation: false,
   dmResponse: false,
+  httpAction: { ...DEFAULT_HTTP_ACTION },
 };
 
 const VARIABLES = [
@@ -103,6 +139,8 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
   const [selectedCommands, setSelectedCommands] = useState<number[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingCommand, setEditingCommand] = useState<CustomCommand | null>(null);
+  const [sharingCommand, setSharingCommand] = useState<CustomCommand | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   const createCommand = useCreateCommand(serverId);
   const updateCommand = useUpdateCommand(serverId);
@@ -174,9 +212,14 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
           <h2 className="text-xl font-display font-bold text-glow" data-testid="text-commands-title">Custom Commands</h2>
           <p className="text-muted-foreground text-sm">Create automated responses with variables, permissions, and rich embeds.</p>
         </div>
-        <Button className="gap-2" onClick={() => setIsCreateOpen(true)} data-testid="button-new-command">
-          <Plus className="w-4 h-4" /> New Command
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" className="gap-2" onClick={() => setIsImportOpen(true)} data-testid="button-import-from-marketplace">
+            <Download className="w-4 h-4" /> Import by Code
+          </Button>
+          <Button className="gap-2" onClick={() => setIsCreateOpen(true)} data-testid="button-new-command">
+            <Plus className="w-4 h-4" /> New Command
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -271,6 +314,7 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
               onToggleSelect={() => toggleSelect(cmd.id)}
               onToggleEnabled={() => handleToggleEnabled(cmd)}
               onEdit={() => setEditingCommand(cmd)}
+              onShare={() => setSharingCommand(cmd)}
               onDelete={() => {
                 if (confirm(`Delete !${cmd.name}?`)) {
                   deleteCommand.mutate(cmd.id, {
@@ -318,18 +362,36 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
           command={editingCommand}
         />
       )}
+
+      {sharingCommand && (
+        <ShareCommandDialog
+          command={sharingCommand}
+          serverId={serverId}
+          open={!!sharingCommand}
+          onOpenChange={(open) => { if (!open) setSharingCommand(null); }}
+          toast={toast}
+        />
+      )}
+
+      <ImportCommandDialog
+        open={isImportOpen}
+        onOpenChange={setIsImportOpen}
+        serverId={serverId}
+        toast={toast}
+      />
     </div>
   );
 }
 
 function CommandCard({
-  command, selected, onToggleSelect, onToggleEnabled, onEdit, onDelete, isPending
+  command, selected, onToggleSelect, onToggleEnabled, onEdit, onShare, onDelete, isPending
 }: {
   command: CustomCommand;
   selected: boolean;
   onToggleSelect: () => void;
   onToggleEnabled: () => void;
   onEdit: () => void;
+  onShare: () => void;
   onDelete: () => void;
   isPending: boolean;
 }) {
@@ -362,6 +424,15 @@ function CommandCard({
           />
           <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-command-${command.id}`}>
             <Edit3 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground invisible group-hover:visible"
+            onClick={onShare}
+            data-testid={`button-share-command-${command.id}`}
+          >
+            <Share2 className="w-4 h-4" />
           </Button>
           <Button
             variant="ghost"
@@ -486,6 +557,234 @@ function CommandTable({
   );
 }
 
+function ShareCommandDialog({
+  command, serverId, open, onOpenChange, toast
+}: {
+  command: CustomCommand;
+  serverId: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  toast: any;
+}) {
+  const [title, setTitle] = useState(command.name);
+  const [description, setDescription] = useState(command.description || "");
+  const [category, setCategory] = useState("utility");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [isPublic, setIsPublic] = useState(true);
+  const [shareCode, setShareCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const queryClient = useQueryClient();
+
+  const shareMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/servers/${serverId}/commands/${command.id}/share`, {
+        title, description, category, tags, isPublic
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setShareCode(data.shareCode);
+      queryClient.invalidateQueries({ queryKey: ["/api/marketplace"] });
+      toast({ title: "Command shared!", description: `Share code: ${data.shareCode}` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Share failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function addTag() {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !tags.includes(t)) setTags([...tags, t]);
+    setTagInput("");
+  }
+
+  function copyCode() {
+    if (shareCode) {
+      navigator.clipboard.writeText(shareCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md bg-card border-white/10">
+        <DialogHeader>
+          <DialogTitle className="font-display flex items-center gap-2">
+            <Share2 className="w-5 h-5 text-primary" />
+            Share Command
+          </DialogTitle>
+          <DialogDescription>
+            Share <code className="font-mono text-primary">!{command.name}</code> to the marketplace.
+          </DialogDescription>
+        </DialogHeader>
+
+        {shareCode ? (
+          <div className="space-y-4 py-2">
+            <div className="text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto">
+                <Check className="w-6 h-6 text-green-500" />
+              </div>
+              <h3 className="font-semibold">Command Shared!</h3>
+              <p className="text-sm text-muted-foreground">Share this code with others to import your command.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="font-mono text-primary bg-primary/10 px-4 py-3 rounded text-lg flex-1 text-center tracking-widest">
+                {shareCode}
+              </code>
+              <Button variant="outline" size="icon" onClick={copyCode} data-testid="button-copy-share-code">
+                {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} className="bg-background" data-testid="input-share-title" />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="bg-background resize-none" rows={2} data-testid="input-share-description" />
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger className="bg-background" data-testid="select-share-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["moderation", "fun", "utility", "info", "economy", "automation"].map(c => (
+                    <SelectItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                  placeholder="Add tag..."
+                  className="bg-background flex-1"
+                  data-testid="input-share-tag"
+                />
+                <Button variant="outline" size="sm" onClick={addTag}>Add</Button>
+              </div>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {tags.map(tag => (
+                    <Badge key={tag} variant="secondary" className="gap-1 text-xs">
+                      {tag}
+                      <button onClick={() => setTags(tags.filter(t => t !== tag))}><X className="w-3 h-3" /></button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={isPublic} onCheckedChange={setIsPublic} data-testid="switch-share-public" />
+              <Label>Public (visible in marketplace)</Label>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {shareCode ? "Close" : "Cancel"}
+          </Button>
+          {!shareCode && (
+            <Button
+              onClick={() => shareMutation.mutate()}
+              disabled={!title.trim() || shareMutation.isPending}
+              className="gap-2"
+              data-testid="button-confirm-share"
+            >
+              <Share2 className="w-4 h-4" />
+              {shareMutation.isPending ? "Sharing..." : "Share to Marketplace"}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ImportCommandDialog({
+  open, onOpenChange, serverId, toast
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  serverId: number;
+  toast: any;
+}) {
+  const [code, setCode] = useState("");
+  const queryClient = useQueryClient();
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/marketplace/${code.trim().toUpperCase()}/import`, { serverId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/servers", serverId, "commands"] });
+      toast({ title: "Command imported!", description: "The command has been added to this server." });
+      setCode("");
+      onOpenChange(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Import failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm bg-card border-white/10">
+        <DialogHeader>
+          <DialogTitle className="font-display flex items-center gap-2">
+            <Download className="w-5 h-5 text-primary" />
+            Import by Code
+          </DialogTitle>
+          <DialogDescription>
+            Enter a share code to import a command from the marketplace.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Share Code</Label>
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="e.g. AB3X9KQY"
+              className="font-mono bg-background text-center text-lg tracking-widest"
+              maxLength={8}
+              data-testid="input-import-code"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            You can also browse the <a href="/marketplace" className="text-primary underline">marketplace</a> to find commands.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={() => importMutation.mutate()}
+            disabled={code.trim().length !== 8 || importMutation.isPending}
+            className="gap-2"
+            data-testid="button-confirm-import-code"
+          >
+            <Download className="w-4 h-4" />
+            {importMutation.isPending ? "Importing..." : "Import"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CommandFormDialog({
   open, onOpenChange, serverId, toast, mode, command
 }: {
@@ -514,6 +813,7 @@ function CommandFormDialog({
     embedResponse: command.embedResponse || null,
     deleteInvocation: command.deleteInvocation ?? false,
     dmResponse: command.dmResponse ?? false,
+    httpAction: (command as any).httpAction || { ...DEFAULT_HTTP_ACTION },
   } : { ...DEFAULT_FORM };
 
   const [form, setForm] = useState<CommandFormState>(initialForm);
@@ -574,6 +874,7 @@ function CommandFormDialog({
       embedResponse: form.embedResponse,
       deleteInvocation: form.deleteInvocation,
       dmResponse: form.dmResponse,
+      httpAction: form.httpAction,
     };
 
     if (mode === "edit" && command) {
@@ -635,12 +936,15 @@ function CommandFormDialog({
         </DialogHeader>
 
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="w-full grid grid-cols-4">
+          <TabsList className="w-full grid grid-cols-5">
             <TabsTrigger value="basic" data-testid="tab-basic">
               <Terminal className="w-4 h-4 mr-1" /> Basic
             </TabsTrigger>
             <TabsTrigger value="response" data-testid="tab-response">
               <MessageSquare className="w-4 h-4 mr-1" /> Response
+            </TabsTrigger>
+            <TabsTrigger value="http" data-testid="tab-http">
+              <Globe className="w-4 h-4 mr-1" /> HTTP
             </TabsTrigger>
             <TabsTrigger value="permissions" data-testid="tab-permissions">
               <Shield className="w-4 h-4 mr-1" /> Permissions
@@ -790,78 +1094,21 @@ function CommandFormDialog({
             )}
 
             {(form.responseType === "embed" || form.responseType === "both") && (
-              <Card className="border border-white/5 bg-background/30">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Embed Response</CardTitle>
-                  <CardDescription className="text-xs">Configure the embed fields for this command's response.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Embed Title</Label>
-                      <Input
-                        value={form.embedResponse?.title || ""}
-                        onChange={(e) => updateField("embedResponse", { ...form.embedResponse, title: e.target.value })}
-                        placeholder="Embed title"
-                        className="bg-background"
-                        data-testid="input-embed-title"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Color</Label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={form.embedResponse?.color || "#5865F2"}
-                          onChange={(e) => updateField("embedResponse", { ...form.embedResponse, color: e.target.value })}
-                          className="w-9 h-9 rounded border-0 bg-transparent cursor-pointer"
-                          data-testid="input-embed-color"
-                        />
-                        <Input
-                          value={form.embedResponse?.color || "#5865F2"}
-                          onChange={(e) => updateField("embedResponse", { ...form.embedResponse, color: e.target.value })}
-                          className="bg-background flex-1"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Embed Description</Label>
-                    <Textarea
-                      value={form.embedResponse?.description || ""}
-                      onChange={(e) => updateField("embedResponse", { ...form.embedResponse, description: e.target.value })}
-                      placeholder="Embed description with {user} variables"
-                      className="bg-background min-h-[80px] font-mono text-sm"
-                      data-testid="input-embed-description"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Footer Text</Label>
-                      <Input
-                        value={form.embedResponse?.footer || ""}
-                        onChange={(e) => updateField("embedResponse", { ...form.embedResponse, footer: e.target.value })}
-                        placeholder="Footer text"
-                        className="bg-background"
-                        data-testid="input-embed-footer"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Thumbnail URL</Label>
-                      <Input
-                        value={form.embedResponse?.thumbnail || ""}
-                        onChange={(e) => updateField("embedResponse", { ...form.embedResponse, thumbnail: e.target.value })}
-                        placeholder="https://..."
-                        className="bg-background"
-                        data-testid="input-embed-thumbnail"
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <EmbedComposer
+                label="Embed Response"
+                value={form.embedResponse as EmbedData | undefined}
+                onChange={(data) => updateField("embedResponse", data)}
+              />
             )}
 
             <VariableReference />
+          </TabsContent>
+
+          <TabsContent value="http" className="space-y-4 pt-4">
+            <HttpActionEditor
+              config={form.httpAction}
+              onChange={(cfg) => updateField("httpAction", cfg)}
+            />
           </TabsContent>
 
           <TabsContent value="permissions" className="space-y-4 pt-4">
@@ -916,7 +1163,7 @@ function CommandFormDialog({
                   </div>
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-white font-semibold text-sm">NexBot</span>
+                      <span className="text-white font-semibold text-sm">Archivist</span>
                       <Badge variant="secondary" className="text-[10px] bg-[#5865F2] text-white no-default-active-elevate">BOT</Badge>
                       <span className="text-[#949BA4] text-xs">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
@@ -1015,6 +1262,333 @@ function VariableReference() {
         </CardContent>
       )}
     </Card>
+  );
+}
+
+function HttpActionEditor({
+  config,
+  onChange,
+}: {
+  config: HttpActionConfig;
+  onChange: (cfg: HttpActionConfig) => void;
+}) {
+  const [testResult, setTestResult] = useState<{ status: number; body: string } | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  function updateConfig(partial: Partial<HttpActionConfig>) {
+    onChange({ ...config, ...partial });
+  }
+
+  function addHeader() {
+    onChange({ ...config, headers: [...config.headers, { key: "", value: "" }] });
+  }
+
+  function updateHeader(index: number, field: keyof HttpHeader, value: string) {
+    const headers = [...config.headers];
+    headers[index] = { ...headers[index], [field]: value };
+    updateConfig({ headers });
+  }
+
+  function removeHeader(index: number) {
+    updateConfig({ headers: config.headers.filter((_, i) => i !== index) });
+  }
+
+  function addResponseMapping() {
+    onChange({ ...config, responseMapping: [...config.responseMapping, { jsonPath: "", saveAs: "" }] });
+  }
+
+  function updateResponseMapping(index: number, field: keyof ResponseMapping, value: string) {
+    const mappings = [...config.responseMapping];
+    mappings[index] = { ...mappings[index], [field]: value };
+    updateConfig({ responseMapping: mappings });
+  }
+
+  function removeResponseMapping(index: number) {
+    updateConfig({ responseMapping: config.responseMapping.filter((_, i) => i !== index) });
+  }
+
+  async function testRequest() {
+    if (!config.url) {
+      setTestError("URL is required");
+      return;
+    }
+    setTestLoading(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const headersObj: Record<string, string> = {};
+      config.headers.forEach(h => { if (h.key) headersObj[h.key] = h.value; });
+
+      const opts: RequestInit = {
+        method: config.method,
+        headers: headersObj,
+      };
+      if (config.method !== "GET" && config.method !== "DELETE" && config.body) {
+        opts.body = config.body;
+        headersObj["Content-Type"] = headersObj["Content-Type"] || "application/json";
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), config.timeout || 5000);
+      const resp = await fetch(config.url, { ...opts, signal: controller.signal });
+      clearTimeout(timer);
+      const text = await resp.text();
+      let body = text;
+      try { body = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+      setTestResult({ status: resp.status, body });
+    } catch (err: any) {
+      setTestError(err.name === "AbortError" ? "Request timed out" : err.message || "Request failed");
+    } finally {
+      setTestLoading(false);
+    }
+  }
+
+  const HTTP_EXAMPLES = [
+    { label: "Weather API", hint: "https://wttr.in/London?format=j1" },
+    { label: "Crypto Price", hint: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd" },
+    { label: "Random Quote", hint: "https://api.quotable.io/random" },
+    { label: "Minecraft Status", hint: "https://api.mcsrvstat.us/2/{args.0}" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-white/5 bg-background/50 p-4">
+        <div className="space-y-0.5">
+          <Label>Enable HTTP Request Action</Label>
+          <p className="text-xs text-muted-foreground">
+            Fire an HTTP request when this command is invoked. Use response values in the reply.
+          </p>
+        </div>
+        <Switch
+          checked={config.enabled}
+          onCheckedChange={(v) => updateConfig({ enabled: v })}
+          data-testid="switch-http-enabled"
+        />
+      </div>
+
+      {!config.enabled && (
+        <div className="rounded-lg border border-white/5 bg-background/30 p-4 space-y-3">
+          <p className="text-sm font-medium text-muted-foreground">Example use cases:</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {HTTP_EXAMPLES.map(ex => (
+              <button
+                key={ex.label}
+                onClick={() => { updateConfig({ enabled: true, url: ex.hint, method: "GET" }); }}
+                className="text-left rounded-md border border-white/5 bg-background/50 p-3 hover-elevate transition-colors"
+                data-testid={`button-http-example-${ex.label.toLowerCase().replace(/\s/g, "-")}`}
+              >
+                <p className="text-xs font-medium text-foreground">{ex.label}</p>
+                <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">{ex.hint}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {config.enabled && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="md:col-span-1 space-y-2">
+              <Label>Method</Label>
+              <Select value={config.method} onValueChange={(v) => updateConfig({ method: v })}>
+                <SelectTrigger className="bg-background" data-testid="select-http-method">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                  <SelectItem value="DELETE">DELETE</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:col-span-3 space-y-2">
+              <Label>URL</Label>
+              <Input
+                value={config.url}
+                onChange={(e) => updateConfig({ url: e.target.value })}
+                placeholder="https://api.example.com/endpoint?key={var.server.api_key}"
+                className="bg-background font-mono text-sm"
+                data-testid="input-http-url"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Timeout (ms)</Label>
+            <Input
+              type="number"
+              min={500}
+              max={30000}
+              value={config.timeout}
+              onChange={(e) => updateConfig({ timeout: parseInt(e.target.value) || 5000 })}
+              className="bg-background w-40"
+              data-testid="input-http-timeout"
+            />
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Request Headers</Label>
+              <Button variant="outline" size="sm" onClick={addHeader} data-testid="button-add-header">
+                <Plus className="w-3 h-3 mr-1" /> Add Header
+              </Button>
+            </div>
+            {config.headers.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No custom headers. Common ones: Authorization, Content-Type.</p>
+            ) : (
+              <div className="space-y-2">
+                {config.headers.map((header, i) => (
+                  <div key={i} className="flex items-center gap-2" data-testid={`row-header-${i}`}>
+                    <Input
+                      value={header.key}
+                      onChange={(e) => updateHeader(i, "key", e.target.value)}
+                      placeholder="Header-Name"
+                      className="bg-background font-mono text-xs flex-1"
+                      data-testid={`input-header-key-${i}`}
+                    />
+                    <Input
+                      value={header.value}
+                      onChange={(e) => updateHeader(i, "value", e.target.value)}
+                      placeholder="value or {var.server.token}"
+                      className="bg-background font-mono text-xs flex-1"
+                      data-testid={`input-header-value-${i}`}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeHeader(i)}
+                      data-testid={`button-remove-header-${i}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {(config.method === "POST" || config.method === "PUT" || config.method === "PATCH") && (
+            <div className="space-y-2">
+              <Label>Request Body (JSON)</Label>
+              <Textarea
+                value={config.body}
+                onChange={(e) => updateConfig({ body: e.target.value })}
+                placeholder={'{"key": "{args.0}", "user": "{user.id}"}'}
+                className="bg-background font-mono text-xs min-h-[100px]"
+                data-testid="input-http-body"
+              />
+              <p className="text-xs text-muted-foreground">You can use variables like {"{user}"}, {"{args.0}"}, {"{var.server.key}"} in the body.</p>
+            </div>
+          )}
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label>Response Mapping</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Extract values from the JSON response. Use {"{response.fieldname}"} in the command reply.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={addResponseMapping} data-testid="button-add-mapping">
+                <Plus className="w-3 h-3 mr-1" /> Add Mapping
+              </Button>
+            </div>
+            {config.responseMapping.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No mappings configured. Add one to extract fields from the response.</p>
+            ) : (
+              <div className="space-y-2">
+                {config.responseMapping.map((mapping, i) => (
+                  <div key={i} className="flex items-center gap-2" data-testid={`row-mapping-${i}`}>
+                    <div className="flex-1 space-y-1">
+                      <Input
+                        value={mapping.jsonPath}
+                        onChange={(e) => updateResponseMapping(i, "jsonPath", e.target.value)}
+                        placeholder="data.price (dot-notation JSON path)"
+                        className="bg-background font-mono text-xs"
+                        data-testid={`input-mapping-path-${i}`}
+                      />
+                    </div>
+                    <span className="text-muted-foreground text-xs shrink-0">→</span>
+                    <div className="flex-1 space-y-1">
+                      <Input
+                        value={mapping.saveAs}
+                        onChange={(e) => updateResponseMapping(i, "saveAs", e.target.value)}
+                        placeholder="price (use as {response.price})"
+                        className="bg-background font-mono text-xs"
+                        data-testid={`input-mapping-name-${i}`}
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeResponseMapping(i)}
+                      data-testid={`button-remove-mapping-${i}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Test Request</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={testRequest}
+                disabled={testLoading || !config.url}
+                className="gap-2"
+                data-testid="button-test-request"
+              >
+                <Play className="w-3 h-3" />
+                {testLoading ? "Sending..." : "Send Test Request"}
+              </Button>
+            </div>
+
+            {testError && (
+              <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/20 p-3 text-xs" data-testid="text-test-error">
+                <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                <span className="text-destructive">{testError}</span>
+              </div>
+            )}
+
+            {testResult && (
+              <div className="space-y-2" data-testid="div-test-result">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={testResult.status >= 200 && testResult.status < 300 ? "default" : "destructive"}
+                    className="text-xs"
+                  >
+                    {testResult.status >= 200 && testResult.status < 300
+                      ? <Check className="w-3 h-3 mr-1" />
+                      : <AlertCircle className="w-3 h-3 mr-1" />}
+                    HTTP {testResult.status}
+                  </Badge>
+                </div>
+                <pre
+                  className="rounded-md bg-background border border-white/5 p-3 text-xs font-mono overflow-auto max-h-[200px] text-muted-foreground"
+                  data-testid="pre-test-response"
+                >
+                  {testResult.body}
+                </pre>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

@@ -1,11 +1,7 @@
 import { 
-  Bot, 
   LayoutDashboard, 
-  Settings, 
-  MessageSquare, 
-  Shield, 
-  Activity,
-  Server
+  BookOpen,
+  Store
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -22,6 +18,17 @@ import {
 import { useServers } from "@/hooks/use-bot";
 import { Skeleton } from "@/components/ui/skeleton";
 
+function ArchivistLogo() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 4C4 2.89543 4.89543 2 6 2H18C19.1046 2 20 2.89543 20 4V6C20 7.10457 19.1046 8 18 8H6C4.89543 8 4 7.10457 4 6V4Z" fill="currentColor" opacity="0.9"/>
+      <path d="M4 10C4 8.89543 4.89543 8 6 8H18C19.1046 8 20 8.89543 20 10V12C20 13.1046 19.1046 14 18 14H6C4.89543 14 4 13.1046 4 12V10Z" fill="currentColor" opacity="0.7"/>
+      <path d="M4 16C4 14.8954 4.89543 14 6 14H18C19.1046 14 20 14.8954 20 16V18C20 19.1046 19.1046 20 18 20H6C4.89543 20 4 19.1046 4 18V16Z" fill="currentColor" opacity="0.5"/>
+      <path d="M7 22H17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { data: servers, isLoading } = useServers();
@@ -29,11 +36,11 @@ export function AppSidebar() {
   return (
     <Sidebar variant="inset" className="border-r-white/10 glass-panel">
       <SidebarHeader className="p-4 flex flex-row items-center gap-3 border-b border-white/5">
-        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30 text-primary">
-          <Bot className="w-5 h-5" />
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white box-glow" style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}>
+          <ArchivistLogo />
         </div>
         <div>
-          <h2 className="font-display font-bold text-lg leading-tight text-glow">NexBot</h2>
+          <h2 className="font-display font-bold text-lg leading-tight text-glow">Archivist</h2>
           <p className="text-xs text-muted-foreground font-medium">Dashboard</p>
         </div>
       </SidebarHeader>
@@ -49,9 +56,21 @@ export function AppSidebar() {
                   isActive={location === "/dashboard"}
                   className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary transition-all duration-200"
                 >
-                  <Link href="/dashboard" className="flex items-center gap-3">
+                  <Link href="/dashboard" className="flex items-center gap-3" data-testid="link-dashboard-overview">
                     <LayoutDashboard className="w-4 h-4" />
                     <span className="font-medium">Overview</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton 
+                  asChild 
+                  isActive={location === "/marketplace"}
+                  className="data-[active=true]:bg-primary/10 data-[active=true]:text-primary transition-all duration-200"
+                >
+                  <Link href="/marketplace" className="flex items-center gap-3" data-testid="link-marketplace">
+                    <Store className="w-4 h-4" />
+                    <span className="font-medium">Marketplace</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
