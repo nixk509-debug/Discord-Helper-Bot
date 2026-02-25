@@ -41,3 +41,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["discord:1.0.0", "stripe:2.0.0"]
+
+[userenv]
+
+[userenv.shared]
+"Client id" = "1476113704646086718"
+Secret = "qEYrDSFyXgQoVUPNqd87gw0HQoe1-DJs"
