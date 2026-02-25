@@ -91,36 +91,377 @@ const DEFAULT_FORM: CommandFormState = {
 };
 
 const VARIABLES = [
-  { category: "User", items: [
-    { var: "{user}", desc: "Username" },
+  { category: "User", color: "text-blue-400", items: [
+    { var: "{user}", desc: "Username (short)" },
     { var: "{user.name}", desc: "Display name" },
-    { var: "{user.id}", desc: "User ID" },
-    { var: "{user.mention}", desc: "User mention" },
-    { var: "{user.avatar}", desc: "Avatar URL" },
+    { var: "{user.displayName}", desc: "Nickname or username" },
+    { var: "{user.id}", desc: "Discord user ID" },
+    { var: "{user.mention}", desc: "@mention the user" },
+    { var: "{user.avatar}", desc: "Avatar image URL" },
+    { var: "{user.discriminator}", desc: "Discriminator #1234" },
+    { var: "{user.tag}", desc: "User#1234 full tag" },
+    { var: "{user.createdAt}", desc: "Account creation date" },
+    { var: "{user.joinedAt}", desc: "Server join date" },
+    { var: "{user.roles}", desc: "Comma-separated roles" },
+    { var: "{user.roleCount}", desc: "Number of roles" },
+    { var: "{user.isBooster}", desc: "true/false booster" },
+    { var: "{user.accountAge}", desc: "Age in days" },
   ]},
-  { category: "Server", items: [
-    { var: "{server}", desc: "Server name" },
-    { var: "{server.name}", desc: "Server name" },
-    { var: "{server.id}", desc: "Server ID" },
-    { var: "{server.membercount}", desc: "Member count" },
+  { category: "Target", color: "text-violet-400", items: [
+    { var: "{target}", desc: "@mentioned user name" },
+    { var: "{target.name}", desc: "Target display name" },
+    { var: "{target.id}", desc: "Target user ID" },
+    { var: "{target.mention}", desc: "@mention target" },
+    { var: "{target.avatar}", desc: "Target avatar URL" },
+    { var: "{target.roles}", desc: "Target's roles" },
+    { var: "{target.joinedAt}", desc: "Target join date" },
+    { var: "{target.accountAge}", desc: "Target account age" },
   ]},
-  { category: "Channel", items: [
+  { category: "Server", color: "text-emerald-400", items: [
+    { var: "{server}", desc: "Server name (short)" },
+    { var: "{server.name}", desc: "Full server name" },
+    { var: "{server.id}", desc: "Server/guild ID" },
+    { var: "{server.memberCount}", desc: "Total member count" },
+    { var: "{server.onlineCount}", desc: "Online member count" },
+    { var: "{server.boostCount}", desc: "Number of boosts" },
+    { var: "{server.boostLevel}", desc: "Boost tier (0-3)" },
+    { var: "{server.owner}", desc: "Owner username" },
+    { var: "{server.ownerId}", desc: "Owner user ID" },
+    { var: "{server.icon}", desc: "Server icon URL" },
+    { var: "{server.createdAt}", desc: "Server creation date" },
+    { var: "{server.channelCount}", desc: "Total channels" },
+  ]},
+  { category: "Channel", color: "text-cyan-400", items: [
     { var: "{channel}", desc: "Channel name" },
     { var: "{channel.name}", desc: "Channel name" },
     { var: "{channel.id}", desc: "Channel ID" },
-    { var: "{channel.mention}", desc: "Channel mention" },
+    { var: "{channel.mention}", desc: "#channel mention" },
+    { var: "{channel.topic}", desc: "Channel topic" },
+    { var: "{channel.slowmode}", desc: "Slowmode in seconds" },
+    { var: "{channel.isNSFW}", desc: "true/false NSFW" },
+    { var: "{channel.createdAt}", desc: "Channel creation date" },
   ]},
-  { category: "Arguments", items: [
-    { var: "{args}", desc: "All arguments" },
+  { category: "Arguments", color: "text-orange-400", items: [
+    { var: "{args}", desc: "All arguments joined" },
     { var: "{args.0}", desc: "First argument" },
     { var: "{args.1}", desc: "Second argument" },
     { var: "{args.2}", desc: "Third argument" },
+    { var: "{args.3}", desc: "Fourth argument" },
+    { var: "{args.4}", desc: "Fifth argument" },
+    { var: "{args.count}", desc: "Number of args" },
+    { var: "{args.raw}", desc: "Raw unprocessed args" },
+    { var: "{args.slice:1}", desc: "All args after first" },
   ]},
-  { category: "Misc", items: [
-    { var: "{random:a,b,c}", desc: "Random choice" },
-    { var: "{time}", desc: "Current time" },
+  { category: "Time & Date", color: "text-yellow-400", items: [
+    { var: "{time}", desc: "Current time (locale)" },
+    { var: "{time.utc}", desc: "Current UTC time" },
     { var: "{date}", desc: "Current date" },
+    { var: "{date.short}", desc: "Short date (MM/DD/YY)" },
+    { var: "{date.long}", desc: "Long date (Month DD, YYYY)" },
+    { var: "{timestamp}", desc: "Unix timestamp" },
+    { var: "{timestamp.relative}", desc: "Discord relative time" },
+    { var: "{weekday}", desc: "Day of week" },
+    { var: "{month}", desc: "Month name" },
+    { var: "{year}", desc: "Current year" },
   ]},
+  { category: "Math & Logic", color: "text-pink-400", items: [
+    { var: "{math:2+2}", desc: "Evaluate math expression" },
+    { var: "{if:cond|yes|no}", desc: "Inline if/else" },
+    { var: "{upper:text}", desc: "Uppercase text" },
+    { var: "{lower:text}", desc: "Lowercase text" },
+    { var: "{trim:text}", desc: "Trim whitespace" },
+    { var: "{length:text}", desc: "String length" },
+    { var: "{replace:text|from|to}", desc: "Find and replace" },
+    { var: "{slice:text|0|5}", desc: "Substring slice" },
+  ]},
+  { category: "Random", color: "text-rose-400", items: [
+    { var: "{random:a,b,c}", desc: "Pick random option" },
+    { var: "{random.number:1-100}", desc: "Random number in range" },
+    { var: "{random.member}", desc: "Random server member" },
+    { var: "{random.online}", desc: "Random online member" },
+    { var: "{random.emoji}", desc: "Random server emoji" },
+    { var: "{roll:6}", desc: "Roll 1-N sided die" },
+    { var: "{choose:a|b|c}", desc: "Choose from options" },
+    { var: "{shuffle:a,b,c}", desc: "Shuffle and join" },
+  ]},
+  { category: "Economy", color: "text-amber-400", items: [
+    { var: "{economy.balance}", desc: "User's current balance" },
+    { var: "{economy.rank}", desc: "Economy leaderboard rank" },
+    { var: "{economy.daily.ready}", desc: "true if daily available" },
+    { var: "{target.economy.balance}", desc: "Target user's balance" },
+    { var: "{economy.totalEarned}", desc: "Total earned all time" },
+    { var: "{economy.totalSpent}", desc: "Total spent all time" },
+  ]},
+  { category: "Leveling", color: "text-lime-400", items: [
+    { var: "{level}", desc: "User's current level" },
+    { var: "{xp}", desc: "User's current XP" },
+    { var: "{xp.next}", desc: "XP needed for next level" },
+    { var: "{rank}", desc: "User's XP leaderboard rank" },
+    { var: "{target.level}", desc: "Target user's level" },
+    { var: "{target.rank}", desc: "Target user's rank" },
+  ]},
+  { category: "Variables", color: "text-teal-400", items: [
+    { var: "{var.server.key}", desc: "Read server variable" },
+    { var: "{var.user.key}", desc: "Read user variable" },
+    { var: "{setvar.server.key:val}", desc: "Set server variable" },
+    { var: "{setvar.user.key:val}", desc: "Set user variable" },
+  ]},
+  { category: "HTTP", color: "text-indigo-400", items: [
+    { var: "{response.field}", desc: "JSON response field" },
+    { var: "{response.field.nested}", desc: "Nested field path" },
+    { var: "{response.status}", desc: "HTTP status code" },
+    { var: "{response.raw}", desc: "Raw JSON response" },
+  ]},
+  { category: "Formatting", color: "text-slate-300", items: [
+    { var: "{bold:text}", desc: "**Bold** text" },
+    { var: "{italic:text}", desc: "*Italic* text" },
+    { var: "{code:text}", desc: "`Inline code`" },
+    { var: "{codeblock:lang|code}", desc: "``` Code block ```" },
+    { var: "{spoiler:text}", desc: "||Spoiler text||" },
+    { var: "{strike:text}", desc: "~~Strikethrough~~" },
+  ]},
+  { category: "Bot", color: "text-gray-400", items: [
+    { var: "{bot}", desc: "Bot's username" },
+    { var: "{bot.id}", desc: "Bot's user ID" },
+    { var: "{bot.mention}", desc: "@mention the bot" },
+    { var: "{bot.ping}", desc: "Bot latency in ms" },
+  ]},
+];
+
+const BEGINNER_VARS = [
+  { var: "{user}", desc: "The person who used the command" },
+  { var: "{user.mention}", desc: "Ping the user (@username)" },
+  { var: "{server}", desc: "Your server's name" },
+  { var: "{server.memberCount}", desc: "How many members in the server" },
+  { var: "{channel.mention}", desc: "The channel (#channel-name)" },
+  { var: "{args.0}", desc: "The first word after the command" },
+  { var: "{args}", desc: "Everything after the command" },
+  { var: "{date}", desc: "Today's date" },
+  { var: "{time}", desc: "The current time" },
+  { var: "{random:yes,no,maybe}", desc: "Pick a random option from a list" },
+  { var: "{level}", desc: "The user's current level" },
+  { var: "{economy.balance}", desc: "The user's coin balance" },
+  { var: "{roll:6}", desc: "Roll a 6-sided die (or any number)" },
+  { var: "{bold:text}", desc: "Make text bold (**text**)" },
+  { var: "{var.server.key}", desc: "Read a saved server variable" },
+  { var: "{if:cond|yes|no}", desc: "Show different text based on a condition" },
+  { var: "{target}", desc: "A user you @mention as an argument" },
+  { var: "{target.mention}", desc: "Ping the mentioned user" },
+  { var: "{upper:text}", desc: "Make text ALL CAPS" },
+  { var: "{lower:text}", desc: "Make text all lowercase" },
+];
+
+const SYMBOL_CATEGORIES = [
+  {
+    label: "Dividers",
+    symbols: [
+      "─────────────────",
+      "━━━━━━━━━━━━━━━━━",
+      "═══════════════════",
+      "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬",
+      "· · · · · · · · · · ·",
+      "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
+      "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+      "〰〰〰〰〰〰〰〰〰",
+      "◈──────────────◈",
+      "✦━━━━━━━━━━━━━✦",
+      "⊱ ─────── ⊰",
+      "⊸ ────── ⊷",
+      "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+      "- - - - - - - - - - -",
+      "▪ ▪ ▪ ▪ ▪ ▪ ▪ ▪ ▪",
+    ],
+  },
+  {
+    label: "Borders",
+    symbols: [
+      "┌─────────┐\n│         │\n└─────────┘",
+      "╔═════════╗\n║         ║\n╚═════════╝",
+      "╭─────────╮\n│         │\n╰─────────╯",
+      "┏━━━━━━━━━┓\n┃         ┃\n┗━━━━━━━━━┛",
+      "◈━━━━━━━━━◈\n         \n◈━━━━━━━━━◈",
+      "▌         ▐",
+      "◀▶",
+      "▲",
+      "▼",
+      "◄►",
+      "「text」",
+      "〔text〕",
+      "【text】",
+      "《text》",
+      "〈text〉",
+    ],
+  },
+  {
+    label: "Arrows",
+    symbols: [
+      "→", "←", "↑", "↓", "↗", "↙", "↖", "↘",
+      "⟶", "⟵", "➜", "➤", "▸", "◂", "⇒", "⇐",
+      "⬆", "⬇", "⬅", "➡", "↩", "↪", "⮞", "⮜",
+      "⇧", "⇩", "↕", "↔", "⇄", "⇆", "↻", "↺",
+    ],
+  },
+  {
+    label: "Stars & Shapes",
+    symbols: [
+      "★", "☆", "✦", "✧", "✨", "⭐", "🌟",
+      "◆", "◇", "●", "○", "■", "□", "▪", "▫",
+      "⬛", "⬜", "🔷", "🔶", "💠", "🔸", "🔹",
+      "♦", "♠", "♣", "♥", "♤", "♡", "♢", "♧",
+    ],
+  },
+  {
+    label: "Status Icons",
+    symbols: [
+      "✅", "❌", "⚠️", "❗", "❓", "‼️",
+      "🔴", "🟡", "🟢", "🔵", "🟣", "🟠",
+      "🚨", "🔔", "📌", "🏷️", "💬", "📢",
+      "🎯", "⚡", "🛡️", "🔑", "🎁", "👑",
+      "💎", "🏆", "🎖️", "🥇", "⭐", "🌠",
+    ],
+  },
+  {
+    label: "Discord Formats",
+    symbols: [
+      "**bold**",
+      "*italic*",
+      "__underline__",
+      "~~strikethrough~~",
+      "||spoiler||",
+      "> quote",
+      ">>> multi-line\nquote block",
+      "# Heading 1",
+      "## Heading 2",
+      "### Heading 3",
+      "`inline code`",
+      "```\ncode block\n```",
+      "```js\ncode with syntax\n```",
+      "-# Small text",
+    ],
+  },
+  {
+    label: "Numbers",
+    symbols: [
+      "① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩",
+      "❶ ❷ ❸ ❹ ❺ ❻ ❼ ❽ ❾ ❿",
+      "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣",
+      "Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅵ Ⅶ Ⅷ",
+      "① ", "② ", "③ ", "④ ", "⑤ ",
+      "❶ ", "❷ ", "❸ ", "❹ ", "❺ ",
+    ],
+  },
+  {
+    label: "Templates",
+    symbols: [
+      "╔═══════════════╗\n║   YOUR TEXT   ║\n╚═══════════════╝",
+      "◈━━━━━━━━━━━━━━━◈\n      Title\n◈━━━━━━━━━━━━━━━◈",
+      "┌─ Title ─────────┐\n│  Content here   │\n└─────────────────┘",
+      "⭐ **Title** ⭐\n▬▬▬▬▬▬▬▬▬▬▬▬\nContent here\n▬▬▬▬▬▬▬▬▬▬▬▬",
+      "```\n╔══════════╗\n║  TITLE   ║\n╚══════════╝\n```",
+      "【 **Section** 】\n━━━━━━━━━━━━━━━\n• Point one\n• Point two",
+      "🔷 **INFO** 🔷\n> Content line 1\n> Content line 2",
+      "✦ ─── ✦ **HEADER** ✦ ─── ✦\n\nContent goes here",
+    ],
+  },
+];
+
+const COMMAND_TEMPLATES = [
+  {
+    icon: "🎯",
+    name: "User Info",
+    description: "Shows info about the user who ran it",
+    command: {
+      name: "info",
+      description: "Shows your server info",
+      response: "**{user.name}**\n━━━━━━━━━━━━━━━━\n📅 Joined: {user.joinedAt}\n🎚️ Level: {level} | XP: {xp}\n💰 Balance: {economy.balance} coins\n🛡️ Roles: {user.roleCount}",
+      responseType: "text",
+      cooldown: 5,
+    },
+  },
+  {
+    icon: "🎲",
+    name: "Roll Dice",
+    description: "Rolls an N-sided die",
+    command: {
+      name: "roll",
+      description: "Roll a dice. Use !roll 20 for a d20",
+      response: "🎲 {user.mention} rolled a **{roll:{args.0}}** on a {args.0}-sided die!",
+      responseType: "text",
+      cooldown: 3,
+    },
+  },
+  {
+    icon: "👋",
+    name: "Custom Greeting",
+    description: "A personalized welcome message",
+    command: {
+      name: "hello",
+      description: "Get a custom greeting",
+      response: "👋 Hey {user.mention}! Welcome to **{server}**! You're member #{server.memberCount}.",
+      responseType: "text",
+      cooldown: 10,
+    },
+  },
+  {
+    icon: "📊",
+    name: "Server Stats",
+    description: "Displays server statistics",
+    command: {
+      name: "stats",
+      description: "View server statistics",
+      response: "📊 **{server.name} Stats**\n━━━━━━━━━━━━━━━━\n👥 Members: {server.memberCount}\n🟢 Online: {server.onlineCount}\n⚡ Boosts: {server.boostCount} (Tier {server.boostLevel})\n📅 Created: {server.createdAt}",
+      responseType: "text",
+      cooldown: 10,
+    },
+  },
+  {
+    icon: "💰",
+    name: "Balance Check",
+    description: "Shows economy balance",
+    command: {
+      name: "balance",
+      description: "Check your coin balance",
+      response: "💰 **{user.name}'s Wallet**\n━━━━━━━━━━━━━\n🪙 Balance: **{economy.balance}** coins\n📈 Total Earned: {economy.totalEarned}\n📉 Total Spent: {economy.totalSpent}\n🏆 Rank: #{economy.rank}",
+      responseType: "text",
+      cooldown: 5,
+    },
+  },
+  {
+    icon: "🌤",
+    name: "Weather",
+    description: "Gets weather via HTTP request",
+    command: {
+      name: "weather",
+      description: "Get weather for a city",
+      response: "🌤 Weather for **{args}**: {response.current_condition.0.weatherDesc.0.value} — {response.current_condition.0.temp_C}°C / {response.current_condition.0.temp_F}°F",
+      responseType: "text",
+      cooldown: 10,
+    },
+  },
+  {
+    icon: "🏆",
+    name: "Level Check",
+    description: "Shows level & XP progress",
+    command: {
+      name: "level",
+      description: "Check your level and XP",
+      response: "🏆 **{user.name}'s Progress**\n━━━━━━━━━━━━━━━\n🎚️ Level: **{level}**\n✨ XP: {xp} / {xp.next} (next level)\n🏅 Rank: #{rank} on the server",
+      responseType: "text",
+      cooldown: 5,
+    },
+  },
+  {
+    icon: "🎁",
+    name: "Random Gift",
+    description: "Gives a random reward message",
+    command: {
+      name: "gift",
+      description: "Receive a random surprise",
+      response: "{random:🎁 You found a rare gem!,🌟 The stars shine on you today!,💎 A mysterious gift appears!,🍀 Lucky day — something special awaits you!,✨ Magic fills the air around {user.mention}!}",
+      responseType: "text",
+      cooldown: 60,
+    },
+  },
 ];
 
 type SortKey = "name" | "createdAt" | "enabled";
@@ -141,6 +482,7 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
   const [editingCommand, setEditingCommand] = useState<CustomCommand | null>(null);
   const [sharingCommand, setSharingCommand] = useState<CustomCommand | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState(false);
 
   const createCommand = useCreateCommand(serverId);
   const updateCommand = useUpdateCommand(serverId);
@@ -213,6 +555,9 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
           <p className="text-muted-foreground text-sm">Create automated responses with variables, permissions, and rich embeds.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" className="gap-2" onClick={() => setIsTemplatesOpen(true)} data-testid="button-open-templates">
+            <Zap className="w-4 h-4" /> Templates
+          </Button>
           <Button variant="outline" className="gap-2" onClick={() => setIsImportOpen(true)} data-testid="button-import-from-marketplace">
             <Download className="w-4 h-4" /> Import by Code
           </Button>
@@ -379,6 +724,18 @@ export function CommandsTab({ serverId, commands, toast }: CommandsTabProps) {
         serverId={serverId}
         toast={toast}
       />
+      <Dialog open={isTemplatesOpen} onOpenChange={setIsTemplatesOpen}>
+        <DialogContent className="max-w-3xl glass-panel">
+          <DialogHeader>
+            <DialogTitle className="font-display flex items-center gap-2"><Zap className="w-5 h-5 text-primary" /> Quick-Start Templates</DialogTitle>
+            <DialogDescription>Select a pre-built template to jump-start your command. Everything can be edited after.</DialogDescription>
+          </DialogHeader>
+          <TemplatesGallery onSelect={(tpl) => {
+            setIsTemplatesOpen(false);
+            setIsCreateOpen(true);
+          }} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -936,21 +1293,24 @@ function CommandFormDialog({
         </DialogHeader>
 
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="w-full grid grid-cols-5">
-            <TabsTrigger value="basic" data-testid="tab-basic">
-              <Terminal className="w-4 h-4 mr-1" /> Basic
+          <TabsList className="w-full grid grid-cols-6">
+            <TabsTrigger value="basic" data-testid="tab-basic" className="text-xs">
+              <Terminal className="w-3.5 h-3.5 mr-1" /> Basic
             </TabsTrigger>
-            <TabsTrigger value="response" data-testid="tab-response">
-              <MessageSquare className="w-4 h-4 mr-1" /> Response
+            <TabsTrigger value="response" data-testid="tab-response" className="text-xs">
+              <MessageSquare className="w-3.5 h-3.5 mr-1" /> Response
             </TabsTrigger>
-            <TabsTrigger value="http" data-testid="tab-http">
-              <Globe className="w-4 h-4 mr-1" /> HTTP
+            <TabsTrigger value="symbols" data-testid="tab-symbols" className="text-xs">
+              <Zap className="w-3.5 h-3.5 mr-1" /> Symbols
             </TabsTrigger>
-            <TabsTrigger value="permissions" data-testid="tab-permissions">
-              <Shield className="w-4 h-4 mr-1" /> Permissions
+            <TabsTrigger value="http" data-testid="tab-http" className="text-xs">
+              <Globe className="w-3.5 h-3.5 mr-1" /> HTTP
             </TabsTrigger>
-            <TabsTrigger value="preview" data-testid="tab-preview">
-              <Eye className="w-4 h-4 mr-1" /> Preview
+            <TabsTrigger value="permissions" data-testid="tab-permissions" className="text-xs">
+              <Shield className="w-3.5 h-3.5 mr-1" /> Perms
+            </TabsTrigger>
+            <TabsTrigger value="preview" data-testid="tab-preview" className="text-xs">
+              <Eye className="w-3.5 h-3.5 mr-1" /> Preview
             </TabsTrigger>
           </TabsList>
 
@@ -1093,6 +1453,13 @@ function CommandFormDialog({
               </div>
             )}
 
+            {(form.responseType === "text" || form.responseType === "both") && (
+              <ResponseVariations
+                variations={(form.actions as any)?.variations || []}
+                onChangeVariations={(vars) => updateField("actions", { ...(form.actions as any || {}), variations: vars })}
+              />
+            )}
+
             {(form.responseType === "embed" || form.responseType === "both") && (
               <EmbedComposer
                 label="Embed Response"
@@ -1102,6 +1469,13 @@ function CommandFormDialog({
             )}
 
             <VariableReference />
+          </TabsContent>
+
+          <TabsContent value="symbols" className="space-y-4 pt-4">
+            <div className="rounded-lg border border-white/5 bg-background/50 p-3">
+              <p className="text-xs text-muted-foreground mb-3">Click any symbol or template to insert it at the cursor position in your response field.</p>
+              <SymbolsBoard onInsert={(symbol) => updateField("response", (form.response || "") + symbol)} />
+            </div>
           </TabsContent>
 
           <TabsContent value="http" className="space-y-4 pt-4">
@@ -1229,8 +1603,100 @@ function CommandFormDialog({
   );
 }
 
-function VariableReference() {
+function ResponseVariations({
+  variations,
+  onChangeVariations,
+}: {
+  variations: string[];
+  onChangeVariations: (vars: string[]) => void;
+}) {
+  function addVariation() {
+    if (variations.length < 4) onChangeVariations([...variations, ""]);
+  }
+  function updateVariation(i: number, val: string) {
+    const updated = [...variations];
+    updated[i] = val;
+    onChangeVariations(updated);
+  }
+  function removeVariation(i: number) {
+    onChangeVariations(variations.filter((_, idx) => idx !== i));
+  }
+  const total = 1 + variations.length;
+  return (
+    <div className="space-y-2">
+      {variations.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>{total} responses — bot picks one at random each time the command runs</span>
+        </div>
+      )}
+      {variations.map((v, i) => (
+        <div key={i} className="flex gap-2">
+          <div className="flex-1 space-y-1">
+            <Label className="text-xs text-muted-foreground">Variation {i + 2}</Label>
+            <div className="flex gap-2">
+              <Textarea
+                value={v}
+                onChange={(e) => updateVariation(i, e.target.value)}
+                placeholder={`Alternate response ${i + 2}…`}
+                className="bg-background min-h-[80px] font-mono text-sm flex-1"
+                data-testid={`input-variation-${i}`}
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 mt-auto text-muted-foreground hover:text-destructive"
+                onClick={() => removeVariation(i)}
+                data-testid={`button-remove-variation-${i}`}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {variations.length < 4 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full border-dashed border-white/15 text-muted-foreground hover:text-foreground text-xs gap-1.5"
+          onClick={addVariation}
+          data-testid="button-add-variation"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Response Variation
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function VariableReference({ onInsert }: { onInsert?: (text: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [beginnerMode, setBeginnerMode] = useState(true);
+
+  const displayVars = beginnerMode
+    ? BEGINNER_VARS
+    : activeCategory
+      ? (VARIABLES.find(v => v.category === activeCategory)?.items || [])
+      : VARIABLES.flatMap(g => g.items.map(i => ({ ...i, category: g.category })));
+
+  const filtered = search.trim()
+    ? displayVars.filter(v => v.var.includes(search) || v.desc.toLowerCase().includes(search.toLowerCase()))
+    : displayVars;
+
+  function handleInsert(v: string) {
+    if (onInsert) {
+      onInsert(v);
+    } else {
+      try {
+        document.execCommand("insertText", false, v);
+      } catch (_) {
+        navigator.clipboard.writeText(v);
+      }
+    }
+  }
 
   return (
     <Card className="border border-white/5 bg-background/30">
@@ -1238,30 +1704,180 @@ function VariableReference() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Variable className="w-4 h-4 text-primary" />
-            <CardTitle className="text-sm">Variable Reference</CardTitle>
+            <CardTitle className="text-sm">Variable Library ({beginnerMode ? "20 beginner" : "100+"} variables)</CardTitle>
           </div>
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
-        <CardDescription className="text-xs">Click to {expanded ? "collapse" : "expand"} available variables</CardDescription>
+        <CardDescription className="text-xs">Click any variable to insert it. Click header to {expanded ? "collapse" : "expand"}.</CardDescription>
       </CardHeader>
       {expanded && (
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {VARIABLES.map((group) => (
-              <div key={group.category} className="space-y-1">
-                <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{group.category}</h5>
-                {group.items.map((item) => (
-                  <div key={item.var} className="flex items-center justify-between gap-2 text-xs py-0.5">
-                    <code className="font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">{item.var}</code>
-                    <span className="text-muted-foreground text-right">{item.desc}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search variables..."
+              className="bg-background text-xs h-8 flex-1"
+              data-testid="input-var-search"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-background/50 border border-white/5">
+              <span className={`text-xs ${beginnerMode ? "text-foreground font-medium" : "text-muted-foreground"}`}>Beginner</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setBeginnerMode(!beginnerMode); }}
+                className={`w-8 h-4 rounded-full transition-colors ${beginnerMode ? "bg-muted-foreground" : "bg-primary"} relative`}
+                data-testid="button-toggle-beginner-mode"
+              >
+                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${beginnerMode ? "left-0.5" : "left-4"}`} />
+              </button>
+              <span className={`text-xs ${!beginnerMode ? "text-foreground font-medium" : "text-muted-foreground"}`}>Advanced</span>
+            </div>
           </div>
+
+          {!beginnerMode && !search && (
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); setActiveCategory(null); }}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${activeCategory === null ? "bg-primary/15 border-primary/30 text-primary" : "border-white/10 text-muted-foreground hover:border-white/20"}`}
+              >
+                All
+              </button>
+              {VARIABLES.map(g => (
+                <button
+                  key={g.category}
+                  onClick={(e) => { e.stopPropagation(); setActiveCategory(g.category === activeCategory ? null : g.category); }}
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${activeCategory === g.category ? "bg-primary/15 border-primary/30 text-primary" : "border-white/10 text-muted-foreground hover:border-white/20"}`}
+                >
+                  {g.category}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="max-h-48 overflow-y-auto space-y-0.5 pr-1">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No variables match "{search}"</p>
+            ) : (
+              filtered.map((item) => (
+                <button
+                  key={item.var}
+                  onClick={(e) => { e.stopPropagation(); handleInsert(item.var); }}
+                  className="w-full flex items-center justify-between gap-2 text-xs py-1 px-2 rounded hover:bg-primary/10 group transition-colors text-left"
+                  data-testid={`button-insert-var-${item.var}`}
+                >
+                  <code className="font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded group-hover:bg-primary/20 transition-colors flex-shrink-0">{item.var}</code>
+                  <span className="text-muted-foreground text-right">{item.desc}</span>
+                </button>
+              ))
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground">Click any variable to insert at cursor position in the response field.</p>
         </CardContent>
       )}
     </Card>
+  );
+}
+
+function SymbolsBoard({ onInsert }: { onInsert?: (text: string) => void }) {
+  const [activeCategory, setActiveCategory] = useState("Dividers");
+  const [recentlyUsed, setRecentlyUsed] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("archivist-symbols-recent") || "[]"); } catch { return []; }
+  });
+
+  function handleInsert(symbol: string) {
+    if (onInsert) {
+      onInsert(symbol);
+    } else {
+      try {
+        document.execCommand("insertText", false, symbol);
+      } catch (_) {
+        navigator.clipboard.writeText(symbol);
+      }
+    }
+    const updated = [symbol, ...recentlyUsed.filter(s => s !== symbol)].slice(0, 10);
+    setRecentlyUsed(updated);
+    localStorage.setItem("archivist-symbols-recent", JSON.stringify(updated));
+  }
+
+  const currentSymbols = SYMBOL_CATEGORIES.find(c => c.label === activeCategory)?.symbols || [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1">
+        {SYMBOL_CATEGORIES.map(c => (
+          <button
+            key={c.label}
+            onClick={() => setActiveCategory(c.label)}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${activeCategory === c.label ? "bg-primary/15 border-primary/30 text-primary" : "border-white/10 text-muted-foreground hover:border-white/20"}`}
+            data-testid={`button-symbol-cat-${c.label.toLowerCase()}`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {recentlyUsed.length > 0 && (
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Recently Used</p>
+          <div className="flex flex-wrap gap-1.5">
+            {recentlyUsed.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => handleInsert(s)}
+                className="text-xs px-2 py-1 rounded border border-white/10 hover:border-primary/40 hover:bg-primary/10 transition-colors font-mono bg-background/50"
+                title="Click to insert"
+              >
+                {s.length > 15 ? s.substring(0, 12) + "…" : s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">{activeCategory}</p>
+        <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+          {currentSymbols.map((symbol, i) => (
+            <button
+              key={i}
+              onClick={() => handleInsert(symbol)}
+              className="text-xs px-2 py-1.5 rounded border border-white/10 hover:border-primary/40 hover:bg-primary/10 transition-colors font-mono bg-background/50 max-w-[200px] whitespace-pre-wrap text-left"
+              title={symbol}
+              data-testid={`button-symbol-${i}`}
+            >
+              {symbol.includes("\n") ? `${symbol.split("\n")[0]}…` : symbol}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground">Click any symbol to insert it at the cursor in your response. Templates insert multi-line patterns.</p>
+    </div>
+  );
+}
+
+function TemplatesGallery({ onSelect }: { onSelect: (template: any) => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">Choose a pre-built template to get started quickly. You can customize everything after.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {COMMAND_TEMPLATES.map((tpl) => (
+          <button
+            key={tpl.name}
+            onClick={() => onSelect(tpl)}
+            className="text-left p-4 rounded-xl border border-white/10 hover:border-primary/40 hover:bg-primary/5 transition-colors bg-background/50 group"
+            data-testid={`button-template-${tpl.name.toLowerCase().replace(/\s/g, "-")}`}
+          >
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-xl">{tpl.icon}</span>
+              <span className="font-semibold text-sm group-hover:text-primary transition-colors">!{tpl.command.name}</span>
+              <span className="text-[10px] text-muted-foreground font-mono bg-secondary px-1.5 py-0.5 rounded ml-auto">{tpl.name}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">{tpl.description}</p>
+            <p className="text-[10px] font-mono text-muted-foreground/60 mt-1.5 truncate">{tpl.command.response.substring(0, 60)}…</p>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
