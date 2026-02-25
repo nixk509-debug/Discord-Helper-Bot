@@ -62,6 +62,35 @@ export const serverSettings = pgTable("server_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// --- USERS ---
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  discordId: text("discord_id").notNull().unique(),
+  username: text("username").notNull(),
+  discriminator: text("discriminator"),
+  avatar: text("avatar"),
+  email: text("email"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  isPremium: boolean("is_premium").default(false),
+  premiumSince: timestamp("premium_since"),
+  premiumExpiresAt: timestamp("premium_expires_at"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- TEMPLATES ---
+export const templates = pgTable("templates", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  serverId: integer("server_id").references(() => servers.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  data: jsonb("data").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // --- CUSTOM COMMANDS ---
 export const customCommands = pgTable("custom_commands", {
   id: serial("id").primaryKey(),
@@ -80,6 +109,12 @@ export const customCommands = pgTable("custom_commands", {
   enabled: boolean("enabled").default(true),
   deleteInvocation: boolean("delete_invocation").default(false),
   dmResponse: boolean("dm_response").default(false),
+  triggerType: text("trigger_type").default("command"),
+  conditions: jsonb("conditions").$type<CommandCondition[]>().default([]),
+  actions: jsonb("actions").$type<CommandAction[]>().default([]),
+  usageCount: integer("usage_count").default(0),
+  lastUsedAt: timestamp("last_used_at"),
+  premiumOnly: boolean("premium_only").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -327,6 +362,28 @@ export const auditLogConfigRelations = relations(auditLogConfig, ({ one }) => ({
   server: one(servers, { fields: [auditLogConfig.serverId], references: [servers.id] }),
 }));
 
+export const usersRelations = relations(users, ({ many }) => ({
+  templates: many(templates),
+}));
+
+export const templatesRelations = relations(templates, ({ one }) => ({
+  user: one(users, { fields: [templates.userId], references: [users.id] }),
+  server: one(servers, { fields: [templates.serverId], references: [servers.id] }),
+}));
+
+// --- COMMAND CONDITION/ACTION TYPES ---
+export interface CommandCondition {
+  type: 'hasRole' | 'inChannel' | 'hasPermission' | 'isOwner' | 'isPremium';
+  value?: string;
+  negate?: boolean;
+}
+
+export interface CommandAction {
+  type: 'reply' | 'addRole' | 'removeRole' | 'createThread' | 'sendDM' | 'react' | 'wait';
+  value?: string;
+  duration?: number;
+}
+
 // --- COMPONENT V2 TYPES ---
 export interface EmbedFieldType {
   name: string;
@@ -392,6 +449,8 @@ export const insertTicketConfigSchema = createInsertSchema(ticketConfig).omit({ 
 export const insertTicketPanelSchema = createInsertSchema(ticketPanels).omit({ id: true, serverId: true });
 export const insertScheduledMessageSchema = createInsertSchema(scheduledMessages).omit({ id: true, serverId: true });
 export const insertAuditLogConfigSchema = createInsertSchema(auditLogConfig).omit({ id: true, serverId: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertTemplateSchema = createInsertSchema(templates).omit({ id: true, createdAt: true });
 
 // --- SELECT TYPES ---
 export type Server = typeof servers.$inferSelect;
@@ -409,6 +468,10 @@ export type TicketConfigType = typeof ticketConfig.$inferSelect;
 export type TicketPanel = typeof ticketPanels.$inferSelect;
 export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
 export type AuditLogConfigType = typeof auditLogConfig.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type Template = typeof templates.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertTemplate = z.infer<typeof insertTemplateSchema>;
 
 // --- COMPOSITE TYPES ---
 export type ServerResponse = Server & {

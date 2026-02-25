@@ -2,7 +2,7 @@
 
 ## Overview
 
-NexBot is a comprehensive Discord bot management dashboard with 12+ configurable modules. It provides a web-based interface for configuring Discord bot settings across multiple servers. The app follows a monorepo structure with a React frontend, Express backend, and PostgreSQL database. Dark gaming aesthetic with purple/blue neon glows and glassmorphism effects.
+NexBot is a comprehensive Discord bot management dashboard with 12+ configurable modules, Discord OAuth login, Stripe premium subscriptions, and a discord.js v14 bot runtime. It provides a web-based interface for configuring Discord bot settings across multiple servers. Dark gaming aesthetic with purple/blue neon glows and glassmorphism effects.
 
 ## User Preferences
 
@@ -14,6 +14,7 @@ Preferred communication style: Simple, everyday language.
 The project uses a three-folder monorepo pattern:
 - **`client/`** — React single-page application (frontend)
 - **`server/`** — Express API server (backend)
+- **`server/bot/`** — Discord bot runtime (discord.js v14)
 - **`shared/`** — Shared types, schemas, and route definitions used by both client and server
 
 ### Frontend (`client/`)
@@ -33,9 +34,33 @@ The project uses a three-folder monorepo pattern:
 - **Runtime**: tsx for TypeScript execution in development
 - **API Pattern**: RESTful JSON API, all routes prefixed with `/api/`
 - **Route Registration**: Routes defined in `server/routes.ts` via `registerRoutes(server, app)`, using route definitions from `shared/routes.ts`
-- **Storage Layer**: `server/storage.ts` provides a `DatabaseStorage` class implementing `IStorage` interface for all database operations
+- **Storage Layer**: `server/storage.ts` provides a `DatabaseStorage` class for all database operations
 - **Dev Server**: Vite middleware serves the frontend in development; in production, static files are served from `dist/public`
 - **Build**: Custom build script (`script/build.ts`) uses Vite for client and esbuild for server, outputting to `dist/`
+
+### Authentication (`server/auth.ts`)
+- **Strategy**: Discord OAuth2 via `passport-discord`
+- **Session Store**: PostgreSQL via `connect-pg-simple`
+- **Routes**: `/auth/discord`, `/auth/discord/callback`, `/auth/logout`, `/api/auth/me`, `/api/auth/guilds`
+- **Middleware**: `requireAuth` (401 if not logged in), `requirePremium` (403 if not premium)
+- **Guild Filtering**: Dashboard only shows servers where user has MANAGE_GUILD permission
+- **Env Vars**: `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SESSION_SECRET`
+
+### Discord Bot (`server/bot/index.ts`)
+- **Runtime**: discord.js v14 with slash commands
+- **Commands**: `/setup`, `/premium`, `/help`
+- **Custom Commands**: Executed from DB with variable resolution ({user}, {server}, {channel}, {random:...})
+- **Trigger Types**: command, keyword, regex, startsWith
+- **Auto-setup**: When bot joins a server, auto-creates DB entry with default settings
+- **Env Vars**: `DISCORD_BOT_TOKEN` (optional — bot won't start without it, dashboard still works)
+
+### Stripe Integration (`server/stripe.ts`, `server/stripeClient.ts`)
+- **Package**: `stripe` + `stripe-replit-sync` via Replit Stripe integration
+- **Webhook**: `/api/stripe/webhook` registered BEFORE `express.json()` middleware
+- **Routes**: `/api/premium/checkout`, `/api/premium/portal`, `/api/premium/status`, `/api/premium/products`, `/api/premium/key`
+- **Schema**: `stripe-replit-sync` manages its own `stripe` schema — NEVER insert into stripe tables directly
+- **Init Order**: `runMigrations()` → `getStripeSync()` → `findOrCreateManagedWebhook()` → `syncBackfill()`
+- **Premium**: Owner IDs env var override always returns premium. Subscription via Stripe Checkout.
 
 ### Database
 - **Database**: PostgreSQL (required — `DATABASE_URL` environment variable must be set)
@@ -46,31 +71,35 @@ The project uses a three-folder monorepo pattern:
 - **Connection**: Uses `pg.Pool` configured in `server/db.ts`
 
 ### Database Schema
-15 tables total:
-1. **`servers`** — Discord servers (guilds): id, discordId, name, iconUrl, memberCount, joinedAt, ownerId
-2. **`server_settings`** — Per-server config: prefix, welcome/leave, automod (6 filters + raid protection), whitelists, mod settings
-3. **`custom_commands`** — Commands with description, cooldown, aliases, role restrictions, channel restrictions, responseType, embedResponse, deleteInvocation, dmResponse, variables
-4. **`embeds`** — Embed templates with full Components v2 support (Section, Separator, TextDisplay, MediaGallery, Container, Thumbnail, Header, ActionRow, File, Button, SelectMenu)
-5. **`channel_settings`** — Per-channel overrides: slowmode, automod override, content restrictions, lockdown, NSFW
-6. **`reaction_roles`** — Emoji-to-role mappings with toggle/add_only/remove_only/unique modes
-7. **`auto_roles`** — Auto-assigned roles on join with delay and type filter
-8. **`warnings`** — User warnings with moderator tracking
-9. **`punishment_config`** — Warning threshold → action escalation rules
-10. **`leveling_config`** — XP system with role rewards, multipliers, ignored channels/roles
-11. **`starboard_config`** — Star reactions highlighting with threshold and custom emoji
-12. **`ticket_config`** — Support ticket system configuration
-13. **`ticket_panels`** — Embeddable ticket creation panels
-14. **`scheduled_messages`** — Recurring/one-time messages with cron scheduling
-15. **`audit_log_config`** — Multi-channel logging with event categories and webhooks
+17 tables total:
+1. **`users`** — Discord user data: id, discordId, username, discriminator, avatar, email, accessToken, refreshToken, isPremium, premiumSince, premiumExpiresAt, stripeCustomerId, stripeSubscriptionId, createdAt
+2. **`templates`** — Saved embed/panel templates: id, userId, serverId, name, type, data (jsonb), createdAt. Free: 2 limit, Premium: 10 limit
+3. **`servers`** — Discord servers (guilds): id, discordId, name, iconUrl, memberCount, joinedAt, ownerId
+4. **`server_settings`** — Per-server config: prefix, welcome/leave, automod (6 filters + raid protection), whitelists, mod settings
+5. **`custom_commands`** — Commands with triggerType (command/keyword/regex/startsWith), conditions (jsonb), actions (jsonb), usageCount, lastUsedAt, premiumOnly, plus existing fields
+6. **`embeds`** — Embed templates with full Components v2 support
+7. **`channel_settings`** — Per-channel overrides
+8. **`reaction_roles`** — Emoji-to-role mappings with modes
+9. **`auto_roles`** — Auto-assigned roles on join
+10. **`warnings`** — User warnings with moderator tracking
+11. **`punishment_config`** — Warning threshold → action escalation rules
+12. **`leveling_config`** — XP system with role rewards, multipliers
+13. **`starboard_config`** — Star reactions highlighting
+14. **`ticket_config`** — Support ticket system configuration
+15. **`ticket_panels`** — Embeddable ticket creation panels
+16. **`scheduled_messages`** — Recurring/one-time messages with cron scheduling
+17. **`audit_log_config`** — Multi-channel logging with event categories and webhooks
 
 Relations are defined with Drizzle's `relations()` API.
 
 ### Shared Contract (`shared/`)
-- **`shared/schema.ts`** — Drizzle table definitions, relations, and insert schemas
+- **`shared/schema.ts`** — Drizzle table definitions, relations, insert schemas, types
 - **`shared/routes.ts`** — API route contract defining paths, methods, and Zod response schemas with `buildUrl` helper
 
 ### Key Pages
-- `/` — Landing page with hero section, stats, and 12-module feature showcase
+- `/` — Landing page with hero section, stats, login button, and 12-module feature showcase
+- `/login` — Discord OAuth login page
+- `/premium` — Premium subscription page with free/premium comparison, Stripe checkout
 - `/dashboard` — Server list overview with stats cards and module badges
 - `/dashboard/servers/:id` — Server settings with sidebar navigation for all modules
 
@@ -96,14 +125,33 @@ All in `client/src/components/`:
 - `tickets/tickets-tab.tsx` — Config + panel builder
 - `welcome/welcome-tab.tsx` — Welcome/leave messages, preview, auto roles
 
-### Hooks (`client/src/hooks/use-bot.ts`)
-Complete React Query hooks for all 15 tables: useStats, useServers, useServer, useUpdateSettings, useCommands (CRUD), useEmbeds (CRUD), useChannelSettings (CRUD), useReactionRoles (CRUD), useAutoRoles (CRUD), useWarnings (CRUD + clear), usePunishments (CRUD), useLeveling, useStarboard, useTicketConfig, useTicketPanels (CRUD), useScheduledMessages (CRUD), useAuditLogConfig
+### Hooks
+- **`client/src/hooks/use-bot.ts`** — React Query hooks for all 15+ tables
+- **`client/src/hooks/use-auth.ts`** — Auth hooks: useAuth, useLogout, useGuilds, usePremiumStatus, getAvatarUrl
+
+## Environment Variables
+
+Required:
+- **`DATABASE_URL`** — PostgreSQL connection string (auto-set by Replit)
+- **`SESSION_SECRET`** — Express session secret
+
+Optional (for Discord bot):
+- **`DISCORD_BOT_TOKEN`** — Bot token from Discord Developer Portal
+- **`DISCORD_CLIENT_ID`** — OAuth2 application client ID
+- **`DISCORD_CLIENT_SECRET`** — OAuth2 application client secret
+- **`OWNER_IDS`** — Comma-separated Discord user IDs that always get premium access
+
+Managed by Replit:
+- Stripe integration credentials (via Replit Stripe connector)
+- Discord integration (via Replit Discord connector)
 
 ## External Dependencies
 
-- **PostgreSQL** — Primary database, connected via `DATABASE_URL` environment variable
-- **shadcn/ui** — Component library configured via `components.json` (new-york style, TSX, Tailwind CSS variables)
+- **PostgreSQL** — Primary database, connected via `DATABASE_URL`
+- **discord.js** v14 — Discord bot runtime with slash commands
+- **stripe** + **stripe-replit-sync** — Payment processing via Replit Stripe integration
+- **passport-discord** — Discord OAuth2 authentication
+- **express-session** + **connect-pg-simple** — Session management with PostgreSQL store
+- **shadcn/ui** — Component library configured via `components.json` (new-york style)
 - **Google Fonts** — Outfit, Inter, DM Sans, Fira Code, Geist Mono, Architects Daughter loaded via CDN
-- **Replit Plugins** — `@replit/vite-plugin-runtime-error-modal`, `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner` (dev only)
-- **connect-pg-simple** — PostgreSQL session store (available but session auth not fully implemented yet)
-- **express-session** — Session middleware (in dependencies)
+- **Replit Plugins** — dev banner, runtime error modal, cartographer

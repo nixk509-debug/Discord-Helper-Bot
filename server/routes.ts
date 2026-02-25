@@ -6,8 +6,50 @@ import { storage } from "./storage";
 import { servers } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
+import { requireAuth } from "./auth";
+import { getBotClient, getBotUptime } from "./bot/index";
 
 export async function registerRoutes(_server: Server, app: Express) {
+
+  // --- HEALTH ---
+  app.get("/health", async (_req, res) => {
+    const bot = getBotClient();
+    const uptime = getBotUptime();
+    const premiumCount = await storage.getPremiumUserCount();
+    res.json({
+      status: "ok",
+      bot: bot ? { status: "online", username: bot.user?.tag, guilds: bot.guilds.cache.size } : { status: "offline" },
+      uptime: uptime ? `${Math.floor(uptime / 1000)}s` : null,
+      premiumUsers: premiumCount,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // --- TEMPLATES ---
+  app.get("/api/templates", requireAuth, async (req, res) => {
+    const serverId = req.query.serverId ? parseInt(req.query.serverId as string) : undefined;
+    const tmpl = await storage.getTemplates(req.user!.id, serverId);
+    res.json(tmpl);
+  });
+
+  app.post("/api/templates", requireAuth, async (req, res) => {
+    const ownerIds = (process.env.OWNER_IDS || "").split(",").filter(Boolean);
+    const isPremium = req.user!.isPremium || ownerIds.includes(req.user!.discordId);
+    const count = await storage.getTemplateCount(req.user!.id);
+    const limit = isPremium ? 10 : 2;
+    if (count >= limit) {
+      return res.status(403).json({ message: `Template limit reached (${limit}). ${isPremium ? "" : "Upgrade to Premium for more."}` });
+    }
+    const created = await storage.createTemplate({ ...req.body, userId: req.user!.id });
+    res.status(201).json(created);
+  });
+
+  app.delete("/api/templates/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteTemplate(id);
+    res.status(204).send();
+  });
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
     const allServers = await storage.getServers();
