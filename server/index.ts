@@ -2,6 +2,10 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { setupAuth } from "./auth";
+import { registerStripeRoutes } from "./stripe";
+import { WebhookHandlers } from "./webhookHandlers";
+import { startBot } from "./bot/index";
 
 const app = express();
 const httpServer = createServer(app);
@@ -12,6 +16,25 @@ declare module "http" {
   }
 }
 
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const signature = req.headers["stripe-signature"];
+    if (!signature) {
+      return res.status(400).json({ error: "Missing stripe-signature" });
+    }
+    try {
+      const sig = Array.isArray(signature) ? signature[0] : signature;
+      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+      res.status(200).json({ received: true });
+    } catch (error: any) {
+      console.error("Webhook error:", error.message);
+      res.status(400).json({ error: "Webhook processing error" });
+    }
+  }
+);
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -21,6 +44,8 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+setupAuth(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -60,6 +85,47 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  async function initStripe() {
+    try {
+      const { runMigrations } = await import("stripe-replit-sync");
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) return;
+
+      console.log("Initializing Stripe schema...");
+      await runMigrations({ databaseUrl, schema: "stripe" });
+      console.log("Stripe schema ready");
+
+      const { getStripeSync } = await import("./stripeClient");
+      const stripeSync = await getStripeSync();
+
+      const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+      if (domain) {
+        const webhookBaseUrl = `https://${domain}`;
+        try {
+          const { webhook } = await stripeSync.findOrCreateManagedWebhook(
+            `${webhookBaseUrl}/api/stripe/webhook`
+          );
+          console.log(`Webhook configured: ${webhook.url}`);
+        } catch (whErr: any) {
+          console.log("Stripe webhook setup skipped:", whErr.message);
+        }
+      } else {
+        console.log("Stripe webhook setup skipped (no public domain)");
+      }
+
+      stripeSync
+        .syncBackfill()
+        .then(() => console.log("Stripe data synced"))
+        .catch((err: any) => console.error("Stripe sync error:", err.message));
+    } catch (err: any) {
+      console.error("Stripe init error (non-fatal):", err.message);
+    }
+  }
+
+  await initStripe();
+
+  registerStripeRoutes(app);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -75,9 +141,6 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -85,10 +148,6 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -100,4 +159,6 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  startBot().catch((err) => console.error("Bot startup error:", err));
 })();

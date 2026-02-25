@@ -4,13 +4,15 @@ import {
   channelSettings, reactionRoles, autoRoles, warnings,
   punishmentConfig, levelingConfig, starboardConfig,
   ticketConfig, ticketPanels, scheduledMessages, auditLogConfig,
+  users, templates,
   type Server, type ServerSettings, type CustomCommand, type Embed,
   type ChannelSetting, type ReactionRole, type AutoRole, type Warning,
   type PunishmentConfigType, type LevelingConfigType, type StarboardConfigType,
   type TicketConfigType, type TicketPanel, type ScheduledMessage, type AuditLogConfigType,
+  type User, type Template,
 } from "@shared/schema";
 import { type ServerWithRelations } from "@shared/routes";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 export class DatabaseStorage {
   async getServers(): Promise<ServerWithRelations[]> {
@@ -238,6 +240,49 @@ export class DatabaseStorage {
     }
     const [created] = await db.insert(auditLogConfig).values({ ...data, serverId } as any).returning();
     return created;
+  }
+
+  // --- USERS ---
+  async getUserByDiscordId(discordId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.discordId, discordId));
+    return user;
+  }
+  async getUserById(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+  async updateUser(id: number, data: Partial<User>): Promise<User> {
+    const [updated] = await db.update(users).set(data as any).where(eq(users.id, id)).returning();
+    return updated;
+  }
+
+  // --- TEMPLATES ---
+  async getTemplates(userId: number, serverId?: number): Promise<Template[]> {
+    if (serverId) {
+      return await db.select().from(templates).where(and(eq(templates.userId, userId), eq(templates.serverId, serverId)));
+    }
+    return await db.select().from(templates).where(eq(templates.userId, userId));
+  }
+  async createTemplate(data: any): Promise<Template> {
+    const [created] = await db.insert(templates).values(data).returning();
+    return created;
+  }
+  async deleteTemplate(id: number): Promise<void> {
+    await db.delete(templates).where(eq(templates.id, id));
+  }
+  async getTemplateCount(userId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(templates).where(eq(templates.userId, userId));
+    return Number(result[0]?.count || 0);
+  }
+
+  // --- PREMIUM HELPERS ---
+  async getServerByDiscordId(discordId: string): Promise<Server | undefined> {
+    const [server] = await db.select().from(servers).where(eq(servers.discordId, discordId));
+    return server;
+  }
+  async getPremiumUserCount(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.isPremium, true));
+    return Number(result[0]?.count || 0);
   }
 
   // --- SEED HELPERS ---

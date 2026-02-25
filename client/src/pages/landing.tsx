@@ -15,13 +15,17 @@ import {
   Clock,
   Smile,
   Layout,
-  Hash
+  Hash,
+  Crown
 } from "lucide-react";
+import { SiDiscord } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { useStats } from "@/hooks/use-bot";
+import { useAuth, getAvatarUrl } from "@/hooks/use-auth";
 
 export default function Landing() {
   const { data: stats } = useStats();
+  const { data: user } = useAuth();
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -71,15 +75,25 @@ export default function Landing() {
           <span className="font-display font-bold text-2xl tracking-tight text-glow">NexBot</span>
         </div>
         <div className="flex items-center gap-4">
-          <Button variant="ghost" className="hidden md:flex hover:text-primary hover:bg-primary/10">
-            Features
+          <Button asChild variant="ghost" className="hidden md:flex hover:text-primary hover:bg-primary/10">
+            <Link href="/premium">
+              <Crown className="w-4 h-4 mr-1" /> Premium
+            </Link>
           </Button>
-          <Button variant="ghost" className="hidden md:flex hover:text-primary hover:bg-primary/10">
-            Commands
-          </Button>
-          <Button asChild className="rounded-full px-6 font-semibold bg-primary hover:bg-primary/90 text-primary-foreground box-glow hover:scale-105 transition-all duration-300">
-            <Link href="/dashboard">Dashboard</Link>
-          </Button>
+          {user ? (
+            <Button asChild className="rounded-full px-6 font-semibold bg-primary hover:bg-primary/90 text-primary-foreground box-glow hover:scale-105 transition-all duration-300">
+              <Link href="/dashboard">
+                <img src={getAvatarUrl(user)} alt="" className="w-5 h-5 rounded-full mr-2" />
+                Dashboard
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild className="rounded-full px-6 font-semibold bg-[#5865F2] hover:bg-[#4752C4] text-white hover:scale-105 transition-all duration-300" data-testid="button-landing-login">
+              <a href="/auth/discord">
+                <SiDiscord className="w-4 h-4 mr-2" /> Login with Discord
+              </a>
+            </Button>
+          )}
         </div>
       </nav>
 
