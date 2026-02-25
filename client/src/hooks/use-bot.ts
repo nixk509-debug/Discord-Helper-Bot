@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type UpdateSettingsInput, type CreateCommandInput } from "@shared/routes";
+import { api, buildUrl, type UpdateSettingsInput, type CreateCommandInput, type CreateEmbedInput, type UpdateEmbedInput } from "@shared/routes";
 import { z } from "zod";
 
 function parseWithLogging<T>(schema: z.ZodSchema<T>, data: unknown, label: string): T {
@@ -137,6 +137,85 @@ export function useDeleteCommand(serverId: number) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.commands.list.path, serverId] });
+      queryClient.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
+    },
+  });
+}
+
+export function useEmbeds(serverId: number) {
+  return useQuery({
+    queryKey: [api.embeds.list.path, serverId],
+    queryFn: async () => {
+      const url = buildUrl(api.embeds.list.path, { serverId });
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch embeds");
+      return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+
+export function useCreateEmbed(serverId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CreateEmbedInput) => {
+      const url = buildUrl(api.embeds.create.path, { serverId });
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create embed");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
+      queryClient.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
+    },
+  });
+}
+
+export function useUpdateEmbed(serverId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: UpdateEmbedInput }) => {
+      const url = buildUrl(api.embeds.update.path, { id });
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to update embed");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
+      queryClient.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
+    },
+  });
+}
+
+export function useDeleteEmbed(serverId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.embeds.delete.path, { id });
+      const res = await fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete embed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
       queryClient.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
     },
   });

@@ -46,10 +46,11 @@ The project uses a three-folder monorepo pattern:
 - **Connection**: Uses `pg.Pool` configured in `server/db.ts`
 
 ### Database Schema
-Three main tables:
+Four main tables:
 1. **`servers`** — Discord servers (guilds) the bot is in: `id`, `discordId`, `name`, `iconUrl`, `memberCount`, `joinedAt`, `ownerId`
 2. **`server_settings`** — Per-server configuration: prefix, welcome/leave messages, automod settings (anti-spam, anti-link, banned words), logging channel and events. References `servers` with cascade delete.
 3. **`custom_commands`** — User-defined bot commands per server: `name`, `response`. References `servers` with cascade delete.
+4. **`embeds`** — Saved embed templates per server: `name`, `title`, `description`, `url`, `color`, `timestamp`, footer/image/thumbnail/author fields, `fields` (jsonb array), `components` (jsonb array for Discord Components v2 — buttons and select menus). References `servers` with cascade delete.
 
 Relations are defined with Drizzle's `relations()` API, enabling eager loading via `db.query.*.findMany({ with: { ... } })`.
 
@@ -60,7 +61,16 @@ Relations are defined with Drizzle's `relations()` API, enabling eager loading v
 ### Key Pages
 - `/` — Landing page with hero section and bot stats
 - `/dashboard` — Server list overview
-- `/dashboard/servers/:id` — Server-specific settings with tabs for General, Automod, Logging, and Custom Commands
+- `/dashboard/servers/:id` — Server-specific settings with tabs for General, Automod, Logging, Custom Commands, and Embed Builder
+
+### Embed Builder
+- Located in `client/src/components/embed-builder/` with two files:
+  - `embed-builder-tab.tsx` — Main form with collapsible sections for Content, Author, Fields, Images, Footer, and Components (Buttons/Select Menus)
+  - `embed-preview.tsx` — Live Discord-style embed preview that mirrors actual Discord rendering
+- Supports full Discord embed fields: title, description, URL, color (hex picker + presets), timestamp, footer, images, thumbnail, author, inline fields
+- Components v2: Buttons (5 styles: Primary, Secondary, Success, Danger, Link) with label/emoji/customId/url; Select Menus with customId, placeholder, and multiple options (label/value/description)
+- Hooks in `client/src/hooks/use-bot.ts`: `useEmbeds`, `useCreateEmbed`, `useUpdateEmbed`, `useDeleteEmbed`
+- API endpoints: `GET/POST /api/servers/:serverId/embeds`, `PATCH/DELETE /api/embeds/:id`
 
 ## External Dependencies
 
