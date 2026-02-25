@@ -2,7 +2,15 @@
 
 ## Overview
 
-Archivist is a comprehensive Discord bot management dashboard with 15+ configurable modules, Discord OAuth login, Stripe premium subscriptions, and a discord.js v14 bot runtime. It provides a web-based interface for configuring Discord bot settings across multiple servers. Deep obsidian black + rich red gradient theme with glassmorphism effects. Features exclusive modules: visual node-based automation flow builder, full server economy, member intelligence CRM, activity heatmap, HTTP request actions in commands, persistent variable storage, and interactive embed components.
+Archivist is a comprehensive Discord bot management dashboard with 20+ configurable modules, Discord OAuth login, Stripe premium subscriptions, and a discord.js v14 bot runtime. It provides a web-based interface for configuring Discord bot settings across multiple servers. Deep obsidian black + rich red gradient theme with glassmorphism effects. Features exclusive modules: visual node-based automation flow builder, full server economy, member intelligence CRM, activity heatmap, HTTP request actions in commands, persistent variable storage, interactive embed components, and a command sharing marketplace.
+
+## Recent Work
+
+- **Custom Commands massively upgraded**: 100+ variables across 14 color-coded categories, VariableReference component with search + beginner/advanced toggle, SymbolsBoard with 8 categories + recently-used tracking, ResponseVariations (up to 5 random alternates), Quick-Start Templates gallery with 8 pre-built commands, 6-tab command editor (Basic/Response/Symbols/HTTP/Perms/Preview)
+- **Visual identity**: AI-generated archivist-avatar.png, hero-art.png, dashboard-art.png — applied to login (split-screen), premium (hero banner), dashboard overview (welcome banner), sidebar, landing (floating hero art, comparison table, "How It Works" steps, "vs. other bots" pills)
+- **Landing page**: Stats bar, comparison table (Archivist vs MEE6/Carl-bot/Dyno), "How It Works" 3-step section, EXCLUSIVE badges on 4 highlight feature cards
+- **All 20+ modules** in sidebar with correct group organization, active state styling with red gradient pill
+- **TypeScript fixes**: LoggingTabProps settings optional, app-sidebar server any type, routes.ts string casts, runMigrations schema type cast
 
 ## User Preferences
 

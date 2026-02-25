@@ -26,7 +26,7 @@ import {
 
 interface LoggingTabProps {
   serverId: number;
-  settings: any;
+  settings?: any;
 }
 
 const EVENT_CATEGORIES = {

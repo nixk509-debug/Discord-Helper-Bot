@@ -45,7 +45,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.delete("/api/templates/:id", requireAuth, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     await storage.deleteTemplate(id);
     res.status(204).send();
@@ -554,8 +554,8 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   // --- COMMAND SHARES / MARKETPLACE ---
   app.post("/api/servers/:serverId/commands/:commandId/share", requireAuth, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    const commandId = parseInt(req.params.commandId);
+    const serverId = parseInt(req.params.serverId as string);
+    const commandId = parseInt(req.params.commandId as string);
     if (isNaN(serverId) || isNaN(commandId)) return res.status(400).json({ message: "Invalid ID" });
     try {
       const share = await storage.createCommandShare(serverId, req.user!.discordId, commandId, req.body);
@@ -584,14 +584,14 @@ export async function registerRoutes(_server: Server, app: Express) {
     const { serverId } = req.body;
     if (!serverId) return res.status(400).json({ message: "serverId required" });
     try {
-      const imported = await storage.importCommand(parseInt(serverId), req.params.shareCode);
+      const imported = await storage.importCommand(parseInt(serverId), req.params.shareCode as string);
       res.status(201).json(imported);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
     }
   });
   app.delete("/api/marketplace/:shareCode", requireAuth, async (req, res) => {
-    const share = await storage.getCommandShare(req.params.shareCode);
+    const share = await storage.getCommandShare(req.params.shareCode as string);
     if (!share) return res.status(404).json({ message: "Share not found" });
     await storage.deleteCommandShare(share.id);
     res.status(204).send();
