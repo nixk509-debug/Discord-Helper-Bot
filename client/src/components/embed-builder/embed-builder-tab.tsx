@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useCreateEmbed, useUpdateEmbed, useDeleteEmbed } from "@/hooks/use-bot";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Save, Layout, Eye, Edit3, Copy, ChevronDown, ChevronUp,
   MousePointer, Type, Minus, Image, FileText, Box, Heading, Columns,
-  ArrowUp, ArrowDown, Code, Upload, Download, BookTemplate, X
+  ArrowUp, ArrowDown, Code, Upload, Download, BookTemplate, X, Zap
 } from "lucide-react";
 import { EmbedPreview, type EmbedField, type EmbedComponent } from "./embed-preview";
 import { COMPONENT_TYPES } from "@shared/schema";
@@ -169,6 +170,73 @@ const TEMPLATES: Record<string, { name: string; form: Partial<EmbedFormState> }>
       ],
     },
   },
+  ticketPanel: {
+    name: "Ticket Panel",
+    form: {
+      name: "Ticket Panel",
+      title: "Support Center",
+      description: "Need help? Click the button below to open a support ticket. Our team will respond as soon as possible.\n\n**Before opening a ticket:**\n- Check #faq for common questions\n- Search the support channels\n- Be ready to describe your issue clearly",
+      color: "#5865F2",
+      footerText: "Average response time: under 24 hours",
+      components: [
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "small" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Open Ticket", style: 1, customId: "btn_open_ticket", emoji: "ticket" },
+        { type: COMPONENT_TYPES.BUTTON, label: "View FAQ", style: 2, customId: "btn_faq" },
+      ],
+    },
+  },
+  roleSelector: {
+    name: "Role Selector",
+    form: {
+      name: "Role Selector",
+      title: "Choose Your Roles",
+      description: "Select the roles that best describe you! These help us tailor your server experience and notify you about relevant content.",
+      color: "#EB459E",
+      components: [
+        { type: 1, content: "Notification Roles" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Announcements", style: 1, customId: "role_announcements" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Events", style: 3, customId: "role_events" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Updates", style: 2, customId: "role_updates" },
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "small" },
+        { type: 1, content: "Interest Roles" },
+        {
+          type: COMPONENT_TYPES.SELECT_MENU,
+          label: "Pick your interests...",
+          customId: "select_interests",
+          options: [
+            { label: "Gaming", value: "gaming" },
+            { label: "Art & Design", value: "art" },
+            { label: "Music", value: "music" },
+            { label: "Tech & Coding", value: "tech" },
+            { label: "Movies & TV", value: "movies" },
+          ],
+        },
+      ],
+    },
+  },
+  giveaway: {
+    name: "Giveaway Announcement",
+    form: {
+      name: "Giveaway Announcement",
+      title: "GIVEAWAY",
+      description: "We're hosting a giveaway! Read the details below and enter for your chance to win.",
+      color: "#FEE75C",
+      timestamp: true,
+      authorName: "Giveaways",
+      footerText: "Good luck to all participants!",
+      fields: [
+        { name: "Prize", value: "Discord Nitro (1 Month)", inline: true },
+        { name: "Winners", value: "1 winner", inline: true },
+        { name: "Ends", value: "In 48 hours", inline: true },
+        { name: "Requirements", value: "Must be a server member for at least 7 days", inline: false },
+        { name: "How to Enter", value: "React with the button below!", inline: false },
+      ],
+      components: [
+        { type: COMPONENT_TYPES.BUTTON, label: "Enter Giveaway", style: 3, customId: "btn_giveaway_enter" },
+        { type: COMPONENT_TYPES.BUTTON, label: "View Rules", style: 2, customId: "btn_giveaway_rules" },
+      ],
+    },
+  },
 };
 
 function createDefaultComponent(type: number): EmbedComponent {
@@ -230,6 +298,42 @@ function getComponentIcon(type: number) {
   }
 }
 
+function formToJson(form: EmbedFormState): object {
+  return {
+    title: form.title || undefined,
+    description: form.description || undefined,
+    url: form.url || undefined,
+    color: form.color ? parseInt(form.color.replace('#', ''), 16) : undefined,
+    timestamp: form.timestamp ? new Date().toISOString() : undefined,
+    footer: form.footerText ? { text: form.footerText, icon_url: form.footerIconUrl || undefined } : undefined,
+    image: form.imageUrl ? { url: form.imageUrl } : undefined,
+    thumbnail: form.thumbnailUrl ? { url: form.thumbnailUrl } : undefined,
+    author: form.authorName ? { name: form.authorName, url: form.authorUrl || undefined, icon_url: form.authorIconUrl || undefined } : undefined,
+    fields: form.fields.length > 0 ? form.fields : undefined,
+    components: form.components.length > 0 ? form.components : undefined,
+  };
+}
+
+function jsonToForm(data: any, currentName?: string): Partial<EmbedFormState> {
+  return {
+    name: data.name || currentName || "",
+    title: data.title || "",
+    description: data.description || "",
+    url: data.url || "",
+    color: data.color ? (typeof data.color === 'number' ? `#${data.color.toString(16).padStart(6, '0')}` : data.color) : "#5865F2",
+    timestamp: !!data.timestamp,
+    footerText: data.footer?.text || "",
+    footerIconUrl: data.footer?.icon_url || "",
+    imageUrl: data.image?.url || "",
+    thumbnailUrl: data.thumbnail?.url || "",
+    authorName: data.author?.name || "",
+    authorUrl: data.author?.url || "",
+    authorIconUrl: data.author?.icon_url || "",
+    fields: data.fields || [],
+    components: data.components || [],
+  };
+}
+
 export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number; embeds: Embed[]; toast: any }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<EmbedFormState>({ ...DEFAULT_FORM });
@@ -240,6 +344,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const [jsonImportValue, setJsonImportValue] = useState("");
   const [jsonMode, setJsonMode] = useState<"import" | "export">("export");
   const [selectedComponentIndex, setSelectedComponentIndex] = useState<number | null>(null);
+  const [editorTab, setEditorTab] = useState<"visual" | "json" | "preview">("visual");
+  const [liveJson, setLiveJson] = useState(() => JSON.stringify(formToJson(DEFAULT_FORM), null, 2));
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const jsonUpdatingFromForm = useRef(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     basic: true,
     author: false,
@@ -258,18 +366,39 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   };
 
   const updateForm = (key: keyof EmbedFormState, value: any) => {
-    setForm(prev => ({ ...prev, [key]: value }));
+    setForm(prev => {
+      const next = { ...prev, [key]: value };
+      jsonUpdatingFromForm.current = true;
+      setLiveJson(JSON.stringify(formToJson(next), null, 2));
+      setJsonError(null);
+      return next;
+    });
+  };
+
+  const handleLiveJsonChange = (text: string) => {
+    setLiveJson(text);
+    try {
+      const parsed = JSON.parse(text);
+      const converted = jsonToForm(parsed, form.name);
+      setForm(prev => ({ ...prev, ...converted }));
+      setJsonError(null);
+    } catch {
+      setJsonError("Invalid JSON");
+    }
   };
 
   const openNewEmbed = () => {
-    setForm({ ...DEFAULT_FORM });
+    const fresh = { ...DEFAULT_FORM };
+    setForm(fresh);
+    setLiveJson(JSON.stringify(formToJson(fresh), null, 2));
+    setJsonError(null);
     setEditingId(null);
     setShowBuilder(true);
     setSelectedComponentIndex(null);
   };
 
   const openEditEmbed = (embed: Embed) => {
-    setForm({
+    const loaded: EmbedFormState = {
       name: embed.name || "",
       title: embed.title || "",
       description: embed.description || "",
@@ -285,14 +414,17 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
       authorIconUrl: embed.authorIconUrl || "",
       fields: (embed.fields as EmbedField[]) || [],
       components: (embed.components as EmbedComponent[]) || [],
-    });
+    };
+    setForm(loaded);
+    setLiveJson(JSON.stringify(formToJson(loaded), null, 2));
+    setJsonError(null);
     setEditingId(embed.id);
     setShowBuilder(true);
     setSelectedComponentIndex(null);
   };
 
   const duplicateEmbed = (embed: Embed) => {
-    setForm({
+    const dup: EmbedFormState = {
       name: `${embed.name} (Copy)`,
       title: embed.title || "",
       description: embed.description || "",
@@ -308,7 +440,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
       authorIconUrl: embed.authorIconUrl || "",
       fields: (embed.fields as EmbedField[]) || [],
       components: (embed.components as EmbedComponent[]) || [],
-    });
+    };
+    setForm(dup);
+    setLiveJson(JSON.stringify(formToJson(dup), null, 2));
+    setJsonError(null);
     setEditingId(null);
     setShowBuilder(true);
     setSelectedComponentIndex(null);
@@ -488,23 +623,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const applyJsonImport = () => {
     try {
       const data = JSON.parse(jsonImportValue);
-      setForm(prev => ({
-        ...prev,
-        title: data.title || "",
-        description: data.description || "",
-        url: data.url || "",
-        color: data.color ? (typeof data.color === 'number' ? `#${data.color.toString(16).padStart(6, '0')}` : data.color) : "#5865F2",
-        timestamp: !!data.timestamp,
-        footerText: data.footer?.text || "",
-        footerIconUrl: data.footer?.icon_url || "",
-        imageUrl: data.image?.url || "",
-        thumbnailUrl: data.thumbnail?.url || "",
-        authorName: data.author?.name || "",
-        authorUrl: data.author?.url || "",
-        authorIconUrl: data.author?.icon_url || "",
-        fields: data.fields || [],
-        components: data.components || [],
-      }));
+      const converted = jsonToForm(data, form.name);
+      setForm(prev => ({ ...prev, ...converted }));
+      setLiveJson(JSON.stringify(formToJson({ ...form, ...converted }), null, 2));
+      setJsonError(null);
       setShowJsonDialog(false);
       toast({ title: "Imported", description: "JSON data applied to the builder." });
     } catch {
@@ -515,7 +637,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const loadTemplate = (key: string) => {
     const template = TEMPLATES[key];
     if (!template) return;
-    setForm({ ...DEFAULT_FORM, ...template.form } as EmbedFormState);
+    const loaded = { ...DEFAULT_FORM, ...template.form } as EmbedFormState;
+    setForm(loaded);
+    setLiveJson(JSON.stringify(formToJson(loaded), null, 2));
+    setJsonError(null);
     setEditingId(null);
     setShowTemplateDialog(false);
     setShowBuilder(true);
@@ -843,145 +968,229 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
-            <div className="mb-4">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Template Name</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => updateForm("name", e.target.value)}
-                placeholder="e.g. Welcome Message, Rules, Announcement"
-                className="bg-background/50 border-white/10 mt-1"
-                data-testid="input-embed-name"
-              />
-            </div>
+        <div className="mb-4">
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Template Name</Label>
+          <Input
+            value={form.name}
+            onChange={(e) => updateForm("name", e.target.value)}
+            placeholder="e.g. Welcome Message, Rules, Announcement"
+            className="bg-background/50 border-white/10 mt-1 max-w-lg"
+            data-testid="input-embed-name"
+          />
+        </div>
 
-            <CollapsibleSection title="Content" expanded={expandedSections.basic} onToggle={() => toggleSection("basic")}>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Title</Label>
-                  <Input value={form.title} onChange={(e) => updateForm("title", e.target.value)} placeholder="Embed title" className="bg-background/50 border-white/10 mt-1" data-testid="input-embed-title" />
-                </div>
-                <div>
-                  <Label className="text-xs">URL</Label>
-                  <Input value={form.url} onChange={(e) => updateForm("url", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-embed-url" />
-                </div>
-                <div>
-                  <Label className="text-xs">Description</Label>
-                  <Textarea value={form.description} onChange={(e) => updateForm("description", e.target.value)} placeholder="Embed description. Supports markdown." className="bg-background/50 border-white/10 mt-1 min-h-[100px]" data-testid="input-embed-description" />
-                </div>
-                <div>
-                  <Label className="text-xs">Color</Label>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <input type="color" value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="w-10 h-10 rounded cursor-pointer border-0 bg-transparent" data-testid="input-embed-color" />
-                    <Input value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="bg-background/50 border-white/10 w-28 font-mono text-xs" data-testid="input-embed-color-hex" />
-                    <div className="flex gap-1 flex-wrap">
-                      {PRESET_COLORS.map(c => (
-                        <button key={c} onClick={() => updateForm("color", c)} className="w-6 h-6 rounded-full border-2 border-transparent hover:border-white/50 transition-colors" style={{ backgroundColor: c }} data-testid={`color-preset-${c}`} />
-                      ))}
+        <Tabs value={editorTab} onValueChange={(v) => setEditorTab(v as any)}>
+          <TabsList className="mb-4">
+            <TabsTrigger value="visual" className="gap-1.5 text-xs">
+              <Edit3 className="w-3 h-3" /> Visual Editor
+            </TabsTrigger>
+            <TabsTrigger value="json" className="gap-1.5 text-xs">
+              <Code className="w-3 h-3" /> JSON
+              {jsonError && <span className="w-2 h-2 rounded-full bg-destructive" />}
+            </TabsTrigger>
+            <TabsTrigger value="preview" className="gap-1.5 text-xs">
+              <Eye className="w-3 h-3" /> Preview
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="visual" className="mt-0">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="space-y-3 max-h-[calc(100vh-260px)] overflow-y-auto pr-2">
+                <CollapsibleSection title="Content" expanded={expandedSections.basic} onToggle={() => toggleSection("basic")}>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Title</Label>
+                      <Input value={form.title} onChange={(e) => updateForm("title", e.target.value)} placeholder="Embed title" className="bg-background/50 border-white/10 mt-1" data-testid="input-embed-title" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">URL</Label>
+                      <Input value={form.url} onChange={(e) => updateForm("url", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-embed-url" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Description</Label>
+                      <Textarea value={form.description} onChange={(e) => updateForm("description", e.target.value)} placeholder="Embed description. Supports markdown." className="bg-background/50 border-white/10 mt-1 min-h-[100px]" data-testid="input-embed-description" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Color</Label>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <input type="color" value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="w-10 h-10 rounded cursor-pointer border-0 bg-transparent" data-testid="input-embed-color" />
+                        <Input value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="bg-background/50 border-white/10 w-28 font-mono text-xs" data-testid="input-embed-color-hex" />
+                        <div className="flex gap-1 flex-wrap">
+                          {PRESET_COLORS.map(c => (
+                            <button key={c} onClick={() => updateForm("color", c)} className="w-6 h-6 rounded-full border-2 border-transparent hover:border-white/50 transition-colors" style={{ backgroundColor: c }} data-testid={`color-preset-${c}`} />
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CollapsibleSection>
+                </CollapsibleSection>
 
-            <CollapsibleSection title="Author" expanded={expandedSections.author} onToggle={() => toggleSection("author")}>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Author Name</Label>
-                  <Input value={form.authorName} onChange={(e) => updateForm("authorName", e.target.value)} placeholder="Author name" className="bg-background/50 border-white/10 mt-1" data-testid="input-author-name" />
-                </div>
-                <div>
-                  <Label className="text-xs">Author URL</Label>
-                  <Input value={form.authorUrl} onChange={(e) => updateForm("authorUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-author-url" />
-                </div>
-                <div>
-                  <Label className="text-xs">Author Icon URL</Label>
-                  <Input value={form.authorIconUrl} onChange={(e) => updateForm("authorIconUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-author-icon" />
-                </div>
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection title={`Fields (${form.fields.length})`} expanded={expandedSections.fields} onToggle={() => toggleSection("fields")}>
-              <div className="space-y-3">
-                {form.fields.map((field, i) => (
-                  <div key={i} className="rounded-lg border border-white/5 bg-background/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground font-medium">Field {i + 1}</span>
-                      <Button variant="ghost" size="icon" onClick={() => removeField(i)} className="h-6 w-6 text-destructive hover:text-destructive" data-testid={`remove-field-${i}`}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                <CollapsibleSection title="Author" expanded={expandedSections.author} onToggle={() => toggleSection("author")}>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Author Name</Label>
+                      <Input value={form.authorName} onChange={(e) => updateForm("authorName", e.target.value)} placeholder="Author name" className="bg-background/50 border-white/10 mt-1" data-testid="input-author-name" />
                     </div>
-                    <Input value={field.name} onChange={(e) => updateField(i, "name", e.target.value)} placeholder="Field name" className="bg-background/50 border-white/10 h-8 text-xs" data-testid={`field-name-${i}`} />
-                    <Textarea value={field.value} onChange={(e) => updateField(i, "value", e.target.value)} placeholder="Field value" className="bg-background/50 border-white/10 min-h-[60px] text-xs" data-testid={`field-value-${i}`} />
+                    <div>
+                      <Label className="text-xs">Author URL</Label>
+                      <Input value={form.authorUrl} onChange={(e) => updateForm("authorUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-author-url" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Author Icon URL</Label>
+                      <Input value={form.authorIconUrl} onChange={(e) => updateForm("authorIconUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-author-icon" />
+                    </div>
+                  </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title={`Fields (${form.fields.length})`} expanded={expandedSections.fields} onToggle={() => toggleSection("fields")}>
+                  <div className="space-y-3">
+                    {form.fields.map((field, i) => (
+                      <div key={i} className="rounded-lg border border-white/5 bg-background/30 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground font-medium">Field {i + 1}</span>
+                          <Button variant="ghost" size="icon" onClick={() => removeField(i)} className="h-6 w-6 text-destructive hover:text-destructive" data-testid={`remove-field-${i}`}>
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <Input value={field.name} onChange={(e) => updateField(i, "name", e.target.value)} placeholder="Field name" className="bg-background/50 border-white/10 h-8 text-xs" data-testid={`field-name-${i}`} />
+                        <Textarea value={field.value} onChange={(e) => updateField(i, "value", e.target.value)} placeholder="Field value" className="bg-background/50 border-white/10 min-h-[60px] text-xs" data-testid={`field-value-${i}`} />
+                        <div className="flex items-center gap-2">
+                          <Switch checked={field.inline} onCheckedChange={(v) => updateField(i, "inline", v)} className="scale-75" data-testid={`field-inline-${i}`} />
+                          <Label className="text-xs text-muted-foreground">Inline</Label>
+                        </div>
+                      </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={addField} className="w-full border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-field">
+                      <Plus className="w-3 h-3" /> Add Field
+                    </Button>
+                  </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Images" expanded={expandedSections.images} onToggle={() => toggleSection("images")}>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Image URL</Label>
+                      <Input value={form.imageUrl} onChange={(e) => updateForm("imageUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-image-url" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Thumbnail URL</Label>
+                      <Input value={form.thumbnailUrl} onChange={(e) => updateForm("thumbnailUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-thumbnail-url" />
+                    </div>
+                  </div>
+                </CollapsibleSection>
+
+                <CollapsibleSection title="Footer" expanded={expandedSections.footer} onToggle={() => toggleSection("footer")}>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Footer Text</Label>
+                      <Input value={form.footerText} onChange={(e) => updateForm("footerText", e.target.value)} placeholder="Footer text" className="bg-background/50 border-white/10 mt-1" data-testid="input-footer-text" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Footer Icon URL</Label>
+                      <Input value={form.footerIconUrl} onChange={(e) => updateForm("footerIconUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-footer-icon" />
+                    </div>
                     <div className="flex items-center gap-2">
-                      <Switch checked={field.inline} onCheckedChange={(v) => updateField(i, "inline", v)} className="scale-75" data-testid={`field-inline-${i}`} />
-                      <Label className="text-xs text-muted-foreground">Inline</Label>
+                      <Switch checked={form.timestamp} onCheckedChange={(v) => updateForm("timestamp", v)} data-testid="toggle-timestamp" />
+                      <Label className="text-xs">Show Timestamp</Label>
                     </div>
                   </div>
-                ))}
-                <Button variant="outline" size="sm" onClick={addField} className="w-full border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-field">
-                  <Plus className="w-3 h-3" /> Add Field
-                </Button>
-              </div>
-            </CollapsibleSection>
+                </CollapsibleSection>
 
-            <CollapsibleSection title="Images" expanded={expandedSections.images} onToggle={() => toggleSection("images")}>
+                <CollapsibleSection title={`Components v2 (${form.components.length})`} expanded={expandedSections.components} onToggle={() => toggleSection("components")}>
+                  <div className="space-y-3">
+                    {form.components.map((comp, i) => renderComponentEditor(comp, i))}
+
+                    <Button variant="outline" size="sm" onClick={() => setShowComponentPicker(true)} className="w-full border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-component-picker">
+                      <Plus className="w-3 h-3" /> Add Component
+                    </Button>
+                  </div>
+                </CollapsibleSection>
+              </div>
+
+              <div className="xl:sticky xl:top-4 xl:self-start">
+                <Card className="glass-card">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-display flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-primary" /> Live Preview
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-[#313338] rounded-lg p-4 min-h-[200px]">
+                      <EmbedPreview embed={form as any} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="json" className="mt-0">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Image URL</Label>
-                  <Input value={form.imageUrl} onChange={(e) => updateForm("imageUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-image-url" />
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <Label className="text-sm font-medium">Discord Embed JSON</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Edit either side — both sync in real time</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { navigator.clipboard.writeText(liveJson); toast({ title: "Copied", description: "JSON copied to clipboard." }); }} data-testid="button-copy-live-json">
+                      <Copy className="w-3 h-3" /> Copy
+                    </Button>
+                    <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        handleLiveJsonChange(text);
+                      } catch {}
+                    }} data-testid="button-paste-json">
+                      <Upload className="w-3 h-3" /> Paste
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <Label className="text-xs">Thumbnail URL</Label>
-                  <Input value={form.thumbnailUrl} onChange={(e) => updateForm("thumbnailUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-thumbnail-url" />
-                </div>
+                {jsonError && (
+                  <div className="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive" data-testid="json-error">
+                    {jsonError}
+                  </div>
+                )}
+                <Textarea
+                  value={liveJson}
+                  onChange={(e) => handleLiveJsonChange(e.target.value)}
+                  className={`bg-background/50 font-mono text-xs min-h-[500px] resize-none ${jsonError ? 'border-destructive/50' : 'border-white/10'}`}
+                  spellCheck={false}
+                  data-testid="json-live-editor"
+                />
               </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection title="Footer" expanded={expandedSections.footer} onToggle={() => toggleSection("footer")}>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Footer Text</Label>
-                  <Input value={form.footerText} onChange={(e) => updateForm("footerText", e.target.value)} placeholder="Footer text" className="bg-background/50 border-white/10 mt-1" data-testid="input-footer-text" />
-                </div>
-                <div>
-                  <Label className="text-xs">Footer Icon URL</Label>
-                  <Input value={form.footerIconUrl} onChange={(e) => updateForm("footerIconUrl", e.target.value)} placeholder="https://..." className="bg-background/50 border-white/10 mt-1" data-testid="input-footer-icon" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={form.timestamp} onCheckedChange={(v) => updateForm("timestamp", v)} data-testid="toggle-timestamp" />
-                  <Label className="text-xs">Show Timestamp</Label>
-                </div>
+              <div className="xl:sticky xl:top-4 xl:self-start">
+                <Card className="glass-card">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-display flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-primary" /> Live Preview
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-[#313338] rounded-lg p-4 min-h-[200px]">
+                      <EmbedPreview embed={form as any} />
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CollapsibleSection>
+            </div>
+          </TabsContent>
 
-            <CollapsibleSection title={`Components v2 (${form.components.length})`} expanded={expandedSections.components} onToggle={() => toggleSection("components")}>
-              <div className="space-y-3">
-                {form.components.map((comp, i) => renderComponentEditor(comp, i))}
-
-                <Button variant="outline" size="sm" onClick={() => setShowComponentPicker(true)} className="w-full border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-component-picker">
-                  <Plus className="w-3 h-3" /> Add Component
-                </Button>
-              </div>
-            </CollapsibleSection>
-          </div>
-
-          <div className="xl:sticky xl:top-4 xl:self-start">
+          <TabsContent value="preview" className="mt-0">
             <Card className="glass-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-display flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-primary" /> Live Preview
+                  <Eye className="w-4 h-4 text-primary" /> Full Preview
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="bg-[#313338] rounded-lg p-4 min-h-[200px]">
+                <div className="bg-[#313338] rounded-lg p-6 min-h-[300px]">
                   <EmbedPreview embed={form as any} />
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </div>
+          </TabsContent>
+        </Tabs>
 
         <Dialog open={showComponentPicker} onOpenChange={setShowComponentPicker}>
           <DialogContent className="max-w-lg">

@@ -1,4 +1,5 @@
 import { ReactNode, useState } from "react";
+import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,17 @@ import {
   Clock,
   Ticket,
   Activity,
+  BarChart2,
+  Users,
   Menu,
+  Database,
+  GitBranch,
+  Coins,
+  ShieldCheck,
+  EyeOff,
+  Webhook,
+  BarChart3,
+  Gift,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +60,7 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
       { id: "general", label: "General", icon: Settings, enabled: true },
       { id: "channels", label: "Channels", icon: Hash, enabled: false },
       { id: "permissions", label: "Permissions", icon: Lock, enabled: false },
+      { id: "members", label: "Members", icon: Users, enabled: false },
     ],
   },
   {
@@ -57,6 +69,8 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
       { id: "automod", label: "Automod", icon: Shield, enabled: false },
       { id: "warnings", label: "Warnings & Punishments", icon: AlertTriangle, enabled: false },
       { id: "raid-protection", label: "Raid Protection", icon: ShieldAlert, enabled: false },
+      { id: "verify", label: "Verification", icon: ShieldCheck, enabled: false },
+      { id: "nsfw", label: "NSFW Control", icon: EyeOff, enabled: false },
     ],
   },
   {
@@ -64,23 +78,35 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
     modules: [
       { id: "welcome", label: "Welcome/Leave", icon: UserPlus, enabled: false },
       { id: "leveling", label: "Leveling & XP", icon: TrendingUp, enabled: false },
+      { id: "economy", label: "Economy", icon: Coins, enabled: false },
       { id: "reaction-roles", label: "Reaction Roles", icon: Smile, enabled: false },
       { id: "starboard", label: "Starboard", icon: Star, enabled: false },
+      { id: "polls", label: "Polls", icon: BarChart3, enabled: false },
+      { id: "giveaways", label: "Giveaways", icon: Gift, enabled: false },
     ],
   },
   {
-    label: "Utilities",
+    label: "Automations",
     modules: [
+      { id: "automations", label: "Flow Builder", icon: GitBranch, enabled: false },
       { id: "commands", label: "Custom Commands", icon: Terminal, enabled: false },
-      { id: "embeds", label: "Embed Builder", icon: Layout, enabled: false },
+      { id: "variables", label: "Variable Storage", icon: Database, enabled: false },
       { id: "scheduled", label: "Scheduled Messages", icon: Clock, enabled: false },
+      { id: "embeds", label: "Embed Builder", icon: Layout, enabled: false },
       { id: "tickets", label: "Ticket System", icon: Ticket, enabled: false },
+      { id: "webhooks", label: "Webhooks", icon: Webhook, enabled: false },
     ],
   },
   {
     label: "Logging",
     modules: [
       { id: "audit-logs", label: "Audit Logs", icon: Activity, enabled: false },
+    ],
+  },
+  {
+    label: "Analytics",
+    modules: [
+      { id: "insights", label: "Server Insights", icon: BarChart2, enabled: false },
     ],
   },
 ];
@@ -90,6 +116,7 @@ interface ServerSettingsLayoutProps {
   onModuleChange: (moduleId: string) => void;
   moduleStatuses?: Record<string, boolean>;
   children: ReactNode;
+  serverId?: number;
 }
 
 function SidebarNavContent({
@@ -97,12 +124,16 @@ function SidebarNavContent({
   onModuleChange,
   moduleStatuses,
   onItemClick,
+  serverId,
 }: {
   activeModule: string;
   onModuleChange: (moduleId: string) => void;
   moduleStatuses?: Record<string, boolean>;
   onItemClick?: () => void;
+  serverId?: number;
 }) {
+  const [, navigate] = useLocation();
+
   return (
     <ScrollArea className="h-full">
       <div className="space-y-6 p-4">
@@ -119,11 +150,16 @@ function SidebarNavContent({
                 const isActive = activeModule === mod.id;
                 const isEnabled = moduleStatuses?.[mod.id] ?? mod.enabled ?? false;
                 const Icon = mod.icon;
+                const isNavLink = mod.id === "members" && serverId;
                 return (
                   <button
                     key={mod.id}
                     onClick={() => {
-                      onModuleChange(mod.id);
+                      if (isNavLink) {
+                        navigate(`/dashboard/servers/${serverId}/members`);
+                      } else {
+                        onModuleChange(mod.id);
+                      }
                       onItemClick?.();
                     }}
                     data-testid={`button-module-${mod.id}`}
@@ -159,6 +195,7 @@ export function ServerSettingsLayout({
   onModuleChange,
   moduleStatuses,
   children,
+  serverId,
 }: ServerSettingsLayoutProps) {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -187,6 +224,7 @@ export function ServerSettingsLayout({
                 onModuleChange={onModuleChange}
                 moduleStatuses={moduleStatuses}
                 onItemClick={() => setSheetOpen(false)}
+                serverId={serverId}
               />
             </SheetContent>
           </Sheet>
@@ -212,6 +250,7 @@ export function ServerSettingsLayout({
             activeModule={activeModule}
             onModuleChange={onModuleChange}
             moduleStatuses={moduleStatuses}
+            serverId={serverId}
           />
         </div>
       </div>

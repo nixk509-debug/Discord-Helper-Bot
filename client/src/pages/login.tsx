@@ -34,7 +34,7 @@ export default function Login() {
               <Bot className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold font-display text-foreground" data-testid="text-login-title">
-              Welcome to NexBot
+              Welcome to Archivist
             </h1>
             <p className="text-muted-foreground mt-2 text-center">
               Sign in with Discord to manage your servers

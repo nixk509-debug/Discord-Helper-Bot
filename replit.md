@@ -1,8 +1,8 @@
-# NexBot Dashboard
+# Archivist Dashboard
 
 ## Overview
 
-NexBot is a comprehensive Discord bot management dashboard with 12+ configurable modules, Discord OAuth login, Stripe premium subscriptions, and a discord.js v14 bot runtime. It provides a web-based interface for configuring Discord bot settings across multiple servers. Dark gaming aesthetic with purple/blue neon glows and glassmorphism effects.
+Archivist is a comprehensive Discord bot management dashboard with 15+ configurable modules, Discord OAuth login, Stripe premium subscriptions, and a discord.js v14 bot runtime. It provides a web-based interface for configuring Discord bot settings across multiple servers. Deep obsidian black + rich red gradient theme with glassmorphism effects. Features exclusive modules: visual node-based automation flow builder, full server economy, member intelligence CRM, activity heatmap, HTTP request actions in commands, persistent variable storage, and interactive embed components.
 
 ## User Preferences
 

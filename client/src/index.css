@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Syne:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,61 +7,60 @@
 @layer base {
   :root {
     --font-sans: 'Inter', sans-serif;
-    --font-display: 'Outfit', sans-serif;
+    --font-display: 'Syne', sans-serif;
 
-    /* Gaming Dark Mode Palette - Deep violet/slate with glowing accents */
-    --background: 235 24% 9%;
-    --foreground: 210 40% 98%;
+    /* Archivist — Obsidian Black + Rich Red Palette */
+    --background: 0 0% 5%;
+    --foreground: 0 0% 95%;
 
-    --card: 235 24% 12%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 6% 9%;
+    --card-foreground: 0 0% 95%;
 
-    --popover: 235 24% 12%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 6% 9%;
+    --popover-foreground: 0 0% 95%;
 
-    --primary: 258 90% 66%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 0 72% 51%;
+    --primary-foreground: 0 0% 98%;
 
-    --secondary: 235 20% 16%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 6% 14%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 235 20% 16%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 0 6% 14%;
+    --muted-foreground: 0 5% 55%;
 
-    --accent: 217 91% 60%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 340 75% 55%;
+    --accent-foreground: 0 0% 98%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 235 20% 18%;
-    --input: 235 20% 18%;
-    --ring: 258 90% 66%;
+    --border: 0 6% 18%;
+    --input: 0 6% 18%;
+    --ring: 0 72% 51%;
 
-    --sidebar-background: 235 24% 10%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 258 90% 66%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 235 20% 16%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 235 20% 18%;
-    --sidebar-ring: 258 90% 66%;
+    --sidebar-background: 0 6% 7%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 0 72% 51%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 6% 13%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 6% 15%;
+    --sidebar-ring: 0 72% 51%;
 
     --radius: 0.75rem;
 
-    --chart-1: 258 90% 66%;
-    --chart-2: 217 91% 60%;
-    --chart-3: 199 89% 48%;
-    --chart-4: 316 73% 52%;
-    --chart-5: 160 84% 39%;
+    --chart-1: 0 72% 51%;
+    --chart-2: 340 75% 55%;
+    --chart-3: 20 90% 55%;
+    --chart-4: 350 80% 48%;
+    --chart-5: 10 85% 50%;
   }
 
   body {
     @apply font-sans antialiased bg-background text-foreground selection:bg-primary/30 selection:text-primary-foreground;
-    /* Subtle background grid pattern for gaming vibe */
     background-image: 
-      linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+      linear-gradient(to right, rgba(180, 20, 20, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(180, 20, 20, 0.04) 1px, transparent 1px);
     background-size: 40px 40px;
     background-attachment: fixed;
   }
@@ -74,11 +73,11 @@
 
 @layer utilities {
   .text-glow {
-    text-shadow: 0 0 20px hsl(var(--primary) / 0.5);
+    text-shadow: 0 0 20px hsl(0 72% 51% / 0.6);
   }
   
   .box-glow {
-    box-shadow: 0 0 25px -5px hsl(var(--primary) / 0.4), 0 0 10px -5px hsl(var(--accent) / 0.3);
+    box-shadow: 0 0 25px -5px hsl(0 72% 51% / 0.4), 0 0 10px -5px hsl(340 75% 55% / 0.3);
   }
 
   .glass-card {
@@ -87,5 +86,13 @@
   
   .glass-panel {
     @apply bg-background/80 backdrop-blur-xl border-white/5;
+  }
+
+  .gradient-brand {
+    background: linear-gradient(135deg, hsl(0, 72%, 51%), hsl(340, 75%, 55%));
+  }
+
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(0, 0%, 4%) 0%, hsl(0, 30%, 12%) 40%, hsl(340, 40%, 15%) 70%, hsl(0, 0%, 5%) 100%);
   }
 }

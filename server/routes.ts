@@ -381,8 +381,344 @@ export async function registerRoutes(_server: Server, app: Express) {
     res.json(result);
   });
 
+  // --- AUTOMATIONS ---
+  app.get("/api/servers/:serverId/automations", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getAutomations(serverId));
+  });
+  app.post("/api/servers/:serverId/automations", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createAutomation(serverId, req.body);
+    res.status(201).json(created);
+  });
+  app.put("/api/servers/:serverId/automations/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updateAutomation(id, req.body);
+    res.json(updated);
+  });
+  app.patch("/api/servers/:serverId/automations/:id/toggle", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.toggleAutomation(id, req.body.isEnabled);
+    res.json(updated);
+  });
+  app.delete("/api/servers/:serverId/automations/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteAutomation(id);
+    res.status(204).send();
+  });
+
+  // --- SERVER VARIABLES ---
+  app.get("/api/servers/:serverId/variables", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getVariables(serverId));
+  });
+  app.put("/api/servers/:serverId/variables", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { scope, userId, key, value } = req.body;
+    const result = await storage.setVariable(serverId, scope || "server", userId || null, key, value);
+    res.json(result);
+  });
+  app.delete("/api/servers/:serverId/variables/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteVariable(id);
+    res.status(204).send();
+  });
+
+  // --- ECONOMY ---
+  app.get("/api/servers/:serverId/economy/leaderboard", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getEconomyLeaderboard(serverId));
+  });
+  app.get("/api/servers/:serverId/economy/:userId", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const account = await storage.getOrCreateEconomyAccount(serverId, req.params.userId);
+    res.json(account);
+  });
+  app.post("/api/servers/:serverId/economy/:userId/adjust", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { amount, type, description } = req.body;
+    const result = await storage.updateEconomyBalance(serverId, req.params.userId, amount, type || "admin", description);
+    res.json(result);
+  });
+  app.get("/api/servers/:serverId/economy/:userId/transactions", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getEconomyTransactions(serverId, req.params.userId));
+  });
+
+  // --- ROLE SHOP ---
+  app.get("/api/servers/:serverId/shop", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getRoleShop(serverId));
+  });
+  app.post("/api/servers/:serverId/shop", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createRoleShopItem(serverId, req.body);
+    res.status(201).json(created);
+  });
+  app.put("/api/servers/:serverId/shop/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updateRoleShopItem(id, req.body);
+    res.json(updated);
+  });
+  app.delete("/api/servers/:serverId/shop/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteRoleShopItem(id);
+    res.status(204).send();
+  });
+
+  // --- MEMBERS ---
+  app.get("/api/servers/:serverId/members", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const search = req.query.search as string | undefined;
+    res.json(await storage.getMembers(serverId, page, limit, search));
+  });
+
+  app.get("/api/servers/:serverId/members/:userId", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const profile = await storage.getMemberProfile(serverId, req.params.userId);
+    res.json(profile);
+  });
+
+  app.post("/api/servers/:serverId/members/bulk", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { action, userIds, reason, roleId, message } = req.body;
+    if (!action || !userIds || !Array.isArray(userIds)) {
+      return res.status(400).json({ message: "action and userIds required" });
+    }
+    const results: any[] = [];
+    if (action === "addWarning" && reason) {
+      for (const userId of userIds) {
+        const created = await storage.createWarning(serverId, {
+          userId,
+          userName: userId,
+          moderatorId: "dashboard",
+          moderatorName: "Dashboard",
+          reason: reason || "Bulk action",
+        });
+        results.push(created);
+      }
+    }
+    res.json({ success: true, action, affected: userIds.length, results });
+  });
+
+  // --- MEMBER NOTES ---
+  app.get("/api/servers/:serverId/members/:userId/notes", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getMemberNotes(serverId, req.params.userId));
+  });
+  app.post("/api/servers/:serverId/members/:userId/notes", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createMemberNote(serverId, { ...req.body, targetUserId: req.params.userId });
+    res.status(201).json(created);
+  });
+  app.delete("/api/servers/:serverId/members/:userId/notes/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteMemberNote(id);
+    res.status(204).send();
+  });
+
+  // --- SERVER INSIGHTS ---
+  app.get("/api/servers/:serverId/insights", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    let insights = await storage.getServerInsights(serverId, 30);
+    if (insights.length < 7) {
+      insights = generateMockInsights(serverId);
+    }
+    res.json(insights);
+  });
+
+  // --- COMMAND SHARES / MARKETPLACE ---
+  app.post("/api/servers/:serverId/commands/:commandId/share", requireAuth, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    const commandId = parseInt(req.params.commandId);
+    if (isNaN(serverId) || isNaN(commandId)) return res.status(400).json({ message: "Invalid ID" });
+    try {
+      const share = await storage.createCommandShare(serverId, req.user!.discordId, commandId, req.body);
+      res.status(201).json(share);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+  app.get("/api/marketplace", async (req, res) => {
+    const { category, search, limit, offset } = req.query;
+    const shares = await storage.listMarketplace({
+      category: category as string,
+      search: search as string,
+      limit: limit ? parseInt(limit as string) : 20,
+      offset: offset ? parseInt(offset as string) : 0,
+    });
+    res.json(shares);
+  });
+  app.get("/api/marketplace/:shareCode", async (req, res) => {
+    const share = await storage.getCommandShare(req.params.shareCode);
+    if (!share) return res.status(404).json({ message: "Share not found" });
+    await storage.incrementShareView(req.params.shareCode);
+    res.json(share);
+  });
+  app.post("/api/marketplace/:shareCode/import", requireAuth, async (req, res) => {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ message: "serverId required" });
+    try {
+      const imported = await storage.importCommand(parseInt(serverId), req.params.shareCode);
+      res.status(201).json(imported);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+  app.delete("/api/marketplace/:shareCode", requireAuth, async (req, res) => {
+    const share = await storage.getCommandShare(req.params.shareCode);
+    if (!share) return res.status(404).json({ message: "Share not found" });
+    await storage.deleteCommandShare(share.id);
+    res.status(204).send();
+  });
+  app.get("/api/servers/:serverId/shares", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getServerShares(serverId));
+  });
+
+  // --- SERVER WEBHOOKS ---
+  app.get("/api/servers/:serverId/webhooks", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getWebhooks(serverId));
+  });
+  app.post("/api/servers/:serverId/webhooks", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createWebhook(serverId, req.body);
+    res.status(201).json(created);
+  });
+  app.put("/api/servers/:serverId/webhooks/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updateWebhook(id, req.body);
+    res.json(updated);
+  });
+  app.delete("/api/servers/:serverId/webhooks/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteWebhook(id);
+    res.status(204).send();
+  });
+
+  // --- POLLS ---
+  app.get("/api/servers/:serverId/polls", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getPolls(serverId));
+  });
+  app.post("/api/servers/:serverId/polls", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createPoll(serverId, req.body);
+    res.status(201).json(created);
+  });
+  app.put("/api/servers/:serverId/polls/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updatePoll(id, req.body);
+    res.json(updated);
+  });
+  app.delete("/api/servers/:serverId/polls/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deletePoll(id);
+    res.status(204).send();
+  });
+
+  // --- GIVEAWAYS ---
+  app.get("/api/servers/:serverId/giveaways", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    res.json(await storage.getGiveaways(serverId));
+  });
+  app.post("/api/servers/:serverId/giveaways", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const created = await storage.createGiveaway(serverId, req.body);
+    res.status(201).json(created);
+  });
+  app.put("/api/servers/:serverId/giveaways/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updateGiveaway(id, req.body);
+    res.json(updated);
+  });
+  app.post("/api/servers/:serverId/giveaways/:id/reroll", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const ga = await storage.updateGiveaway(id, { winnerIds: [] });
+    res.json(ga);
+  });
+  app.delete("/api/servers/:serverId/giveaways/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await storage.deleteGiveaway(id);
+    res.status(204).send();
+  });
+
   // --- SEED DATABASE ---
   await seedDatabase();
+}
+
+function generateMockInsights(serverId: number) {
+  const insights = [];
+  const now = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split("T")[0];
+    const base = 200 + Math.floor(Math.random() * 300);
+    const hourlyActivity = Array.from({ length: 24 }, (_, h) => {
+      const factor = h >= 15 && h <= 22 ? 1.5 : h >= 0 && h <= 7 ? 0.3 : 1;
+      return Math.floor(Math.random() * 40 * factor);
+    });
+    insights.push({
+      id: i + 1,
+      serverId,
+      date: dateStr,
+      messageCount: base,
+      memberCount: 1000 + Math.floor(Math.random() * 50) - 25,
+      memberJoins: Math.floor(Math.random() * 15),
+      memberLeaves: Math.floor(Math.random() * 8),
+      commandsUsed: Math.floor(Math.random() * 80),
+      topChannels: [
+        { channelId: "general", channelName: "#general", count: Math.floor(base * 0.4) },
+        { channelId: "memes", channelName: "#memes", count: Math.floor(base * 0.25) },
+        { channelId: "off-topic", channelName: "#off-topic", count: Math.floor(base * 0.2) },
+      ],
+      hourlyActivity,
+      weekdayActivity: [40, 60, 55, 65, 70, 90, 80],
+      createdAt: d,
+    });
+  }
+  return insights;
 }
 
 async function seedDatabase() {

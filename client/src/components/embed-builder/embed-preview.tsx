@@ -227,7 +227,7 @@ export function EmbedPreview({ embed }: { embed: Partial<Embed> }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 mb-1 flex-wrap">
-            <span className="font-semibold text-white text-sm">NexBot</span>
+            <span className="font-semibold text-white text-sm">Archivist</span>
             <span className="bg-[#5865F2] text-white text-[10px] px-1 py-0.5 rounded font-medium">BOT</span>
             <span className="text-[#949BA4] text-xs">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>

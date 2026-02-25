@@ -55,7 +55,7 @@ export default function DashboardOverview() {
               <Server className="w-10 h-10 text-primary" />
             </div>
             <h2 className="text-2xl font-display font-bold mb-2">No Servers Found</h2>
-            <p className="text-muted-foreground max-w-md">You aren't managing any servers yet. Invite NexBot to your Discord server to get started.</p>
+            <p className="text-muted-foreground max-w-md">You aren't managing any servers yet. Invite Archivist to your Discord server to get started.</p>
           </div>
         ) : (
           servers?.map((server: any, i: number) => {
