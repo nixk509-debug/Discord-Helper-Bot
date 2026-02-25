@@ -1,0 +1,93 @@
+You are building a Discord bot + web dashboard inside ONE Replit project, designed to be deployed 24/7 (Reserved VM style). I want an MVP that is stable, modular, and easy to expand.
+
+GOALS (MVP)
+1) Discord bot using slash commands (no prefix commands unless needed).
+2) Web dashboard hosted by the same app (Express/FastAPI) with Discord OAuth login.
+3) Per-server settings AND per-user theme settings stored in a database.
+4) Premium subscriptions with Stripe:
+   - User buys premium on dashboard (Stripe Checkout)
+   - Stripe webhook updates DB for that Discord user ID
+   - Bot unlocks premium features based on DB
+   - Owner override: specific OWNER_IDS always have premium for free (me).
+5) Clean error logging + a /health endpoint.
+
+CONSTRAINTS
+- Must run on Replit.
+- Must be single-repo, single deployment (bot + dashboard together) to keep cost low.
+- Use SQLite (local file) for MVP, with a clean DB layer (tables + simple migrations). Do NOT require paid DB services.
+- All secrets must be loaded from environment variables / Replit Secrets. Never hardcode tokens.
+- Must include a README with step-by-step setup + required Secrets list.
+- Keep dashboard simple: server selection, settings editing, theme editing, premium page. Use EJS/HTML or lightweight frontend (no heavy Next.js unless necessary).
+
+DISCORD FEATURES (MVP)
+A) /setup
+   - registers initial guild settings if missing
+B) /panel post
+   - posts a “panel” embed into a specified channel using the server theme
+C) /theme set (user)
+   - lets a user set their personal theme (colors, emoji set, style)
+D) /theme preview
+   - shows a preview embed using their theme
+E) /premium status
+   - shows if the user is premium, and what perks they have
+
+DASHBOARD FEATURES (MVP)
+1) Login with Discord OAuth
+2) Pick a server (only show servers where user is admin/manage_guild)
+3) Edit server settings:
+   - main theme color
+   - log channel id
+   - feature toggles (autopost on/off, panels on/off)
+4) Edit user theme (logged in user)
+5) Premium page:
+   - buy premium (Stripe checkout link/button)
+   - show premium status
+6) Admin/Owner view:
+   - list premium users
+   - manual comp premium (optional)
+
+PREMIUM PERKS (MVP)
+- More saved templates (premium users can save 10, free users 2)
+- Access to “advanced panel styles” (extra fields/layout presets)
+- Higher autopost limit (if autopost exists in MVP; if not, stub it cleanly)
+
+ARCHITECTURE REQUIREMENTS
+- Choose Node.js + discord.js v14 + Express by default (recommended).
+- Use passport-discord for OAuth.
+- Use stripe SDK + webhook route with signature verification.
+- Use a simple DB module with functions for:
+  - get/set guild settings
+  - get/set user theme
+  - get/set premium status
+  - templates CRUD (with limits by tier)
+- Add centralized error handler and structured logging (pino/winston).
+- Add rate limiting for dashboard endpoints.
+
+DELIVERABLES
+1) Full working codebase with clear file structure.
+2) README with:
+   - required environment variables
+   - how to create Discord app/bot + OAuth redirect URI
+   - how to set Replit Secrets
+   - how to run locally in Replit
+   - how to deploy 24/7 on Replit
+   - how to set up Stripe product/price + webhook
+3) Provide a quick “smoke test” checklist:
+   - bot connects
+   - /health returns ok
+   - oauth login works
+   - can edit settings and see changes in DB
+   - stripe webhook updates premium status (include a test mode note)
+
+SECURITY / COMPLIANCE NOTES
+- Don’t host explicit images/content in the dashboard. Keep it a settings tool.
+- Add permissions checks on bot commands and dashboard server edits.
+
+START BY:
+- Create the repo skeleton
+- Implement DB schema
+- Implement bot login + minimal commands
+- Implement dashboard login + server selection
+- Add Stripe checkout + webhook
+- Add README
+Return the full file tree and the important file contents.
