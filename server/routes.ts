@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { storage } from "./storage";
@@ -6,7 +7,7 @@ import { servers } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 
-export async function registerRoutes(app: Express) {
+export async function registerRoutes(_server: Server, app: Express) {
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
     const allServers = await storage.getServers();

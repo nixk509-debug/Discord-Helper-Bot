@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useCreateEmbed, useUpdateEmbed, useDeleteEmbed } from "@/hooks/use-bot";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,10 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Save, Layout, Eye, Edit3, Copy, GripVertical, ChevronDown, ChevronUp, ExternalLink, MousePointer } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
+  Plus, Trash2, Save, Layout, Eye, Edit3, Copy, ChevronDown, ChevronUp,
+  MousePointer, Type, Minus, Image, FileText, Box, Heading, Columns,
+  ArrowUp, ArrowDown, Code, Upload, Download, BookTemplate, X
+} from "lucide-react";
 import { EmbedPreview, type EmbedField, type EmbedComponent } from "./embed-preview";
+import { COMPONENT_TYPES } from "@shared/schema";
 import type { Embed } from "@shared/schema";
 
 interface EmbedFormState {
@@ -54,17 +59,194 @@ const PRESET_COLORS = [
   "#FF8C00", "#9B59B6", "#1ABC9C", "#E91E63", "#2196F3",
 ];
 
+const COMPONENT_PICKER_ITEMS = [
+  { type: COMPONENT_TYPES.TEXT_DISPLAY, label: "Text Display", desc: "Standalone text block with markdown", icon: Type },
+  { type: COMPONENT_TYPES.SECTION, label: "Section", desc: "Text with optional thumbnail or button accessory", icon: Columns },
+  { type: COMPONENT_TYPES.SEPARATOR, label: "Separator", desc: "Horizontal divider line", icon: Minus },
+  { type: COMPONENT_TYPES.MEDIA_GALLERY, label: "Media Gallery", desc: "Grid of images and media", icon: Image },
+  { type: COMPONENT_TYPES.FILE, label: "File", desc: "File attachment", icon: FileText },
+  { type: COMPONENT_TYPES.CONTAINER, label: "Container", desc: "Colored container wrapping other components", icon: Box },
+  { type: 1, label: "Header", desc: "Large bold text header", icon: Heading },
+  { type: COMPONENT_TYPES.BUTTON, label: "Button", desc: "Interactive button", icon: MousePointer },
+  { type: COMPONENT_TYPES.SELECT_MENU, label: "Select Menu", desc: "Dropdown select menu", icon: ChevronDown },
+];
+
+const TEMPLATES: Record<string, { name: string; form: Partial<EmbedFormState> }> = {
+  welcome: {
+    name: "Welcome Message",
+    form: {
+      name: "Welcome Message",
+      title: "Welcome to the Server!",
+      description: "Hey there! We're glad to have you here. Make sure to read the rules and have fun!",
+      color: "#57F287",
+      footerText: "Enjoy your stay",
+      timestamp: true,
+      components: [
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "small" },
+        { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "**Quick Links:**\nRead the rules in #rules\nIntroduce yourself in #introductions\nGet roles in #roles" },
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "small" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Rules", style: 1, customId: "btn_rules" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Get Roles", style: 3, customId: "btn_roles" },
+      ],
+    },
+  },
+  rules: {
+    name: "Server Rules",
+    form: {
+      name: "Server Rules",
+      title: "Server Rules",
+      description: "Please follow these rules to keep our community friendly and welcoming.",
+      color: "#5865F2",
+      components: [
+        { type: 1, content: "Community Guidelines" },
+        { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "**1.** Be respectful to all members\n**2.** No spam or self-promotion\n**3.** No NSFW content\n**4.** Follow Discord ToS\n**5.** Listen to moderators" },
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "large" },
+        { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "*Breaking rules may result in warnings, mutes, or bans.*" },
+      ],
+    },
+  },
+  announcement: {
+    name: "Announcement",
+    form: {
+      name: "Announcement",
+      title: "Important Announcement",
+      description: "We have some exciting news to share with the community!",
+      color: "#FEE75C",
+      timestamp: true,
+      authorName: "Server Staff",
+      components: [
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "small" },
+        { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "Details about the announcement go here. You can use **bold**, *italic*, and other markdown." },
+        { type: COMPONENT_TYPES.SEPARATOR, divider: true, spacing: "large" },
+        { type: COMPONENT_TYPES.BUTTON, label: "Learn More", style: 5, url: "https://example.com" },
+      ],
+    },
+  },
+  faq: {
+    name: "FAQ",
+    form: {
+      name: "FAQ",
+      title: "Frequently Asked Questions",
+      color: "#1ABC9C",
+      fields: [
+        { name: "How do I get roles?", value: "Head to #roles and react to the messages there!", inline: false },
+        { name: "How do I report someone?", value: "Use the /report command or DM a moderator.", inline: false },
+        { name: "Can I suggest features?", value: "Yes! Use the #suggestions channel.", inline: false },
+      ],
+      components: [],
+    },
+  },
+  changelog: {
+    name: "Changelog",
+    form: {
+      name: "Changelog",
+      title: "Changelog v2.0",
+      color: "#9B59B6",
+      timestamp: true,
+      components: [
+        { type: 1, content: "What's New" },
+        {
+          type: COMPONENT_TYPES.CONTAINER,
+          accentColor: "#57F287",
+          components: [
+            { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "**Added:**\n- New leveling system\n- Reaction roles\n- Custom commands" },
+          ],
+        },
+        {
+          type: COMPONENT_TYPES.CONTAINER,
+          accentColor: "#FEE75C",
+          components: [
+            { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "**Changed:**\n- Improved automod filters\n- Updated welcome messages" },
+          ],
+        },
+        {
+          type: COMPONENT_TYPES.CONTAINER,
+          accentColor: "#ED4245",
+          components: [
+            { type: COMPONENT_TYPES.TEXT_DISPLAY, content: "**Fixed:**\n- Logging reliability\n- Permission checks" },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+function createDefaultComponent(type: number): EmbedComponent {
+  switch (type) {
+    case 1:
+      return { type: 1, content: "Header Text" };
+    case COMPONENT_TYPES.BUTTON:
+      return { type: 2, label: "Button", style: 1, customId: `btn_${Date.now()}` };
+    case COMPONENT_TYPES.SELECT_MENU:
+      return { type: 3, label: "Select an option", customId: `select_${Date.now()}`, options: [{ label: "Option 1", value: "opt1" }] };
+    case COMPONENT_TYPES.THUMBNAIL:
+      return { type: 7, url: "", description: "" };
+    case COMPONENT_TYPES.SECTION:
+      return { type: 9, components: [{ type: 10, content: "Section text" }], accessory: undefined };
+    case COMPONENT_TYPES.TEXT_DISPLAY:
+      return { type: 10, content: "Text content here. Supports **markdown**." };
+    case COMPONENT_TYPES.FILE:
+      return { type: 11, url: "", description: "" };
+    case COMPONENT_TYPES.MEDIA_GALLERY:
+      return { type: 12, items: [{ url: "", description: "", spoiler: false }] };
+    case COMPONENT_TYPES.SEPARATOR:
+      return { type: 14, divider: true, spacing: "small" };
+    case COMPONENT_TYPES.CONTAINER:
+      return { type: 17, accentColor: "#5865F2", components: [{ type: 10, content: "Container content" }], spoiler: false };
+    default:
+      return { type: 10, content: "" };
+  }
+}
+
+function getComponentLabel(type: number): string {
+  switch (type) {
+    case 1: return "Header";
+    case 2: return "Button";
+    case 3: return "Select Menu";
+    case 7: return "Thumbnail";
+    case 9: return "Section";
+    case 10: return "Text Display";
+    case 11: return "File";
+    case 12: return "Media Gallery";
+    case 14: return "Separator";
+    case 17: return "Container";
+    default: return "Unknown";
+  }
+}
+
+function getComponentIcon(type: number) {
+  switch (type) {
+    case 1: return Heading;
+    case 2: return MousePointer;
+    case 3: return ChevronDown;
+    case 7: return Image;
+    case 9: return Columns;
+    case 10: return Type;
+    case 11: return FileText;
+    case 12: return Image;
+    case 14: return Minus;
+    case 17: return Box;
+    default: return Type;
+  }
+}
+
 export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number; embeds: Embed[]; toast: any }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<EmbedFormState>({ ...DEFAULT_FORM });
   const [showBuilder, setShowBuilder] = useState(false);
+  const [showComponentPicker, setShowComponentPicker] = useState(false);
+  const [showJsonDialog, setShowJsonDialog] = useState(false);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [jsonImportValue, setJsonImportValue] = useState("");
+  const [jsonMode, setJsonMode] = useState<"import" | "export">("export");
+  const [selectedComponentIndex, setSelectedComponentIndex] = useState<number | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     basic: true,
     author: false,
     fields: false,
     images: false,
     footer: false,
-    components: false,
+    components: true,
   });
 
   const createEmbed = useCreateEmbed(serverId);
@@ -83,6 +265,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     setForm({ ...DEFAULT_FORM });
     setEditingId(null);
     setShowBuilder(true);
+    setSelectedComponentIndex(null);
   };
 
   const openEditEmbed = (embed: Embed) => {
@@ -105,6 +288,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     });
     setEditingId(embed.id);
     setShowBuilder(true);
+    setSelectedComponentIndex(null);
   };
 
   const duplicateEmbed = (embed: Embed) => {
@@ -127,6 +311,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     });
     setEditingId(null);
     setShowBuilder(true);
+    setSelectedComponentIndex(null);
   };
 
   const saveEmbed = () => {
@@ -185,10 +370,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   };
 
   const addComponent = (type: number) => {
-    const newComp: EmbedComponent = type === 2
-      ? { type: 2, label: "Button", style: 1, customId: `btn_${Date.now()}` }
-      : { type: 3, label: "Select Menu", customId: `select_${Date.now()}`, options: [{ label: "Option 1", value: "opt1" }] };
+    const newComp = createDefaultComponent(type);
     updateForm("components", [...form.components, newComp]);
+    setSelectedComponentIndex(form.components.length);
+    setShowComponentPicker(false);
   };
 
   const updateComponent = (index: number, updates: Partial<EmbedComponent>) => {
@@ -199,6 +384,58 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
 
   const removeComponent = (index: number) => {
     updateForm("components", form.components.filter((_, i) => i !== index));
+    if (selectedComponentIndex === index) setSelectedComponentIndex(null);
+    else if (selectedComponentIndex !== null && selectedComponentIndex > index) {
+      setSelectedComponentIndex(selectedComponentIndex - 1);
+    }
+  };
+
+  const moveComponent = (index: number, direction: "up" | "down") => {
+    const newComps = [...form.components];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newComps.length) return;
+    [newComps[index], newComps[targetIndex]] = [newComps[targetIndex], newComps[index]];
+    updateForm("components", newComps);
+    if (selectedComponentIndex === index) setSelectedComponentIndex(targetIndex);
+    else if (selectedComponentIndex === targetIndex) setSelectedComponentIndex(index);
+  };
+
+  const addChildComponent = (parentIndex: number, type: number) => {
+    const parent = form.components[parentIndex];
+    const children = parent.components || [];
+    updateComponent(parentIndex, { components: [...children, createDefaultComponent(type)] });
+  };
+
+  const updateChildComponent = (parentIndex: number, childIndex: number, updates: Partial<EmbedComponent>) => {
+    const parent = form.components[parentIndex];
+    const children = [...(parent.components || [])];
+    children[childIndex] = { ...children[childIndex], ...updates };
+    updateComponent(parentIndex, { components: children });
+  };
+
+  const removeChildComponent = (parentIndex: number, childIndex: number) => {
+    const parent = form.components[parentIndex];
+    const children = (parent.components || []).filter((_, i) => i !== childIndex);
+    updateComponent(parentIndex, { components: children });
+  };
+
+  const addMediaItem = (compIndex: number) => {
+    const comp = form.components[compIndex];
+    const items = comp.items || [];
+    updateComponent(compIndex, { items: [...items, { url: "", description: "", spoiler: false }] });
+  };
+
+  const updateMediaItem = (compIndex: number, itemIndex: number, updates: Partial<{ url: string; description: string; spoiler: boolean }>) => {
+    const comp = form.components[compIndex];
+    const items = [...(comp.items || [])];
+    items[itemIndex] = { ...items[itemIndex], ...updates };
+    updateComponent(compIndex, { items });
+  };
+
+  const removeMediaItem = (compIndex: number, itemIndex: number) => {
+    const comp = form.components[compIndex];
+    const items = (comp.items || []).filter((_, i) => i !== itemIndex);
+    updateComponent(compIndex, { items });
   };
 
   const addSelectOption = (compIndex: number) => {
@@ -222,17 +459,388 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     updateComponent(compIndex, { options: opts });
   };
 
+  const handleJsonExport = () => {
+    const jsonData = {
+      name: form.name,
+      title: form.title || undefined,
+      description: form.description || undefined,
+      url: form.url || undefined,
+      color: form.color ? parseInt(form.color.replace('#', ''), 16) : undefined,
+      timestamp: form.timestamp ? new Date().toISOString() : undefined,
+      footer: form.footerText ? { text: form.footerText, icon_url: form.footerIconUrl || undefined } : undefined,
+      image: form.imageUrl ? { url: form.imageUrl } : undefined,
+      thumbnail: form.thumbnailUrl ? { url: form.thumbnailUrl } : undefined,
+      author: form.authorName ? { name: form.authorName, url: form.authorUrl || undefined, icon_url: form.authorIconUrl || undefined } : undefined,
+      fields: form.fields.length > 0 ? form.fields : undefined,
+      components: form.components.length > 0 ? form.components : undefined,
+    };
+    setJsonImportValue(JSON.stringify(jsonData, null, 2));
+    setJsonMode("export");
+    setShowJsonDialog(true);
+  };
+
+  const handleJsonImport = () => {
+    setJsonImportValue("");
+    setJsonMode("import");
+    setShowJsonDialog(true);
+  };
+
+  const applyJsonImport = () => {
+    try {
+      const data = JSON.parse(jsonImportValue);
+      setForm(prev => ({
+        ...prev,
+        title: data.title || "",
+        description: data.description || "",
+        url: data.url || "",
+        color: data.color ? (typeof data.color === 'number' ? `#${data.color.toString(16).padStart(6, '0')}` : data.color) : "#5865F2",
+        timestamp: !!data.timestamp,
+        footerText: data.footer?.text || "",
+        footerIconUrl: data.footer?.icon_url || "",
+        imageUrl: data.image?.url || "",
+        thumbnailUrl: data.thumbnail?.url || "",
+        authorName: data.author?.name || "",
+        authorUrl: data.author?.url || "",
+        authorIconUrl: data.author?.icon_url || "",
+        fields: data.fields || [],
+        components: data.components || [],
+      }));
+      setShowJsonDialog(false);
+      toast({ title: "Imported", description: "JSON data applied to the builder." });
+    } catch {
+      toast({ title: "Invalid JSON", description: "Could not parse the JSON data.", variant: "destructive" });
+    }
+  };
+
+  const loadTemplate = (key: string) => {
+    const template = TEMPLATES[key];
+    if (!template) return;
+    setForm({ ...DEFAULT_FORM, ...template.form } as EmbedFormState);
+    setEditingId(null);
+    setShowTemplateDialog(false);
+    setShowBuilder(true);
+    setSelectedComponentIndex(null);
+  };
+
+  const renderComponentEditor = (comp: EmbedComponent, index: number, isChild?: boolean, parentIndex?: number) => {
+    const Icon = getComponentIcon(comp.type);
+    const label = getComponentLabel(comp.type);
+
+    const onUpdate = isChild && parentIndex !== undefined
+      ? (updates: Partial<EmbedComponent>) => updateChildComponent(parentIndex, index, updates)
+      : (updates: Partial<EmbedComponent>) => updateComponent(index, updates);
+
+    const onRemove = isChild && parentIndex !== undefined
+      ? () => removeChildComponent(parentIndex, index)
+      : () => removeComponent(index);
+
+    return (
+      <div key={index} className={`rounded-lg border border-white/5 bg-background/30 p-3 space-y-2 ${!isChild && selectedComponentIndex === index ? 'ring-1 ring-primary/50' : ''}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium flex items-center gap-1.5">
+            <Icon className="w-3 h-3 text-primary" />
+            {label}
+          </span>
+          <div className="flex items-center gap-1">
+            {!isChild && (
+              <>
+                <Button variant="ghost" size="icon" onClick={() => moveComponent(index, "up")} disabled={index === 0} className="h-6 w-6" data-testid={`move-up-${index}`}>
+                  <ArrowUp className="w-3 h-3" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => moveComponent(index, "down")} disabled={index === form.components.length - 1} className="h-6 w-6" data-testid={`move-down-${index}`}>
+                  <ArrowDown className="w-3 h-3" />
+                </Button>
+              </>
+            )}
+            <Button variant="ghost" size="icon" onClick={onRemove} className="h-6 w-6 text-destructive hover:text-destructive" data-testid={`remove-component-${index}`}>
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+
+        {comp.type === 1 && (
+          <div>
+            <Label className="text-xs">Header Text</Label>
+            <Input value={comp.content || ""} onChange={(e) => onUpdate({ content: e.target.value })} placeholder="Header text" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`header-content-${index}`} />
+          </div>
+        )}
+
+        {comp.type === 10 && (
+          <div>
+            <Label className="text-xs">Content (Markdown supported)</Label>
+            <Textarea value={comp.content || ""} onChange={(e) => onUpdate({ content: e.target.value })} placeholder="Text content with **markdown**" className="bg-background/50 border-white/10 min-h-[60px] text-xs mt-1" data-testid={`text-content-${index}`} />
+          </div>
+        )}
+
+        {comp.type === 14 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Switch checked={comp.divider !== false} onCheckedChange={(v) => onUpdate({ divider: v })} className="scale-75" data-testid={`separator-divider-${index}`} />
+              <Label className="text-xs text-muted-foreground">Show divider line</Label>
+            </div>
+            <div>
+              <Label className="text-xs">Spacing</Label>
+              <Select value={comp.spacing || "small"} onValueChange={(v) => onUpdate({ spacing: v as "small" | "large" })}>
+                <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`separator-spacing-${index}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="small">Small</SelectItem>
+                  <SelectItem value="large">Large</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {comp.type === 11 && (
+          <div className="space-y-2">
+            <div>
+              <Label className="text-xs">File URL</Label>
+              <Input value={comp.url || ""} onChange={(e) => onUpdate({ url: e.target.value })} placeholder="https://example.com/file.pdf" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`file-url-${index}`} />
+            </div>
+            <div>
+              <Label className="text-xs">Description</Label>
+              <Input value={comp.description || ""} onChange={(e) => onUpdate({ description: e.target.value })} placeholder="File description" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`file-desc-${index}`} />
+            </div>
+          </div>
+        )}
+
+        {comp.type === 7 && (
+          <div className="space-y-2">
+            <div>
+              <Label className="text-xs">Thumbnail URL</Label>
+              <Input value={comp.url || ""} onChange={(e) => onUpdate({ url: e.target.value })} placeholder="https://example.com/image.png" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`thumbnail-url-${index}`} />
+            </div>
+            <div>
+              <Label className="text-xs">Description</Label>
+              <Input value={comp.description || ""} onChange={(e) => onUpdate({ description: e.target.value })} placeholder="Alt text" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`thumbnail-desc-${index}`} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={comp.spoiler || false} onCheckedChange={(v) => onUpdate({ spoiler: v })} className="scale-75" data-testid={`thumbnail-spoiler-${index}`} />
+              <Label className="text-xs text-muted-foreground">Spoiler</Label>
+            </div>
+          </div>
+        )}
+
+        {comp.type === 12 && (
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Media Items</Label>
+            {(comp.items || []).map((item, mi) => (
+              <div key={mi} className="rounded border border-white/5 bg-background/20 p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Item {mi + 1}</span>
+                  <Button variant="ghost" size="icon" onClick={() => removeMediaItem(index, mi)} className="h-5 w-5 text-destructive" data-testid={`remove-media-${index}-${mi}`}>
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </Button>
+                </div>
+                <Input value={item.url} onChange={(e) => updateMediaItem(index, mi, { url: e.target.value })} placeholder="Image URL" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`media-url-${index}-${mi}`} />
+                <Input value={item.description || ""} onChange={(e) => updateMediaItem(index, mi, { description: e.target.value })} placeholder="Description (alt text)" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`media-desc-${index}-${mi}`} />
+                <div className="flex items-center gap-2">
+                  <Switch checked={item.spoiler || false} onCheckedChange={(v) => updateMediaItem(index, mi, { spoiler: v })} className="scale-75" data-testid={`media-spoiler-${index}-${mi}`} />
+                  <Label className="text-[10px] text-muted-foreground">Spoiler</Label>
+                </div>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={() => addMediaItem(index)} className="w-full border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-media-item-${index}`}>
+              <Plus className="w-3 h-3" /> Add Media Item
+            </Button>
+          </div>
+        )}
+
+        {comp.type === 9 && (
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Section Content</Label>
+            {(comp.components || []).map((child, ci) => (
+              <div key={ci} className="pl-3 border-l-2 border-primary/30">
+                {renderComponentEditor(child, ci, true, index)}
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => addChildComponent(index, COMPONENT_TYPES.TEXT_DISPLAY)} className="flex-1 border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-section-text-${index}`}>
+                <Type className="w-3 h-3" /> Add Text
+              </Button>
+            </div>
+
+            <div className="mt-2 pt-2 border-t border-white/5">
+              <Label className="text-xs text-muted-foreground">Accessory (optional)</Label>
+              {comp.accessory ? (
+                <div className="mt-1 rounded border border-white/5 bg-background/20 p-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">{comp.accessory.type === 7 ? "Thumbnail" : "Button"}</span>
+                    <Button variant="ghost" size="icon" onClick={() => onUpdate({ accessory: undefined })} className="h-5 w-5 text-destructive" data-testid={`remove-accessory-${index}`}>
+                      <X className="w-2.5 h-2.5" />
+                    </Button>
+                  </div>
+                  {comp.accessory.type === 7 && (
+                    <>
+                      <Input value={comp.accessory.url || ""} onChange={(e) => onUpdate({ accessory: { ...comp.accessory!, url: e.target.value } })} placeholder="Thumbnail URL" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`accessory-thumb-url-${index}`} />
+                      <Input value={comp.accessory.description || ""} onChange={(e) => onUpdate({ accessory: { ...comp.accessory!, description: e.target.value } })} placeholder="Description" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`accessory-thumb-desc-${index}`} />
+                    </>
+                  )}
+                  {comp.accessory.type === 2 && (
+                    <>
+                      <Input value={comp.accessory.label || ""} onChange={(e) => onUpdate({ accessory: { ...comp.accessory!, label: e.target.value } })} placeholder="Button label" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`accessory-btn-label-${index}`} />
+                      <Select value={String(comp.accessory.style || 1)} onValueChange={(v) => onUpdate({ accessory: { ...comp.accessory!, style: parseInt(v) } })}>
+                        <SelectTrigger className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`accessory-btn-style-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">Primary</SelectItem>
+                          <SelectItem value="2">Secondary</SelectItem>
+                          <SelectItem value="3">Success</SelectItem>
+                          <SelectItem value="4">Danger</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="flex gap-2 mt-1">
+                  <Button variant="outline" size="sm" onClick={() => onUpdate({ accessory: { type: 7, url: "", description: "" } })} className="flex-1 border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-thumbnail-accessory-${index}`}>
+                    <Image className="w-3 h-3" /> Thumbnail
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => onUpdate({ accessory: { type: 2, label: "Button", style: 1, customId: `btn_${Date.now()}` } })} className="flex-1 border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-button-accessory-${index}`}>
+                    <MousePointer className="w-3 h-3" /> Button
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {comp.type === 17 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Accent Color</Label>
+              <input type="color" value={comp.accentColor || "#5865F2"} onChange={(e) => onUpdate({ accentColor: e.target.value })} className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent" data-testid={`container-color-${index}`} />
+              <Input value={comp.accentColor || "#5865F2"} onChange={(e) => onUpdate({ accentColor: e.target.value })} className="bg-background/50 border-white/10 h-7 w-24 font-mono text-xs" data-testid={`container-color-hex-${index}`} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={comp.spoiler || false} onCheckedChange={(v) => onUpdate({ spoiler: v })} className="scale-75" data-testid={`container-spoiler-${index}`} />
+              <Label className="text-xs text-muted-foreground">Spoiler</Label>
+            </div>
+            <Label className="text-xs text-muted-foreground">Child Components</Label>
+            {(comp.components || []).map((child, ci) => (
+              <div key={ci} className="pl-3 border-l-2 border-primary/30">
+                {renderComponentEditor(child, ci, true, index)}
+              </div>
+            ))}
+            <div className="flex gap-1 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => addChildComponent(index, COMPONENT_TYPES.TEXT_DISPLAY)} className="border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-container-text-${index}`}>
+                <Type className="w-3 h-3" /> Text
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => addChildComponent(index, COMPONENT_TYPES.SEPARATOR)} className="border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-container-sep-${index}`}>
+                <Minus className="w-3 h-3" /> Separator
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => addChildComponent(index, COMPONENT_TYPES.MEDIA_GALLERY)} className="border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-container-media-${index}`}>
+                <Image className="w-3 h-3" /> Media
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {comp.type === 2 && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Label</Label>
+                <Input value={comp.label || ""} onChange={(e) => onUpdate({ label: e.target.value })} placeholder="Click me" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-label-${index}`} />
+              </div>
+              <div>
+                <Label className="text-xs">Style</Label>
+                <Select value={String(comp.style || 1)} onValueChange={(v) => onUpdate({ style: parseInt(v) })}>
+                  <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-style-${index}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Primary</SelectItem>
+                    <SelectItem value="2">Secondary</SelectItem>
+                    <SelectItem value="3">Success</SelectItem>
+                    <SelectItem value="4">Danger</SelectItem>
+                    <SelectItem value="5">Link</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">{comp.style === 5 ? "URL" : "Custom ID"}</Label>
+                <Input
+                  value={comp.style === 5 ? comp.url || "" : comp.customId || ""}
+                  onChange={(e) => comp.style === 5 ? onUpdate({ url: e.target.value }) : onUpdate({ customId: e.target.value })}
+                  placeholder={comp.style === 5 ? "https://..." : "custom_id"}
+                  className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                  data-testid={`button-id-${index}`}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Emoji</Label>
+                <Input value={comp.emoji || ""} onChange={(e) => onUpdate({ emoji: e.target.value })} placeholder="icon" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-emoji-${index}`} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={comp.disabled || false} onCheckedChange={(v) => onUpdate({ disabled: v })} className="scale-75" data-testid={`button-disabled-${index}`} />
+              <Label className="text-xs text-muted-foreground">Disabled</Label>
+            </div>
+          </>
+        )}
+
+        {comp.type === 3 && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Placeholder</Label>
+                <Input value={comp.label || ""} onChange={(e) => onUpdate({ label: e.target.value })} placeholder="Select an option..." className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-placeholder-${index}`} />
+              </div>
+              <div>
+                <Label className="text-xs">Custom ID</Label>
+                <Input value={comp.customId || ""} onChange={(e) => onUpdate({ customId: e.target.value })} placeholder="select_id" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-id-${index}`} />
+              </div>
+            </div>
+            <div className="space-y-2 mt-2">
+              <Label className="text-xs text-muted-foreground">Options</Label>
+              {(comp.options || []).map((opt, oi) => (
+                <div key={oi} className="flex gap-2 items-start">
+                  <div className="flex-1 grid grid-cols-3 gap-1">
+                    <Input value={opt.label} onChange={(e) => updateSelectOption(index, oi, "label", e.target.value)} placeholder="Label" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-label-${index}-${oi}`} />
+                    <Input value={opt.value} onChange={(e) => updateSelectOption(index, oi, "value", e.target.value)} placeholder="Value" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-value-${index}-${oi}`} />
+                    <Input value={opt.description || ""} onChange={(e) => updateSelectOption(index, oi, "description", e.target.value)} placeholder="Description" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-desc-${index}-${oi}`} />
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => removeSelectOption(index, oi)} className="h-7 w-7 text-destructive shrink-0" data-testid={`remove-select-opt-${index}-${oi}`}>
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={() => addSelectOption(index)} className="w-full border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-select-opt-${index}`}>
+                <Plus className="w-3 h-3" /> Add Option
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   if (showBuilder) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <Button variant="ghost" onClick={() => setShowBuilder(false)} className="gap-2 text-muted-foreground hover:text-foreground" data-testid="back-to-embeds">
             <ChevronDown className="w-4 h-4 rotate-90" /> Back to Embeds
           </Button>
-          <Button onClick={saveEmbed} disabled={createEmbed.isPending || updateEmbed.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="save-embed">
-            <Save className="w-4 h-4" />
-            {createEmbed.isPending || updateEmbed.isPending ? "Saving..." : editingId ? "Update Embed" : "Save Embed"}
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleJsonImport} className="gap-1" data-testid="button-json-import">
+              <Upload className="w-3 h-3" /> Import JSON
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleJsonExport} className="gap-1" data-testid="button-json-export">
+              <Download className="w-3 h-3" /> Export JSON
+            </Button>
+            <Button onClick={saveEmbed} disabled={createEmbed.isPending || updateEmbed.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="save-embed">
+              <Save className="w-4 h-4" />
+              {createEmbed.isPending || updateEmbed.isPending ? "Saving..." : editingId ? "Update Embed" : "Save Embed"}
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -264,7 +872,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
                 </div>
                 <div>
                   <Label className="text-xs">Color</Label>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <input type="color" value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="w-10 h-10 rounded cursor-pointer border-0 bg-transparent" data-testid="input-embed-color" />
                     <Input value={form.color} onChange={(e) => updateForm("color", e.target.value)} className="bg-background/50 border-white/10 w-28 font-mono text-xs" data-testid="input-embed-color-hex" />
                     <div className="flex gap-1 flex-wrap">
@@ -298,9 +906,9 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
               <div className="space-y-3">
                 {form.fields.map((field, i) => (
                   <div key={i} className="rounded-lg border border-white/5 bg-background/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-muted-foreground font-medium">Field {i + 1}</span>
-                      <Button variant="ghost" size="sm" onClick={() => removeField(i)} className="h-6 w-6 p-0 text-destructive hover:text-destructive" data-testid={`remove-field-${i}`}>
+                      <Button variant="ghost" size="icon" onClick={() => removeField(i)} className="h-6 w-6 text-destructive hover:text-destructive" data-testid={`remove-field-${i}`}>
                         <Trash2 className="w-3 h-3" />
                       </Button>
                     </div>
@@ -348,105 +956,13 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection title={`Components (${form.components.length})`} expanded={expandedSections.components} onToggle={() => toggleSection("components")}>
+            <CollapsibleSection title={`Components v2 (${form.components.length})`} expanded={expandedSections.components} onToggle={() => toggleSection("components")}>
               <div className="space-y-3">
-                {form.components.map((comp, i) => (
-                  <div key={i} className="rounded-lg border border-white/5 bg-background/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium flex items-center gap-1.5">
-                        {comp.type === 2 ? <MousePointer className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        {comp.type === 2 ? "Button" : "Select Menu"}
-                      </span>
-                      <Button variant="ghost" size="sm" onClick={() => removeComponent(i)} className="h-6 w-6 p-0 text-destructive hover:text-destructive" data-testid={`remove-component-${i}`}>
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
+                {form.components.map((comp, i) => renderComponentEditor(comp, i))}
 
-                    {comp.type === 2 && (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs">Label</Label>
-                            <Input value={comp.label || ""} onChange={(e) => updateComponent(i, { label: e.target.value })} placeholder="Click me" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-label-${i}`} />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Style</Label>
-                            <Select value={String(comp.style || 1)} onValueChange={(v) => updateComponent(i, { style: parseInt(v) })}>
-                              <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-style-${i}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="1">Primary</SelectItem>
-                                <SelectItem value="2">Secondary</SelectItem>
-                                <SelectItem value="3">Success</SelectItem>
-                                <SelectItem value="4">Danger</SelectItem>
-                                <SelectItem value="5">Link</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs">{comp.style === 5 ? "URL" : "Custom ID"}</Label>
-                            <Input
-                              value={comp.style === 5 ? comp.url || "" : comp.customId || ""}
-                              onChange={(e) => comp.style === 5 ? updateComponent(i, { url: e.target.value }) : updateComponent(i, { customId: e.target.value })}
-                              placeholder={comp.style === 5 ? "https://..." : "custom_id"}
-                              className="bg-background/50 border-white/10 h-8 text-xs mt-1"
-                              data-testid={`button-id-${i}`}
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Emoji</Label>
-                            <Input value={comp.emoji || ""} onChange={(e) => updateComponent(i, { emoji: e.target.value })} placeholder="🎮" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-emoji-${i}`} />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {comp.type === 3 && (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label className="text-xs">Placeholder</Label>
-                            <Input value={comp.label || ""} onChange={(e) => updateComponent(i, { label: e.target.value })} placeholder="Select an option..." className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-placeholder-${i}`} />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Custom ID</Label>
-                            <Input value={comp.customId || ""} onChange={(e) => updateComponent(i, { customId: e.target.value })} placeholder="select_id" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-id-${i}`} />
-                          </div>
-                        </div>
-                        <div className="space-y-2 mt-2">
-                          <Label className="text-xs text-muted-foreground">Options</Label>
-                          {(comp.options || []).map((opt, oi) => (
-                            <div key={oi} className="flex gap-2 items-start">
-                              <div className="flex-1 grid grid-cols-3 gap-1">
-                                <Input value={opt.label} onChange={(e) => updateSelectOption(i, oi, "label", e.target.value)} placeholder="Label" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-label-${i}-${oi}`} />
-                                <Input value={opt.value} onChange={(e) => updateSelectOption(i, oi, "value", e.target.value)} placeholder="Value" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-value-${i}-${oi}`} />
-                                <Input value={opt.description || ""} onChange={(e) => updateSelectOption(i, oi, "description", e.target.value)} placeholder="Description" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-desc-${i}-${oi}`} />
-                              </div>
-                              <Button variant="ghost" size="sm" onClick={() => removeSelectOption(i, oi)} className="h-7 w-7 p-0 text-destructive shrink-0" data-testid={`remove-select-opt-${i}-${oi}`}>
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          ))}
-                          <Button variant="outline" size="sm" onClick={() => addSelectOption(i)} className="w-full border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-select-opt-${i}`}>
-                            <Plus className="w-3 h-3" /> Add Option
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => addComponent(2)} className="flex-1 border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-button-component">
-                    <MousePointer className="w-3 h-3" /> Add Button
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => addComponent(3)} className="flex-1 border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-select-component">
-                    <ChevronDown className="w-3 h-3" /> Add Select Menu
-                  </Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={() => setShowComponentPicker(true)} className="w-full border-dashed border-white/10 text-muted-foreground hover:text-foreground gap-2" data-testid="add-component-picker">
+                  <Plus className="w-3 h-3" /> Add Component
+                </Button>
               </div>
             </CollapsibleSection>
           </div>
@@ -466,57 +982,126 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
             </Card>
           </div>
         </div>
+
+        <Dialog open={showComponentPicker} onOpenChange={setShowComponentPicker}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-display">Add Component</DialogTitle>
+              <DialogDescription>Select a Discord Components v2 type to add to your embed.</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-1 gap-2 max-h-[400px] overflow-y-auto">
+              {COMPONENT_PICKER_ITEMS.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.type + "-" + item.label}
+                    onClick={() => addComponent(item.type)}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-white/5 bg-background/30 hover:bg-primary/10 hover:border-primary/30 transition-colors text-left"
+                    data-testid={`picker-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                      <Icon className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{item.label}</div>
+                      <div className="text-xs text-muted-foreground">{item.desc}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showJsonDialog} onOpenChange={setShowJsonDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="font-display">{jsonMode === "export" ? "Export JSON" : "Import JSON"}</DialogTitle>
+              <DialogDescription>
+                {jsonMode === "export" ? "Copy the JSON below to use in your Discord bot or share with others." : "Paste Discord embed JSON to import into the builder."}
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              value={jsonImportValue}
+              onChange={(e) => setJsonImportValue(e.target.value)}
+              className="bg-background/50 border-white/10 min-h-[300px] font-mono text-xs"
+              readOnly={jsonMode === "export"}
+              data-testid="json-textarea"
+            />
+            <DialogFooter className="gap-2">
+              {jsonMode === "export" ? (
+                <Button onClick={() => { navigator.clipboard.writeText(jsonImportValue); toast({ title: "Copied", description: "JSON copied to clipboard." }); }} className="gap-1" data-testid="button-copy-json">
+                  <Copy className="w-3 h-3" /> Copy to Clipboard
+                </Button>
+              ) : (
+                <Button onClick={applyJsonImport} className="gap-1" data-testid="button-apply-json">
+                  <Upload className="w-3 h-3" /> Apply Import
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-xl font-display font-bold text-glow" data-testid="text-embed-title">Embed Builder</h2>
-          <p className="text-muted-foreground text-sm">Create rich message templates with buttons and select menus.</p>
+          <p className="text-muted-foreground text-sm">Create rich message templates with Components v2 support.</p>
         </div>
-        <Button onClick={openNewEmbed} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="button-new-embed">
-          <Plus className="w-4 h-4" /> New Embed
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setShowTemplateDialog(true)} className="gap-2" data-testid="button-templates">
+            <BookTemplate className="w-4 h-4" /> Templates
+          </Button>
+          <Button onClick={openNewEmbed} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="button-new-embed">
+            <Plus className="w-4 h-4" /> New Embed
+          </Button>
+        </div>
       </div>
 
       {embeds.length === 0 ? (
         <div className="py-12 text-center glass-card rounded-xl border border-dashed border-white/10" data-testid="empty-embeds">
           <Layout className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
           <h3 className="text-lg font-medium">No embeds yet</h3>
-          <p className="text-sm text-muted-foreground mb-4">Create your first embed template to get started.</p>
-          <Button onClick={openNewEmbed} variant="outline" className="gap-2">
-            <Plus className="w-4 h-4" /> Create Embed
-          </Button>
+          <p className="text-sm text-muted-foreground mb-4">Create your first embed template or start from a template.</p>
+          <div className="flex items-center justify-center gap-2">
+            <Button onClick={openNewEmbed} variant="outline" className="gap-2" data-testid="button-create-first-embed">
+              <Plus className="w-4 h-4" /> Create Embed
+            </Button>
+            <Button onClick={() => setShowTemplateDialog(true)} variant="outline" className="gap-2" data-testid="button-use-template">
+              <BookTemplate className="w-4 h-4" /> Use Template
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {embeds.map((embed) => (
             <Card key={embed.id} className="glass-card hover:border-primary/30 transition-colors group" data-testid={`card-embed-${embed.id}`}>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: embed.color || "#5865F2" }} />
                     <CardTitle className="text-sm truncate">{embed.name}</CardTitle>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button variant="ghost" size="sm" onClick={() => duplicateEmbed(embed)} className="h-7 w-7 p-0" data-testid={`duplicate-embed-${embed.id}`}>
+                  <div className="flex gap-1 invisible group-hover:visible">
+                    <Button variant="ghost" size="icon" onClick={() => duplicateEmbed(embed)} className="h-7 w-7" data-testid={`duplicate-embed-${embed.id}`}>
                       <Copy className="w-3 h-3" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => openEditEmbed(embed)} className="h-7 w-7 p-0" data-testid={`edit-embed-${embed.id}`}>
+                    <Button variant="ghost" size="icon" onClick={() => openEditEmbed(embed)} className="h-7 w-7" data-testid={`edit-embed-${embed.id}`}>
                       <Edit3 className="w-3 h-3" />
                     </Button>
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       onClick={() => {
                         deleteEmbed.mutate(embed.id, {
                           onSuccess: () => toast({ title: "Embed deleted", description: `"${embed.name}" removed.` }),
                         });
                       }}
-                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
                       data-testid={`delete-embed-${embed.id}`}
                     >
                       <Trash2 className="w-3 h-3" />
@@ -530,10 +1115,10 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
                   {embed.description && <p className="truncate">Desc: {embed.description}</p>}
                   <div className="flex gap-2 flex-wrap mt-2">
                     {((embed.fields as any[]) || []).length > 0 && (
-                      <span className="bg-secondary/50 px-2 py-0.5 rounded text-[10px]">{((embed.fields as any[]) || []).length} fields</span>
+                      <Badge variant="secondary" className="text-[10px]">{((embed.fields as any[]) || []).length} fields</Badge>
                     )}
                     {((embed.components as any[]) || []).length > 0 && (
-                      <span className="bg-secondary/50 px-2 py-0.5 rounded text-[10px]">{((embed.components as any[]) || []).length} components</span>
+                      <Badge variant="secondary" className="text-[10px]">{((embed.components as any[]) || []).length} components</Badge>
                     )}
                   </div>
                 </div>
@@ -545,6 +1130,35 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
           ))}
         </div>
       )}
+
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-display">Template Library</DialogTitle>
+            <DialogDescription>Start with a pre-built template and customize it to your needs.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-2 max-h-[400px] overflow-y-auto">
+            {Object.entries(TEMPLATES).map(([key, template]) => (
+              <button
+                key={key}
+                onClick={() => loadTemplate(key)}
+                className="flex items-center gap-3 p-3 rounded-lg border border-white/5 bg-background/30 hover:bg-primary/10 hover:border-primary/30 transition-colors text-left"
+                data-testid={`template-${key}`}
+              >
+                <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <BookTemplate className="w-4 h-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{template.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {template.form.title || template.form.description || "Pre-built template"}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -552,7 +1166,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
 function CollapsibleSection({ title, expanded, onToggle, children }: { title: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-white/5 bg-secondary/20 overflow-hidden">
-      <button onClick={onToggle} className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium hover:bg-white/5 transition-colors" data-testid={`section-${title.toLowerCase().replace(/[^a-z]/g, '-')}`}>
+      <button onClick={onToggle} className="w-full px-4 py-3 flex items-center justify-between gap-2 text-sm font-medium hover:bg-white/5 transition-colors" data-testid={`section-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}>
         {title}
         {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
       </button>
