@@ -156,9 +156,13 @@ export const users = pgTable("users", {
 export const userPreferences = pgTable("user_preferences", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
-  accentColor: text("accent_color").default("#dc2626"),
+  accentColor: text("accent_color").default("#B11226"),
   embedStyle: text("embed_style").default("modern"),
   brandName: text("brand_name"),
+  eyeIntensity: text("eye_intensity").default("subtle"),
+  glowStrength: integer("glow_strength").default(50),
+  uiDensity: text("ui_density").default("comfort"),
+  glitchFx: boolean("glitch_fx").default(true),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ id: true });
