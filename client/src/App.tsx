@@ -18,17 +18,17 @@ import { DashboardEntryAnimation } from "@/components/dashboard-entry-animation"
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { data: user, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const [showAnimation, setShowAnimation] = useState(false);
   const [hasAnimated, setHasAnimated] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
-      setLocation("/login");
+      window.location.href = "/auth/discord";
     } else if (!isLoading && user && !hasAnimated && location.startsWith("/dashboard")) {
       setShowAnimation(true);
     }
-  }, [isLoading, user, setLocation, hasAnimated, location]);
+  }, [isLoading, user, hasAnimated, location]);
 
   if (isLoading) return (
     <div className="min-h-screen bg-[#0B0D10] flex items-center justify-center">

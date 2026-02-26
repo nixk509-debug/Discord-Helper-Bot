@@ -284,10 +284,10 @@ export default function Landing() {
             </Button>
             {user ? (
               <Button asChild size="sm" variant="outline" className="rounded-full px-4 h-9 text-sm font-semibold border-white/15 hidden md:flex">
-                <Link href="/dashboard">
+                <a href="/dashboard">
                   <img src={getAvatarUrl(user)} alt="" className="w-5 h-5 rounded-full mr-1.5" />
                   Dashboard
-                </Link>
+                </a>
               </Button>
             ) : (
               <Button asChild size="sm" className="rounded-full px-4 h-9 text-sm font-semibold bg-[#5865F2] hover:bg-[#4752C4] text-white hidden md:flex" data-testid="button-nav-login">
@@ -321,7 +321,7 @@ export default function Landing() {
               </Button>
               {user ? (
                 <Button asChild variant="outline" className="w-full rounded-lg border-white/15">
-                  <Link href="/dashboard">Dashboard</Link>
+                  <a href="/dashboard">Dashboard</a>
                 </Button>
               ) : (
                 <Button asChild className="w-full rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white">
@@ -386,7 +386,11 @@ export default function Landing() {
                 Add to Discord <ArrowRight className="w-4 h-4" />
               </Button>
               <Button size="lg" variant="outline" asChild className="rounded-full px-8 h-12 text-base font-semibold border-white/10 glass-card">
-                <Link href="/dashboard">Open Dashboard <ChevronRight className="w-4 h-4 ml-1" /></Link>
+                {user ? (
+                  <a href="/dashboard">Open Dashboard <ChevronRight className="w-4 h-4 ml-1" /></a>
+                ) : (
+                  <a href="/auth/discord">Open Dashboard <ChevronRight className="w-4 h-4 ml-1" /></a>
+                )}
               </Button>
             </motion.div>
 
@@ -663,9 +667,15 @@ export default function Landing() {
                 style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}
                 data-testid="button-feature-modal-dashboard"
               >
-                <Link href={user ? "/dashboard" : "/login"} onClick={() => setSelectedFeature(null)}>
-                  Open in Dashboard <ChevronRight className="w-4 h-4" />
-                </Link>
+                {user ? (
+                  <a href="/dashboard" onClick={() => setSelectedFeature(null)}>
+                    Open in Dashboard <ChevronRight className="w-4 h-4" />
+                  </a>
+                ) : (
+                  <a href="/auth/discord" onClick={() => setSelectedFeature(null)}>
+                    Open in Dashboard <ChevronRight className="w-4 h-4" />
+                  </a>
+                )}
               </Button>
             </>
           )}

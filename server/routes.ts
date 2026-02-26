@@ -4,7 +4,7 @@ import { z } from "zod";
 import { api } from "@shared/routes";
 import { storage } from "./storage";
 import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots } from "@shared/schema";
-import { db } from "./db";
+import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { getBotClient, getBotUptime } from "./bot/index";
@@ -24,16 +24,16 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   // --- HEALTH ---
   app.get("/health", async (_req, res) => {
-    const bot = getBotClient();
-    const uptime = getBotUptime();
-    const premiumCount = await storage.getPremiumUserCount();
-    res.json({
-      status: "ok",
-      bot: bot ? { status: "online", username: bot.user?.tag, guilds: bot.guilds.cache.size } : { status: "offline" },
-      uptime: uptime ? `${Math.floor(uptime / 1000)}s` : null,
-      premiumUsers: premiumCount,
-      timestamp: new Date().toISOString(),
-    });
+    if (!hasDatabaseUrl) {
+      return res.status(503).json({ ok: false, message: "DATABASE_URL not configured" });
+    }
+
+    try {
+      await db.execute(sql`SELECT 1`);
+      return res.json({ ok: true });
+    } catch {
+      return res.status(503).json({ ok: false, message: "Database unavailable" });
+    }
   });
 
   // --- INVITE URL ---
@@ -41,7 +41,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const clientId = process.env.DISCORD_CLIENT_ID;
     if (!clientId) return res.status(503).json({ message: "Bot not configured" });
     const permissions = "8";
-    const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot+applications.commands`;
+    const url = `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=${permissions}`;
     res.json({ url });
   });
 
