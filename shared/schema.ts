@@ -121,6 +121,16 @@ export const serverSettings = pgTable("server_settings", {
   xpSeasonResetDate: text("xp_season_reset_date"),
   xpBoosterRoles: jsonb("xp_booster_roles").$type<XpBoosterRole[]>().default([]),
 
+  // Server Control (T001 addition)
+  serverControlMode: text("server_control_mode").default("normal"),
+  quarantineRoleId: text("quarantine_role_id"),
+  lockdownEnabled: boolean("lockdown_enabled").default(false),
+  lockdownBypassRoleIds: jsonb("lockdown_bypass_role_ids").$type<string[]>().default([]),
+  lockdownNotifyChannelId: text("lockdown_notify_channel_id"),
+  raidLogChannelId: text("raid_log_channel_id"),
+  configLogChannelId: text("config_log_channel_id"),
+  autoLogChannelId: text("auto_log_channel_id"),
+
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -220,6 +230,16 @@ export const channelSettings = pgTable("channel_settings", {
   nsfw: boolean("nsfw").default(false),
   topic: text("topic"),
   customPermissions: jsonb("custom_permissions"),
+  // Adaptive Slowmode
+  adaptiveSlowmodeEnabled: boolean("adaptive_slowmode_enabled").default(false),
+  adaptiveSlowmodeThreshold: integer("adaptive_slowmode_threshold").default(10),
+  adaptiveSlowmodeMax: integer("adaptive_slowmode_max").default(30),
+  // Per-channel anti-link
+  channelAntiLinkEnabled: boolean("channel_anti_link_enabled").default(false),
+  channelAntiLinkWhitelist: jsonb("channel_anti_link_whitelist").$type<string[]>().default([]),
+  // Auto-purge
+  autoPurgeEnabled: boolean("auto_purge_enabled").default(false),
+  autoPurgeAfterMinutes: integer("auto_purge_after_minutes").default(60),
 });
 
 // --- REACTION ROLES ---
@@ -514,6 +534,80 @@ export const polls = pgTable("polls", {
   anonymous: boolean("anonymous").default(false),
   endsAt: timestamp("ends_at"),
   isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- CONFIG AUDIT ENTRIES ---
+export const configAuditEntries = pgTable("config_audit_entries", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  moduleId: text("module_id").notNull(),
+  actorId: text("actor_id").notNull(),
+  beforeData: jsonb("before_data"),
+  afterData: jsonb("after_data"),
+  changedKeys: jsonb("changed_keys").$type<string[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- CONFIG SNAPSHOTS ---
+export const configSnapshots = pgTable("config_snapshots", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  moduleId: text("module_id").notNull(),
+  version: integer("version").default(1),
+  data: jsonb("data"),
+  actorId: text("actor_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- GUILD CODES ---
+export const guildCodes = pgTable("guild_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  guildDiscordId: text("guild_discord_id").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at"),
+  maxUses: integer("max_uses"),
+  usesCount: integer("uses_count").default(0),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  grantRoles: jsonb("grant_roles").$type<string[]>().default([]),
+  revoked: boolean("revoked").default(false),
+  format: text("format").default("plain"),
+});
+
+// --- CHANNEL SYNC TEMPLATES ---
+export const channelSyncTemplates = pgTable("channel_sync_templates", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  description: text("description"),
+  settings: jsonb("settings"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- CATEGORY LOCK SNAPSHOTS ---
+export const categoryLockSnapshots = pgTable("category_lock_snapshots", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  categoryId: text("category_id").notNull(),
+  categoryName: text("category_name"),
+  snapshot: jsonb("snapshot"),
+  lockedAt: timestamp("locked_at").defaultNow(),
+  lockedBy: text("locked_by"),
+  unlocked: boolean("unlocked").default(false),
+});
+
+// --- PERMISSION RULES ---
+export const permissionRules = pgTable("permission_rules", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
+  roleId: text("role_id").notNull(),
+  roleName: text("role_name"),
+  permission: text("permission").notNull(),
+  effect: text("effect").notNull().default("allow"),
+  priority: integer("priority").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -899,6 +993,12 @@ export const insertCommandImportSchema = createInsertSchema(commandImports).omit
 export const insertServerWebhookSchema = createInsertSchema(serverWebhooks).omit({ id: true, createdAt: true, serverId: true });
 export const insertPollSchema = createInsertSchema(polls).omit({ id: true, createdAt: true, serverId: true });
 export const insertGiveawaySchema = createInsertSchema(giveaways).omit({ id: true, createdAt: true, serverId: true });
+export const insertConfigAuditEntrySchema = createInsertSchema(configAuditEntries).omit({ id: true, createdAt: true });
+export const insertConfigSnapshotSchema = createInsertSchema(configSnapshots).omit({ id: true, createdAt: true });
+export const insertGuildCodeSchema = createInsertSchema(guildCodes).omit({ id: true, createdAt: true });
+export const insertChannelSyncTemplateSchema = createInsertSchema(channelSyncTemplates).omit({ id: true, createdAt: true });
+export const insertCategoryLockSnapshotSchema = createInsertSchema(categoryLockSnapshots).omit({ id: true, lockedAt: true });
+export const insertPermissionRuleSchema = createInsertSchema(permissionRules).omit({ id: true, createdAt: true });
 
 // --- SELECT TYPES ---
 export type Server = typeof servers.$inferSelect;
@@ -930,6 +1030,12 @@ export type CommandImport = typeof commandImports.$inferSelect;
 export type ServerWebhook = typeof serverWebhooks.$inferSelect;
 export type Poll = typeof polls.$inferSelect;
 export type Giveaway = typeof giveaways.$inferSelect;
+export type ConfigAuditEntry = typeof configAuditEntries.$inferSelect;
+export type ConfigSnapshot = typeof configSnapshots.$inferSelect;
+export type GuildCode = typeof guildCodes.$inferSelect;
+export type ChannelSyncTemplate = typeof channelSyncTemplates.$inferSelect;
+export type CategoryLockSnapshot = typeof categoryLockSnapshots.$inferSelect;
+export type PermissionRule = typeof permissionRules.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertTemplate = z.infer<typeof insertTemplateSchema>;

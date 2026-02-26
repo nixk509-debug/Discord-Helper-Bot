@@ -38,6 +38,9 @@ import {
   Webhook,
   BarChart3,
   Gift,
+  Key,
+  RefreshCw,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -59,7 +62,8 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
     modules: [
       { id: "general", label: "General", icon: Settings, enabled: true },
       { id: "channels", label: "Channels", icon: Hash, enabled: false },
-      { id: "permissions", label: "Permissions", icon: Lock, enabled: false },
+      { id: "server-control", label: "Server Control", icon: Shield, enabled: false },
+      { id: "smart-permissions", label: "Permissions", icon: Key, enabled: false },
       { id: "members", label: "Members", icon: Users, enabled: false },
     ],
   },
@@ -95,12 +99,15 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
       { id: "embeds", label: "Embed Builder", icon: Layout, enabled: false },
       { id: "tickets", label: "Ticket System", icon: Ticket, enabled: false },
       { id: "webhooks", label: "Webhooks", icon: Webhook, enabled: false },
+      { id: "codes", label: "Code Vault", icon: Gift, enabled: false },
+      { id: "channel-sync", label: "Channel Sync", icon: RefreshCw, enabled: false },
     ],
   },
   {
     label: "Logging",
     modules: [
       { id: "audit-logs", label: "Audit Logs", icon: Activity, enabled: false },
+      { id: "audit-log-viewer", label: "Audit History", icon: FileText, enabled: false },
     ],
   },
   {
