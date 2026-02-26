@@ -1,0 +1,77 @@
+You are my Replit Agent. Go into “full design + full engineering” mode and improve my Discord bot + dashboard project called “Discord-Helper-Bot / Archivist” for production readiness, uptime, and a premium-looking UI.
+
+GOALS (do all of these):
+1) Fix Discord OAuth end-to-end:
+   - Clicking “Dashboard” should redirect to Discord login if not authenticated, otherwise open /dashboard.
+   - “Add to Discord” button must work (invite link generated correctly).
+   - Fix “Not Found” + “Invalid OAuth2 redirect_uri” issues by making redirect URI correct for BOTH local dev + production domain.
+   - My production domain is: archivistplus.com (and any relevant subdomain if you use one).
+   - Ensure Discord Developer Portal settings match the callback you implement.
+   - Required scopes: identify, guilds (and guilds.members.read only if needed). Use the minimum scopes.
+   - Implement robust error handling + user-friendly errors (e.g., “OAuth not configured”, “Callback mismatch”).
+   - Make callback URL dynamic via env vars (do NOT hardcode).
+
+2) Fix DATABASE_URL requirement and production DB:
+   - The app crashes with “DATABASE_URL must be set. Did you forget to provision a database?”
+   - Implement a clean environment-variable based config:
+     - DATABASE_URL must be required in production, optional in dev only if you provide a safe fallback.
+   - If using Postgres, ensure migrations + schema init are easy (one command).
+   - Provide exact steps to set env vars in Replit Secrets and locally.
+
+3) Improve uptime / production setup:
+   - Don’t rely on me manually running random commands.
+   - Provide a single start command for Replit deployment.
+   - Add healthcheck route: GET /health returns { ok: true } and checks DB connectivity (fast, safe).
+   - Add graceful shutdown handling and stable logging.
+   - Reduce crashes/restart loops and fix memory issues:
+     - I hit “JavaScript heap out of memory” during build/run sometimes.
+     - Apply practical optimizations: build settings, memory flags if needed, reduce huge bundles, code splitting in Vite, etc.
+
+4) UI/UX redesign (make it feel premium + “Archivist” themed):
+   - Replace boring landing page blocks with interactive sections:
+     - Each feature card should open a modal or dedicated page with examples + “Enable” actions.
+   - Add “Add to Discord” CTA that works.
+   - Add “Dashboard” CTA that properly triggers auth flow.
+   - Make the layout cleaner, modern, and not generic.
+   - Add a theme system + per-user customization:
+     - Let each user set bot appearance preferences (colors, embed style presets, brand name, avatar link if applicable).
+     - Save preferences in DB.
+   - Ensure everything is responsive.
+
+5) Branding changes:
+   - Replace the Replit favicon/logo with Archivist branding everywhere:
+     - favicon.ico / favicon.png
+     - site title + meta tags
+     - OpenGraph preview (og:image)
+   - Add a simple Archivist logo (temporary is fine: minimalist “A” mark or skull archive vibe).
+   - Add a proper header nav + footer.
+
+6) Deliverables you MUST output:
+   - A checklist of what you changed.
+   - Any files edited/created.
+   - Exact environment variables required:
+     - DISCORD_CLIENT_ID
+     - DISCORD_CLIENT_SECRET
+     - SESSION_SECRET
+     - DATABASE_URL
+     - PUBLIC_BASE_URL (or similar)
+     - DISCORD_CALLBACK_URL (or similar)
+   - Exact Discord Developer Portal settings I need:
+     - Redirect URIs
+     - Bot invite permissions + scopes
+   - Confirm the final working URLs:
+     - https://archivistplus.com/  (or whichever you configure)
+     - /auth/discord
+     - /auth/discord/callback
+     - /dashboard
+     - /health
+
+RULES:
+- Don’t remove core functionality. Improve it.
+- Keep command names minimal and clean.
+- Use best practices (secure cookies, session config that works behind HTTPS, correct proxy trust, etc.).
+- If something is missing, implement it rather than asking me to guess.
+- Never print my secrets in logs.
+- Make it production-ready on Replit.
+
+Start by inspecting the repository structure, package.json scripts, server auth routes, and where DATABASE_URL is referenced. Then implement fixes + redesign.
