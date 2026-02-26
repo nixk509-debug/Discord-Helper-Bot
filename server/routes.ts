@@ -44,12 +44,9 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.post("/api/templates", requireAuth, async (req, res) => {
-    const ownerIds = (process.env.OWNER_IDS || "").split(",").filter(Boolean);
-    const isPremium = req.user!.isPremium || ownerIds.includes(req.user!.discordId);
     const count = await storage.getTemplateCount(req.user!.id);
-    const limit = isPremium ? 10 : 2;
-    if (count >= limit) {
-      return res.status(403).json({ message: `Template limit reached (${limit}). ${isPremium ? "" : "Upgrade to Premium for more."}` });
+    if (count >= 10) {
+      return res.status(403).json({ message: "Template limit reached (10)." });
     }
     const created = await storage.createTemplate({ ...req.body, userId: req.user!.id });
     res.status(201).json(created);

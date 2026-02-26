@@ -16,27 +16,23 @@ export function registerStripeRoutes(app: Express) {
     }
   });
 
-  app.get("/api/premium/status", requireAuth, async (req, res) => {
-    const ownerIds = (process.env.OWNER_IDS || "").split(",").filter(Boolean);
-    const isOwner = ownerIds.includes(req.user!.discordId);
+  app.get("/api/premium/status", requireAuth, async (_req, res) => {
+    // Free tier mode: everyone gets premium access
+    return res.json({ isPremium: true, reason: "free_tier", subscription: null });
 
-    if (isOwner) {
-      return res.json({ isPremium: true, reason: "owner", subscription: null });
-    }
-
-    if (req.user!.stripeSubscriptionId) {
-      try {
-        const result = await db.execute(
-          sql`SELECT * FROM stripe.subscriptions WHERE id = ${req.user!.stripeSubscriptionId}`
-        );
-        const sub = result.rows[0];
-        if (sub && (sub.status === "active" || sub.status === "trialing")) {
-          return res.json({ isPremium: true, reason: "subscription", subscription: sub });
-        }
-      } catch {}
-    }
-
-    res.json({ isPremium: req.user!.isPremium || false, reason: "none", subscription: null });
+    // To re-enable paid premium later, remove the lines above and restore the block below:
+    // const ownerIds = (process.env.OWNER_IDS || "").split(",").filter(Boolean);
+    // const isOwner = ownerIds.includes(req.user!.discordId);
+    // if (isOwner) return res.json({ isPremium: true, reason: "owner", subscription: null });
+    // if (req.user!.stripeSubscriptionId) {
+    //   try {
+    //     const result = await db.execute(sql`SELECT * FROM stripe.subscriptions WHERE id = ${req.user!.stripeSubscriptionId}`);
+    //     const sub = result.rows[0];
+    //     if (sub && (sub.status === "active" || sub.status === "trialing"))
+    //       return res.json({ isPremium: true, reason: "subscription", subscription: sub });
+    //   } catch {}
+    // }
+    // res.json({ isPremium: req.user!.isPremium || false, reason: "none", subscription: null });
   });
 
   app.post("/api/premium/checkout", requireAuth, async (req, res) => {
