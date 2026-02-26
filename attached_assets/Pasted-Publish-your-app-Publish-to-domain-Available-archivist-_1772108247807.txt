@@ -1,0 +1,62 @@
+Publish your app
+Publish to domain
+Available
+archivist-loreable99
+.replit.app
+Who can access your app
+Stripe connection
+Connect your live Stripe account
+Claim your sandbox
+2
+Find your live keys
+What is a live Stripe account?
+A Stripe live account is one that has been activated and verified using your business details.
+How do I find my live keys?
+1. Navigate to your live account. You can find a list of all your accounts in your Stripe dashboard by clicking on the drop down in the top left.
+2. From the bottom left, click "Developers" > "API Keys"
+3. Reveal your live keys or create new ones. For step-by-step instructions on creating new keys, see Create a secret API key.
+3
+Copy and paste live keys from Stripe
+Engagement tools
+Enable feedback widget
+Add a feedback widget to the corner of your published app. Review submissions in your inbox and send to Agent for fixes. Available for web-based apps only.
+
+"Made with Replit" badge
+Display a "Made with Replit" referral badge on your published app, when someone signs up using your referral link, you earn credits. Learn more.
+
+Adjust settings
+Manually configure machine settings, secrets, build commands, ports, and more.
+Deployment type
+Technology used to publish your app. Learn more
+
+Reserved VM
+Ensures high uptime, minimizing disruptions for apps requiring persistent session data.
+Machine configuration
+The power of the servers running your app
+
+0.5 vCPU / 2 GiB RAM
+$20
+per month
+($0.028/hour)
+Build command
+Optional
+Compiles your app before it deploys
+npm run build
+Run command
+Starts your app after it deploys
+node ./dist/index.cjs
+App type
+Configure your app based on whether it needs to serve traffic from the web.
+
+Security scan before publishing
+Beta
+We always run a security scan before publishing. This setting controls whether publishing is blocked when critical vulnerabilities are found. Some high-risk issues may still block publishing. Learn more
+
+Configure how your production database is created and populated when you publish. Learn more
+An existing production database from a previous published app was found. Delete the existing database via the settings tab in the Database pane and create a new one.
+Create production database
+What does publishing do?
+Publishing your app makes it available for anyone to use
+Your friends and users around the world can visit your app through your primary URL.
+Costs are included in Core subscriptions
+Costs vary depending on the type of technology used to publish your app.
