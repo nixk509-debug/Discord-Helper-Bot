@@ -29,7 +29,19 @@ declare global {
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 
-export function setupAuth(app: Express) {
+export async function setupAuth(app: Express) {
+  // Create session table manually so connect-pg-simple never needs to read table.sql
+  // (which fails in production when bundled)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
+    ) WITH (OIDS=FALSE);
+    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+  `);
+
   const PgSession = connectPgSimple(session);
 
   app.use(
@@ -37,7 +49,7 @@ export function setupAuth(app: Express) {
       store: new PgSession({
         pool: pool as any,
         tableName: "session",
-        createTableIfMissing: true,
+        createTableIfMissing: false,
       }),
       secret: process.env.SESSION_SECRET || "nexbot-session-secret-dev",
       resave: false,
