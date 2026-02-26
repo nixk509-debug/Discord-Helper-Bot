@@ -16,6 +16,12 @@ import { patchGuildConfig } from "./configService";
 
 export async function registerRoutes(_server: Server, app: Express) {
 
+  // Protect all /api/servers/* routes — exempt only the public code-redeem endpoint
+  app.use("/api/servers", (req, res, next) => {
+    if (req.path.match(/\/codes\/redeem$/) && req.method === "POST") return next();
+    return requireAuth(req as any, res, next);
+  });
+
   // --- HEALTH ---
   app.get("/health", async (_req, res) => {
     const bot = getBotClient();
@@ -59,11 +65,22 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.stats.get.path, async (_req, res) => {
     const allServers = await storage.getServers();
     const totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
+    const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
+    const commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
+    const botUptimeMs = getBotUptime();
+    const uptimeStr = botUptimeMs != null
+      ? (() => {
+          const s = Math.floor(botUptimeMs / 1000);
+          const h = Math.floor(s / 3600);
+          const m = Math.floor((s % 3600) / 60);
+          return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        })()
+      : "offline";
     res.json({
       totalServers: allServers.length,
       totalMembers,
-      commandsExecuted: 42069,
-      uptime: "99.9%",
+      commandsExecuted,
+      uptime: uptimeStr,
     });
   });
 

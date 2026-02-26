@@ -104,10 +104,11 @@ app.use((req, res, next) => {
       if (domain) {
         const webhookBaseUrl = `https://${domain}`;
         try {
-          const { webhook } = await stripeSync.findOrCreateManagedWebhook(
+          const whResult = await stripeSync.findOrCreateManagedWebhook(
             `${webhookBaseUrl}/api/stripe/webhook`
           );
-          console.log(`Webhook configured: ${webhook.url}`);
+          const webhook = whResult?.webhook ?? whResult;
+          console.log(`Webhook configured: ${webhook?.url ?? "unknown"}`);
         } catch (whErr: any) {
           console.log("Stripe webhook setup skipped:", whErr.message);
         }
