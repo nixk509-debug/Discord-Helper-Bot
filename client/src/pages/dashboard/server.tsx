@@ -34,6 +34,12 @@ import { NsfwTab } from "@/components/nsfw/nsfw-tab";
 import { WebhooksTab } from "@/components/webhooks/webhooks-tab";
 import { PollsTab } from "@/components/polls/polls-tab";
 import { GiveawaysTab } from "@/components/giveaways/giveaways-tab";
+import { ServerControlTab } from "@/components/server-control/server-control-tab";
+import { CodesTab } from "@/components/codes/codes-tab";
+import { AuditLogTab } from "@/components/audit-log/audit-log-tab";
+import { SyncTab } from "@/components/sync/sync-tab";
+import { PermissionsTab } from "@/components/permissions/permissions-tab";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 const generalSchema = z.object({
   prefix: z.string().min(1, "Prefix is required").max(5, "Prefix too long"),
@@ -45,6 +51,7 @@ export default function ServerSettings() {
   const serverId = parseInt(params?.id || "0");
   const { toast } = useToast();
   const [activeModule, setActiveModule] = useState("general");
+  useWebSocket(serverId);
 
   const { data: server, isLoading } = useServer(serverId);
   const updateSettings = useUpdateSettings(serverId);
@@ -132,6 +139,16 @@ export default function ServerSettings() {
         return <PollsTab serverId={serverId} />;
       case "giveaways":
         return <GiveawaysTab serverId={serverId} />;
+      case "server-control":
+        return <ServerControlTab serverId={serverId} settings={currentServer.settings} />;
+      case "codes":
+        return <CodesTab serverId={serverId} />;
+      case "audit-log-viewer":
+        return <AuditLogTab serverId={serverId} />;
+      case "channel-sync":
+        return <SyncTab serverId={serverId} />;
+      case "smart-permissions":
+        return <PermissionsTab serverId={serverId} />;
       default:
         return <PlaceholderModule moduleId={activeModule} />;
     }

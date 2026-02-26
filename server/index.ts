@@ -6,6 +6,8 @@ import { setupAuth } from "./auth";
 import { registerStripeRoutes } from "./stripe";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startBot } from "./bot/index";
+import { WebSocketServer, WebSocket } from "ws";
+import { configEvents } from "./configService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -161,4 +163,31 @@ app.use((req, res, next) => {
   );
 
   startBot().catch((err) => console.error("Bot startup error:", err));
+
+  // --- WEBSOCKET SERVER ---
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wsClients = new Map<number, Set<WebSocket>>();
+
+  wss.on("connection", (ws, req) => {
+    const url = new URL(req.url || "/", `http://localhost`);
+    const serverIdRaw = url.searchParams.get("serverId");
+    const serverId = serverIdRaw ? parseInt(serverIdRaw) : null;
+    if (!serverId || isNaN(serverId)) { ws.close(); return; }
+
+    if (!wsClients.has(serverId)) wsClients.set(serverId, new Set());
+    wsClients.get(serverId)!.add(ws);
+
+    ws.on("close", () => {
+      wsClients.get(serverId)?.delete(ws);
+    });
+  });
+
+  configEvents.on("config.updated", ({ serverId, moduleId }: { serverId: number; moduleId: string }) => {
+    const clients = wsClients.get(serverId);
+    if (!clients) return;
+    const msg = JSON.stringify({ type: "config.updated", serverId, moduleId });
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+    }
+  });
 })();

@@ -3,11 +3,16 @@ import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { storage } from "./storage";
-import { servers } from "@shared/schema";
+import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
 import { getBotClient, getBotUptime } from "./bot/index";
+import { recordAudit, getAuditLog } from "./auditService";
+import { createSnapshot, listSnapshots, rollback } from "./snapshotService";
+import { generateCode, redeemCode, listCodes, revokeCode } from "./codeVaultService";
+import { listPermissionRules, createPermissionRule, deletePermissionRule, checkPermission } from "./permissionsService";
+import { patchGuildConfig } from "./configService";
 
 export async function registerRoutes(_server: Server, app: Express) {
 
@@ -81,7 +86,10 @@ export async function registerRoutes(_server: Server, app: Express) {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     try {
-      const updated = await storage.updateSettings(serverId, req.body);
+      const actorId = (req as any).user?.discordId ?? "dashboard";
+      const updated = await patchGuildConfig(serverId, "settings", req.body, actorId);
+      await recordAudit(serverId, "settings", actorId, null, updated);
+      await createSnapshot(serverId, "settings", updated, actorId);
       res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -685,6 +693,198 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   // --- SEED DATABASE ---
   await seedDatabase();
+
+  // =========================================================
+  // === NEW ROUTES: Audit, Snapshots, Codes, Sync, Permissions, Lock
+  // =========================================================
+
+  function srvId(req: any): number { return parseInt(req.params.serverId); }
+
+  // --- CONFIG AUDIT ---
+  app.get("/api/servers/:serverId/config/audit", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { limit, moduleId, actorId } = req.query as any;
+    const entries = await getAuditLog(serverId, { limit: limit ? parseInt(limit) : 50, moduleId, actorId });
+    res.json(entries);
+  });
+
+  // --- CONFIG SNAPSHOTS ---
+  app.get("/api/servers/:serverId/config/snapshots", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { moduleId } = req.query as any;
+    const snapshots = await listSnapshots(serverId, moduleId);
+    res.json(snapshots);
+  });
+
+  app.post("/api/servers/:serverId/config/rollback/:snapshotId", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    const snapshotId = parseInt(req.params.snapshotId);
+    if (isNaN(serverId) || isNaN(snapshotId)) return res.status(400).json({ message: "Invalid IDs" });
+    try {
+      const actorId = (req as any).user?.discordId ?? "dashboard";
+      const restored = await rollback(serverId, snapshotId, actorId);
+      res.json(restored);
+    } catch (err: any) {
+      res.status(404).json({ message: err.message });
+    }
+  });
+
+  // --- GUILD CODES ---
+  app.get("/api/servers/:serverId/codes", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { revoked, tag } = req.query as any;
+    const codes = await listCodes(serverId, {
+      revoked: revoked !== undefined ? revoked === "true" : undefined,
+      tag,
+    });
+    res.json(codes);
+  });
+
+  app.post("/api/servers/:serverId/codes/generate", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const actorId = (req as any).user?.discordId ?? "dashboard";
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+    const code = await generateCode({
+      ...req.body,
+      serverId,
+      guildDiscordId: server.discordId,
+      createdBy: actorId,
+    });
+    res.status(201).json(code);
+  });
+
+  app.post("/api/servers/:serverId/codes/redeem", async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { code, userId } = req.body;
+    if (!code || !userId) return res.status(400).json({ message: "code and userId are required" });
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+    const result = await redeemCode(code.toUpperCase(), userId, server.discordId);
+    if (!result.success) return res.status(400).json({ message: result.error });
+    res.json(result);
+  });
+
+  app.post("/api/servers/:serverId/codes/:id/revoke", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await revokeCode(id);
+    res.json(updated);
+  });
+
+  // --- CHANNEL SYNC TEMPLATES ---
+  app.get("/api/servers/:serverId/sync/templates", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const templates = await db.select().from(channelSyncTemplates).where(eq(channelSyncTemplates.serverId, serverId));
+    res.json(templates);
+  });
+
+  app.post("/api/servers/:serverId/sync/templates", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { name, description, settings } = req.body;
+    if (!name) return res.status(400).json({ message: "name is required" });
+    const [created] = await db.insert(channelSyncTemplates).values({ serverId, name, description, settings }).returning();
+    res.status(201).json(created);
+  });
+
+  app.delete("/api/servers/:serverId/sync/templates/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await db.delete(channelSyncTemplates).where(eq(channelSyncTemplates.id, id));
+    res.status(204).send();
+  });
+
+  app.post("/api/servers/:serverId/sync/apply", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { templateId, scope, channelIds, preview } = req.body;
+    const [template] = await db.select().from(channelSyncTemplates).where(eq(channelSyncTemplates.id, templateId));
+    if (!template) return res.status(404).json({ message: "Template not found" });
+
+    const channelSettingsList = await storage.getChannelSettings(serverId);
+    const targetChannels = scope === "channels" && channelIds?.length
+      ? channelSettingsList.filter((c: any) => channelIds.includes(c.channelId))
+      : channelSettingsList;
+
+    const templateSettings = template.settings as Record<string, any> ?? {};
+    const diff = targetChannels.map((ch: any) => {
+      const changes = Object.keys(templateSettings).filter(k => JSON.stringify(ch[k]) !== JSON.stringify(templateSettings[k])).map(k => ({ key: k, from: ch[k], to: templateSettings[k] }));
+      return { channelId: ch.channelId, channelName: ch.channelName, changes };
+    }).filter((d: any) => d.changes.length > 0);
+
+    if (preview) return res.json({ diff });
+
+    for (const ch of targetChannels) {
+      await storage.upsertChannelSettings(serverId, { ...ch, ...templateSettings });
+    }
+    res.json({ applied: true, channels: targetChannels.length });
+  });
+
+  // --- PERMISSIONS ---
+  app.get("/api/servers/:serverId/permissions", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const rules = await listPermissionRules(serverId);
+    res.json(rules);
+  });
+
+  app.post("/api/servers/:serverId/permissions", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const rule = await createPermissionRule(serverId, req.body);
+    res.status(201).json(rule);
+  });
+
+  app.delete("/api/servers/:serverId/permissions/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    await deletePermissionRule(id);
+    res.status(204).send();
+  });
+
+  app.post("/api/servers/:serverId/permissions/check", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { roleIds, permission } = req.body;
+    if (!roleIds || !permission) return res.status(400).json({ message: "roleIds and permission are required" });
+    const result = await checkPermission(roleIds, permission, serverId);
+    res.json(result);
+  });
+
+  // --- CATEGORY LOCK ---
+  app.post("/api/servers/:serverId/lock/category", requireAuth, async (req, res) => {
+    const serverId = srvId(req);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const { categoryId, lock, categoryName, message: lockMessage } = req.body;
+    const actorId = (req as any).user?.discordId ?? "dashboard";
+    if (lock) {
+      await db.insert(categoryLockSnapshots).values({
+        serverId,
+        categoryId,
+        categoryName: categoryName ?? categoryId,
+        snapshot: { lockedVia: "dashboard" },
+        lockedBy: actorId,
+        unlocked: false,
+      });
+      await recordAudit(serverId, "category-lock", actorId, null, { categoryId, locked: true });
+      res.json({ locked: true, categoryId });
+    } else {
+      const [snap] = await db.select().from(categoryLockSnapshots)
+        .where(and(eq(categoryLockSnapshots.serverId, serverId), eq(categoryLockSnapshots.categoryId, categoryId)));
+      if (snap) {
+        await db.update(categoryLockSnapshots).set({ unlocked: true }).where(eq(categoryLockSnapshots.id, snap.id));
+      }
+      await recordAudit(serverId, "category-lock", actorId, null, { categoryId, locked: false });
+      res.json({ locked: false, categoryId });
+    }
+  });
 }
 
 function generateMockInsights(serverId: number) {

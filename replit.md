@@ -10,7 +10,7 @@ Archivist is a comprehensive Discord bot management dashboard with 20+ configura
 - **Visual identity**: AI-generated archivist-avatar.png, hero-art.png, dashboard-art.png — applied to login (split-screen), premium (hero banner), dashboard overview (welcome banner), sidebar, landing (floating hero art, comparison table, "How It Works" steps, "vs. other bots" pills)
 - **Landing page**: Stats bar, comparison table (Archivist vs MEE6/Carl-bot/Dyno), "How It Works" 3-step section, EXCLUSIVE badges on 4 highlight feature cards
 - **All 20+ modules** in sidebar with correct group organization, active state styling with red gradient pill
-- **TypeScript fixes**: LoggingTabProps settings optional, app-sidebar server any type, routes.ts string casts, runMigrations schema type cast
+- **Platform infrastructure upgrade**: Config audit/snapshot system, Code Vault (invite codes with role grants), Channel Sync templates, Smart Permissions matrix, WebSocket realtime sync, 6 new slash command groups (/fun /set /lock /code /audit /sync), 5 new dashboard pages (Server Control, Code Vault, Audit History, Channel Sync, Permissions)
 
 ## User Preferences
 

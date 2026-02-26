@@ -3,6 +3,12 @@ import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { economyCommands, handleEconomyCommand } from "./commands/economy";
+import { funCommand, handleFunCommand } from "./commands/fun";
+import { setCommand, handleSetCommand } from "./commands/set";
+import { lockCommand, handleLockCommand } from "./commands/lock";
+import { codeCommand, handleCodeCommand } from "./commands/code";
+import { auditCommand, handleAuditCommand } from "./commands/audit";
+import { syncCommand, handleSyncCommand } from "./commands/sync";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
@@ -65,16 +71,23 @@ export async function startBot() {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
-
     const economyCommandNames = economyCommands.map((c) => c.name);
-    if (commandName === "setup") {
-      await handleSetupCommand(interaction);
-    } else if (commandName === "premium") {
-      await handlePremiumCommand(interaction);
-    } else if (commandName === "help") {
-      await handleHelpCommand(interaction);
-    } else if (economyCommandNames.includes(commandName)) {
-      await handleEconomyCommand(interaction as ChatInputCommandInteraction);
+
+    try {
+      if (commandName === "setup") await handleSetupCommand(interaction);
+      else if (commandName === "premium") await handlePremiumCommand(interaction);
+      else if (commandName === "help") await handleHelpCommand(interaction);
+      else if (commandName === "fun") await handleFunCommand(interaction);
+      else if (commandName === "set") await handleSetCommand(interaction);
+      else if (commandName === "lock") await handleLockCommand(interaction);
+      else if (commandName === "code") await handleCodeCommand(interaction);
+      else if (commandName === "audit") await handleAuditCommand(interaction);
+      else if (commandName === "sync") await handleSyncCommand(interaction);
+      else if (economyCommandNames.includes(commandName)) await handleEconomyCommand(interaction as ChatInputCommandInteraction);
+    } catch (err: any) {
+      console.error(`[Bot] Command error (${commandName}):`, err.message);
+      const method = interaction.deferred || interaction.replied ? "followUp" : "reply";
+      (interaction as any)[method]({ content: "An error occurred.", ephemeral: true }).catch(() => {});
     }
   });
 
@@ -93,15 +106,15 @@ export async function startBot() {
 
 async function registerSlashCommands(client: Client<true>) {
   const commands = [
-    new SlashCommandBuilder()
-      .setName("setup")
-      .setDescription("Set up Archivist in this server"),
-    new SlashCommandBuilder()
-      .setName("premium")
-      .setDescription("Check premium status for this server"),
-    new SlashCommandBuilder()
-      .setName("help")
-      .setDescription("Show Archivist help and dashboard link"),
+    new SlashCommandBuilder().setName("setup").setDescription("Set up Archivist in this server"),
+    new SlashCommandBuilder().setName("premium").setDescription("Check premium status for this server"),
+    new SlashCommandBuilder().setName("help").setDescription("Show Archivist help and dashboard link"),
+    funCommand,
+    setCommand,
+    lockCommand,
+    codeCommand,
+    auditCommand,
+    syncCommand,
     ...economyCommands,
   ];
 
