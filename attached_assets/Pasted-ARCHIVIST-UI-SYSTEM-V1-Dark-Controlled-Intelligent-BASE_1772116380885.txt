@@ -1,0 +1,154 @@
+ARCHIVIST UI SYSTEM V1
+Dark. Controlled. Intelligent.
+
+BASE STYLE FOUNDATION
+
+Background:
+#0B0D10 main
+#111418 panels
+#151922 hover state
+
+Primary Accent:
+Deep crimson glow
+#B11226 base
+#FF2D4D highlight
+Soft red glow rgba(255,45,77,0.25)
+
+Typography:
+Headings → Bold modern sans (tight tracking)
+Body → Clean neutral sans
+Stats → Monospace terminal style
+
+All uppercase for section headers.
+
+━━━━━━━━━━━━━━━━━━━
+1️⃣ GLOBAL TOP LINE
+
+Across every page:
+
+A 1px top border line
+Crimson glow
+Very subtle animated shimmer moving left to right every 8 seconds
+
+It becomes your identity anchor.
+
+━━━━━━━━━━━━━━━━━━━
+2️⃣ DASHBOARD ENTRY ANIMATION
+
+When user clicks Dashboard:
+
+Overlay fade in (0.25s ease)
+Center folder logo scales from 0.95 to 1
+Eyes fade in
+Single red scan line moves horizontally once
+
+Text below:
+
+ACCESSING ARCHIVE▮
+
+Blinking cursor twice
+Then OAuth redirect
+
+No jump cut. No white flash.
+
+━━━━━━━━━━━━━━━━━━━
+3️⃣ FEATURE CARD SYSTEM
+
+Card structure:
+
+Matte black panel
+Border: 1px solid rgba(255,45,77,0.15)
+Inner subtle shadow
+
+Hover behavior:
+
+• Border glow increases
+• Card lifts 4px
+• Tiny red glitch fragments animate on bottom-right corner
+• Icon glows softly
+
+Transition timing: 180ms cubic-bezier smooth curve
+
+Feels premium. Not gamer UI.
+
+━━━━━━━━━━━━━━━━━━━
+4️⃣ TERMINAL STATS BLOCK
+
+Instead of static numbers:
+
+Example:
+
+SERVERS INDEXED
+1287▮
+
+Typing animation at 30ms per digit
+Cursor blinks twice
+Stops
+
+Small 1-frame glitch flicker on completion
+
+Minimal. Clean. Controlled.
+
+━━━━━━━━━━━━━━━━━━━
+5️⃣ MODULE TAB STACK SYSTEM
+
+Instead of flat tabs:
+
+Each module appears like layered file tabs.
+
+Active tab:
+• Slightly raised
+• Red inner glow
+• Subtle shadow
+
+Inactive:
+• Dimmed
+• No glow
+
+Switch animation:
+Slide + fade 150ms
+
+Feels physical.
+
+━━━━━━━━━━━━━━━━━━━
+6️⃣ CUSTOMIZATION PANEL (Premium-feeling feature)
+
+Appearance Settings:
+
+• Eye Intensity (Off / Subtle / Active)
+• Glow Strength (Low / Medium / High)
+• UI Density (Comfort / Compact)
+• Glitch FX (Disabled / Subtle / Reactive)
+
+When user adjusts glow → live preview updates instantly.
+
+This makes Archivist feel intelligent and adaptable.
+
+━━━━━━━━━━━━━━━━━━━
+7️⃣ 404 PAGE
+
+Black background.
+Centered logo.
+
+Text:
+
+ARCHIVE NOT FOUND
+The requested file does not exist in this index.
+
+One eye flickers once every 5 seconds.
+
+Done.
+
+━━━━━━━━━━━━━━━━━━━
+8️⃣ FAVICON + MICRO LOGO
+
+You need 3 simplified variants:
+
+• Folder + eyes only
+• Folder silhouette only
+• Red “A” emblem version
+
+For small sizes, remove glitch completely.
+Clean shapes only.
+
+━━━━━━━━━━━━━━━

@@ -16,6 +16,55 @@ const CHANGELOG = [
   { date: "Feb 14, 2026", text: "Member Intelligence CRM — per-member profiles, notes, and timeline." },
 ];
 
+function TerminalStat({ label, value, icon: Icon, delay = 0 }: { label: string; value: string | number; icon: any; delay?: number }) {
+  const [displayValue, setDisplayValue] = useState("");
+  const [isDone, setIsDone] = useState(false);
+
+  useEffect(() => {
+    const valStr = value.toString();
+    let current = 0;
+    const timeout = setTimeout(() => {
+      const interval = setInterval(() => {
+        if (current < valStr.length) {
+          setDisplayValue(valStr.slice(0, current + 1));
+          current++;
+        } else {
+          clearInterval(interval);
+          setTimeout(() => setIsDone(true), 200);
+        }
+      }, 30);
+      return () => clearInterval(interval);
+    }, delay);
+    return () => clearTimeout(timeout);
+  }, [value, delay]);
+
+  return (
+    <div
+      className="feature-card rounded-xl p-4 relative overflow-hidden group"
+    >
+      <div className="glitch-fragment" />
+      <div className="flex items-center gap-2 text-muted-foreground mb-2">
+        <div className="w-7 h-7 rounded-lg bg-[#FF2D4D]/10 flex items-center justify-center flex-shrink-0 group-hover:bg-[#FF2D4D]/20 transition-colors">
+          <Icon className="w-3.5 h-3.5 text-primary group-hover:text-accent" />
+        </div>
+        <span className="section-header">{label}</span>
+      </div>
+      <p className="text-2xl font-display font-bold stats-monospace relative">
+        {displayValue}
+        {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">▮</span>}
+        {isDone && (
+          <motion.span 
+            initial={{ opacity: 1 }}
+            animate={{ opacity: [1, 0, 1] }}
+            transition={{ duration: 0.1, times: [0, 0.5, 1] }}
+            className="absolute inset-0 pointer-events-none"
+          />
+        )}
+      </p>
+    </div>
+  );
+}
+
 export default function DashboardOverview() {
   const { data: servers, isLoading } = useServers();
   const { data: user } = useAuth();
@@ -35,10 +84,10 @@ export default function DashboardOverview() {
   const totalCommands = servers?.reduce((s: number, sv: any) => s + (sv.customCommands?.length || 0), 0) || 0;
 
   const statCards = [
-    { label: "Total Servers", value: servers?.length || 0, icon: Server },
-    { label: "Total Members", value: totalMembers >= 1000 ? `${(totalMembers / 1000).toFixed(1)}k` : totalMembers, icon: Users },
+    { label: "Servers Indexed", value: servers?.length || 0, icon: Server },
+    { label: "Members Found", value: totalMembers >= 1000 ? `${(totalMembers / 1000).toFixed(1)}k` : totalMembers, icon: Users },
     { label: "Active Modules", value: activeModules, icon: Activity },
-    { label: "Custom Commands", value: totalCommands, icon: Terminal },
+    { label: "Commands Loaded", value: totalCommands, icon: Terminal },
   ];
 
   return (
@@ -46,43 +95,42 @@ export default function DashboardOverview() {
       <TooltipProvider>
         {user && (
           <div
-            className="glass-card rounded-2xl p-6 mb-6 relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            style={{ borderTop: "2px solid transparent", borderImage: "linear-gradient(90deg, hsl(0,72%,51%), hsl(340,75%,55%)) 1" }}
+            className="feature-card rounded-2xl p-6 mb-6 relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
           >
             <div
               className="absolute inset-0 pointer-events-none"
-              style={{ background: "linear-gradient(90deg, hsl(0 72% 51% / 0.1), transparent 60%)" }}
+              style={{ background: "linear-gradient(90deg, rgba(177, 18, 38, 0.1), transparent 60%)" }}
             />
             <div className="relative z-10 flex items-center gap-4">
               <img
                 src={getAvatarUrl(user)}
                 alt={user.username}
-                className="w-16 h-16 rounded-full ring-2 ring-primary/40 ring-offset-2 ring-offset-background shadow-lg"
+                className="w-16 h-16 rounded-full ring-2 ring-primary/40 ring-offset-2 ring-offset-[#0B0D10] shadow-lg"
               />
               <div>
                 <h1 className="text-2xl font-display font-extrabold leading-tight" data-testid="text-dashboard-title">
                   Welcome back, {user.username}
                 </h1>
-                <p className="text-muted-foreground text-sm mt-0.5">
+                <p className="section-header mt-1 normal-case text-muted-foreground/80">
                   Managing {servers?.length || 0} server{(servers?.length || 0) !== 1 ? "s" : ""}
                 </p>
               </div>
             </div>
             <div className="relative z-10 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5 border-white/10 text-xs" asChild>
-                <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_ID&permissions=8&scope=bot" target="_blank" rel="noopener noreferrer" data-testid="button-add-to-server">
-                  <ExternalLink className="w-3.5 h-3.5" /> Add to Server
+              <Button size="sm" variant="outline" className="gap-1.5 border-white/10 text-xs stats-monospace" asChild>
+                <a href="/api/invite-url" target="_blank" rel="noopener noreferrer" data-testid="button-add-to-server">
+                  <ExternalLink className="w-3.5 h-3.5" /> ADD_TO_SERVER
                 </a>
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 border-white/10 text-xs" asChild>
+              <Button size="sm" variant="outline" className="gap-1.5 border-white/10 text-xs stats-monospace" asChild>
                 <Link href="/marketplace" data-testid="button-go-marketplace">
-                  <Store className="w-3.5 h-3.5" /> Marketplace
+                  <Store className="w-3.5 h-3.5" /> MARKETPLACE
                 </Link>
               </Button>
               {!isPremium && (
-                <Button size="sm" className="gap-1.5 text-xs gradient-brand text-white" asChild>
+                <Button size="sm" className="gap-1.5 text-xs gradient-brand text-white stats-monospace" asChild>
                   <Link href="/premium" data-testid="button-go-premium">
-                    <Crown className="w-3.5 h-3.5" /> Go Premium
+                    <Crown className="w-3.5 h-3.5" /> GO_PREMIUM
                   </Link>
                 </Button>
               )}
@@ -93,21 +141,7 @@ export default function DashboardOverview() {
         {(!isLoading && servers && servers.length > 0) && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {statCards.map((stat, i) => (
-              <div
-                key={i}
-                className="glass-card rounded-xl p-4 relative overflow-hidden"
-                style={{ borderTop: "3px solid transparent", borderImage: "linear-gradient(90deg, hsl(0,72%,51%), hsl(340,75%,55%)) 1" }}
-              >
-                <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                  <div className="w-7 h-7 rounded-lg gradient-brand flex items-center justify-center flex-shrink-0">
-                    <stat.icon className="w-3.5 h-3.5 text-white" />
-                  </div>
-                  <span className="text-xs uppercase tracking-wider font-medium">{stat.label}</span>
-                </div>
-                <p className="text-2xl font-display font-bold" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, "-")}`}>
-                  {stat.value}
-                </p>
-              </div>
+              <TerminalStat key={i} {...stat} delay={i * 100} />
             ))}
           </div>
         )}
@@ -158,9 +192,10 @@ export default function DashboardOverview() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.07 }}
                   key={server.id}
-                  className="glass-card rounded-2xl p-5 flex flex-col justify-between group cursor-pointer hover:border-primary/40 transition-all duration-300 hover:shadow-[0_0_30px_-5px_hsl(0_72%_51%/0.3)] hover:-translate-y-0.5"
+                  className="feature-card rounded-2xl p-5 flex flex-col justify-between group cursor-pointer hover:shadow-[0_0_30px_-5px_rgba(177,18,38,0.3)] hover:-translate-y-0.5"
                   data-testid={`card-server-${server.id}`}
                 >
+                  <div className="glitch-fragment" />
                   <div>
                     <div className="flex items-start justify-between mb-4">
                       {server.iconUrl ? (
@@ -172,7 +207,7 @@ export default function DashboardOverview() {
                       ) : (
                         <div
                           className="w-14 h-14 rounded-2xl flex items-center justify-center text-lg font-display font-bold shadow-lg shadow-black/30 group-hover:scale-105 transition-transform duration-300 text-white"
-                          style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}
+                          style={{ background: "linear-gradient(135deg, #B11226, #FF2D4D)" }}
                         >
                           {initials}
                         </div>
@@ -185,9 +220,9 @@ export default function DashboardOverview() {
                     <h3 className="text-lg font-display font-bold truncate mb-1" data-testid={`text-server-name-${server.id}`}>
                       {server.name}
                     </h3>
-                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4">
+                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4 stats-monospace">
                       <Users className="w-3.5 h-3.5" />
-                      <span>{(server.memberCount || 0).toLocaleString()} members</span>
+                      <span>{(server.memberCount || 0).toLocaleString()} MEMBERS</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 mb-4">
@@ -195,12 +230,12 @@ export default function DashboardOverview() {
                         <Tooltip key={mod.label}>
                           <TooltipTrigger>
                             <div
-                              className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${mod.active ? "bg-emerald-400 shadow-[0_0_6px_#34d399]" : "bg-white/15"}`}
+                              className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${mod.active ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-white/10"}`}
                               data-testid={`dot-module-${mod.label.toLowerCase()}-${server.id}`}
                             />
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">
-                            {mod.label}: {mod.active ? "Enabled" : "Disabled"}
+                          <TooltipContent side="top" className="text-[10px] uppercase font-bold tracking-widest bg-black border-white/10">
+                            {mod.label}: {mod.active ? "ACTIVE" : "OFFLINE"}
                           </TooltipContent>
                         </Tooltip>
                       ))}
@@ -209,8 +244,8 @@ export default function DashboardOverview() {
 
                   <div className="flex gap-2">
                     <Link href={`/dashboard/servers/${server.id}`} className="flex-1">
-                      <Button size="sm" className="w-full gradient-brand text-white text-xs font-semibold" data-testid={`button-configure-${server.id}`}>
-                        Configure
+                      <Button size="sm" className="w-full gradient-brand text-white text-[10px] font-bold uppercase tracking-widest" data-testid={`button-configure-${server.id}`}>
+                        CONFIGURE
                       </Button>
                     </Link>
                     <Link href={`/dashboard/servers/${server.id}/members`}>
@@ -228,24 +263,25 @@ export default function DashboardOverview() {
         <div className="mt-8">
           <button
             onClick={() => setChangelogOpen(!changelogOpen)}
-            className="w-full glass-card rounded-xl p-4 flex items-center justify-between hover:border-white/15 transition-colors duration-200"
+            className="w-full feature-card rounded-xl p-4 flex items-center justify-between hover:bg-secondary/20 transition-colors duration-200"
             data-testid="button-toggle-changelog"
           >
-            <span className="font-display font-semibold text-sm">What's New in Archivist</span>
+            <div className="glitch-fragment" />
+            <span className="section-header">What's New in Archivist</span>
             {changelogOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
           </button>
           {changelogOpen && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
-              className="glass-card rounded-xl mt-1 p-4 space-y-3 overflow-hidden"
+              className="feature-card rounded-xl mt-1 p-4 space-y-3 overflow-hidden"
             >
               {CHANGELOG.map((entry, i) => (
                 <div key={i} className="flex gap-3 items-start">
-                  <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                  <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0 shadow-[0_0_8px_#B11226]" />
                   <div>
-                    <span className="text-xs text-muted-foreground font-mono">{entry.date}</span>
-                    <p className="text-sm mt-0.5">{entry.text}</p>
+                    <span className="text-[10px] text-muted-foreground stats-monospace uppercase tracking-widest">{entry.date}</span>
+                    <p className="text-sm mt-1 leading-relaxed">{entry.text}</p>
                   </div>
                 </div>
               ))}

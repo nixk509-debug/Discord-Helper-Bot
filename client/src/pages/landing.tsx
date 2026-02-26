@@ -37,28 +37,37 @@ import archivistAvatar from "@assets/archivist-avatar.png";
 import dashboardArt from "@assets/dashboard-art.png";
 import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_1772114960531.png";
 
-function AnimatedCounter({ target, suffix = "" }: { target: number; suffix?: string }) {
-  const [count, setCount] = useState(0);
+function TypingCounter({ target, suffix = "" }: { target: number; suffix?: string }) {
+  const [displayValue, setDisplayValue] = useState("");
+  const [isDone, setIsDone] = useState(false);
+
   useEffect(() => {
-    const duration = 1800;
-    const steps = 60;
-    const increment = target / steps;
     let current = 0;
-    const timer = setInterval(() => {
-      current += increment;
-      if (current >= target) {
-        setCount(target);
-        clearInterval(timer);
+    const targetStr = target.toString();
+    const interval = setInterval(() => {
+      if (current < targetStr.length) {
+        setDisplayValue(targetStr.slice(0, current + 1));
+        current++;
       } else {
-        setCount(Math.floor(current));
+        clearInterval(interval);
+        setTimeout(() => setIsDone(true), 200);
       }
-    }, duration / steps);
-    return () => clearInterval(timer);
+    }, 30);
+    return () => clearInterval(interval);
   }, [target]);
 
-  if (target >= 1000000) return <span>{(count / 1000000).toFixed(1)}M{suffix}</span>;
-  if (target >= 1000) return <span>{(count / 1000).toFixed(1)}k{suffix}</span>;
-  return <span>{count}{suffix}</span>;
+  const formatted = target >= 1000000 
+    ? (target / 1000000).toFixed(1) + "M"
+    : target >= 1000 
+      ? (target / 1000).toFixed(1) + "k"
+      : displayValue;
+
+  return (
+    <span className={`stats-monospace relative ${isDone ? 'animate-pulse' : ''}`}>
+      {formatted}{suffix}
+      {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">▮</span>}
+    </span>
+  );
 }
 
 const COMPARE_FEATURES = [
@@ -389,9 +398,9 @@ export default function Landing() {
               {statItems.map((stat, i) => (
                 <div key={i} className="flex flex-col items-center justify-center text-center py-2">
                   <span className="text-2xl md:text-3xl font-display font-bold text-foreground text-glow" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, "-")}`}>
-                    <AnimatedCounter target={stat.value} suffix={stat.suffix} />
+                    <TypingCounter target={stat.value} suffix={stat.suffix} />
                   </span>
-                  <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider mt-0.5">{stat.label}</span>
+                  <span className="section-header mt-1">{stat.label}</span>
                 </div>
               ))}
             </motion.div>
@@ -460,17 +469,18 @@ export default function Landing() {
                 transition={{ delay: i * 0.04 }}
                 onClick={() => setSelectedFeature(feature)}
                 data-testid={`button-feature-${feature.title.toLowerCase().replace(/\s+/g, "-")}`}
-                className={`glass-card p-5 rounded-2xl transition-all duration-300 group relative overflow-hidden text-left w-full cursor-pointer hover:scale-[1.02] hover:border-primary/30 active:scale-[0.99] ${feature.highlight ? "border-primary/25 bg-primary/3" : ""}`}
+                className={`feature-card p-5 rounded-2xl transition-all duration-300 group relative overflow-hidden text-left w-full cursor-pointer hover:scale-[1.02] active:scale-[0.99] ${feature.highlight ? "border-primary/25 bg-primary/3" : ""}`}
               >
+                <div className="glitch-fragment" />
                 {feature.highlight && (
                   <>
-                    <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ background: "linear-gradient(180deg, hsl(0,72%,51%), hsl(340,75%,55%))" }} />
+                    <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ background: "linear-gradient(180deg, #B11226, #FF2D4D)" }} />
                     <div className="absolute top-2 right-2">
                       <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full text-primary border border-primary/30 bg-primary/10">Exclusive</span>
                     </div>
                   </>
                 )}
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 transition-colors duration-300 ${feature.highlight ? "bg-primary/15 text-primary" : "bg-secondary group-hover:bg-primary/15"}`}>
+                <div className={`icon-container w-9 h-9 rounded-lg flex items-center justify-center mb-3 transition-colors duration-300 ${feature.highlight ? "bg-primary/15 text-primary" : "bg-secondary group-hover:bg-primary/15"}`}>
                   <feature.icon className={`w-4.5 h-4.5 ${feature.highlight ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
                 </div>
                 <h3 className="font-display font-bold text-sm mb-1.5">{feature.title}</h3>
@@ -579,7 +589,7 @@ export default function Landing() {
               </p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-4">Product</p>
+              <p className="section-header mb-4">Product</p>
               <ul className="space-y-2.5">
                 <li><a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
                 <li><Link href="/premium" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Premium</Link></li>
@@ -592,7 +602,7 @@ export default function Landing() {
               </ul>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-4">Account</p>
+              <p className="section-header mb-4">Account</p>
               <ul className="space-y-2.5">
                 {user ? (
                   <>

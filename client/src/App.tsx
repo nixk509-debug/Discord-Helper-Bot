@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,23 +14,37 @@ import MembersPage from "@/pages/dashboard/members";
 import Marketplace from "@/pages/marketplace";
 import Preferences from "@/pages/dashboard/preferences";
 import { useAuth } from "@/hooks/use-auth";
+import { DashboardEntryAnimation } from "@/components/dashboard-entry-animation";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { data: user, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  const [showAnimation, setShowAnimation] = useState(false);
+  const [hasAnimated, setHasAnimated] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
       setLocation("/login");
+    } else if (!isLoading && user && !hasAnimated && location.startsWith("/dashboard")) {
+      setShowAnimation(true);
     }
-  }, [isLoading, user, setLocation]);
+  }, [isLoading, user, setLocation, hasAnimated, location]);
 
   if (isLoading) return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+    <div className="min-h-screen bg-[#0B0D10] flex items-center justify-center">
+      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_15px_#B11226]" />
     </div>
   );
+
   if (!user) return null;
+
+  if (showAnimation) {
+    return <DashboardEntryAnimation onComplete={() => {
+      setShowAnimation(false);
+      setHasAnimated(true);
+    }} />;
+  }
+
   return <Component />;
 }
 

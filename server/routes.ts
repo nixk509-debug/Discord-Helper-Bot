@@ -48,12 +48,19 @@ export async function registerRoutes(_server: Server, app: Express) {
   // --- USER PREFERENCES ---
   app.get("/api/preferences", requireAuth, async (req, res) => {
     const prefs = await storage.getUserPreferences(req.user!.id);
-    res.json(prefs || { accentColor: "#dc2626", embedStyle: "modern", brandName: null });
+    res.json(prefs || { 
+      accentColor: "#B11226", 
+      embedStyle: "modern", 
+      brandName: null,
+      eyeIntensity: "subtle",
+      glowStrength: 50,
+      uiDensity: "comfort",
+      glitchFx: true
+    });
   });
 
   app.put("/api/preferences", requireAuth, async (req, res) => {
-    const { accentColor, embedStyle, brandName } = req.body;
-    const updated = await storage.upsertUserPreferences(req.user!.id, { accentColor, embedStyle, brandName });
+    const updated = await storage.upsertUserPreferences(req.user!.id, req.body);
     res.json(updated);
   });
 
