@@ -11,7 +11,15 @@ import { configEvents } from "./configService";
 import { pool } from "./db";
 
 const app = express();
-app.set("trust proxy", 1);
+
+const trustProxyEnv = process.env.TRUST_PROXY;
+if (trustProxyEnv === "true") {
+  app.set("trust proxy", true);
+} else if (trustProxyEnv === "false") {
+  app.set("trust proxy", false);
+} else {
+  app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
+}
 const httpServer = createServer(app);
 
 declare module "http" {
