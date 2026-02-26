@@ -3,8 +3,7 @@ import { Strategy as DiscordStrategy } from "passport-discord";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import type { Express, Request, Response, NextFunction } from "express";
-import { db } from "./db";
-import { pool } from "./db";
+import { db, hasDatabaseUrl, pool } from "./db";
 import { users, type User } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
@@ -29,47 +28,58 @@ declare global {
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 
+function getAppBaseUrl() {
+  return process.env.APP_URL || process.env.PUBLIC_BASE_URL || "http://localhost:5000";
+}
+
 export async function setupAuth(app: Express) {
-  // Create session table manually so connect-pg-simple never needs to read table.sql
-  // (which fails in production when bundled)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS "session" (
-      "sid" varchar NOT NULL COLLATE "default",
-      "sess" json NOT NULL,
-      "expire" timestamp(6) NOT NULL,
-      CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
-    ) WITH (OIDS=FALSE);
-    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
-  `);
+  const isProduction = process.env.NODE_ENV === "production";
+  const sessionSecret = process.env.SESSION_SECRET;
 
-  const PgSession = connectPgSimple(session);
+  if (!sessionSecret && isProduction) {
+    throw new Error("SESSION_SECRET must be set in production.");
+  }
 
-  app.use(
-    session({
-      store: new PgSession({
-        pool: pool as any,
-        tableName: "session",
-        createTableIfMissing: false,
-      }),
-      secret: process.env.SESSION_SECRET || "nexbot-session-secret-dev",
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-      },
-    })
-  );
+  const sessionConfig: session.SessionOptions = {
+    secret: sessionSecret || "archivist-dev-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+    },
+  };
+
+  if (hasDatabaseUrl) {
+    // Create session table manually so connect-pg-simple never needs to read table.sql
+    // (which fails in production when bundled)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "session" (
+        "sid" varchar NOT NULL COLLATE "default",
+        "sess" json NOT NULL,
+        "expire" timestamp(6) NOT NULL,
+        CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
+      ) WITH (OIDS=FALSE);
+      CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+    `);
+
+    const PgSession = connectPgSimple(session);
+    sessionConfig.store = new PgSession({
+      pool: pool as any,
+      tableName: "session",
+      createTableIfMissing: false,
+    });
+  }
+
+  app.use(session(sessionConfig));
 
   app.use(passport.initialize());
   app.use(passport.session());
 
   if (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET) {
-    const baseUrl = process.env.PUBLIC_BASE_URL
-      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "http://localhost:5000");
-    const callbackURL = `${baseUrl}/auth/discord/callback`;
+    const callbackURL = `${getAppBaseUrl().replace(/\/$/, "")}/auth/discord/callback`;
 
     passport.use(
       new DiscordStrategy(
@@ -143,6 +153,9 @@ export async function setupAuth(app: Express) {
     if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
       return res.status(503).json({ message: "Discord OAuth not configured. Set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET." });
     }
+    if (!hasDatabaseUrl) {
+      return res.status(503).json({ message: "Authentication requires DATABASE_URL to persist sessions." });
+    }
     passport.authenticate("discord")(req, res, next);
   });
 
@@ -152,8 +165,11 @@ export async function setupAuth(app: Express) {
       if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) {
         return res.redirect("/?error=discord_not_configured");
       }
+      if (!hasDatabaseUrl) {
+        return res.redirect("/?error=database_not_configured");
+      }
       passport.authenticate("discord", {
-        failureRedirect: "/login?error=auth_failed",
+        failureRedirect: "/?error=auth_failed",
         successRedirect: "/dashboard",
       })(req, res, next);
     }
