@@ -1,7 +1,8 @@
 import { 
   LayoutDashboard, 
   Store,
-  Crown
+  Crown,
+  Settings2
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -66,6 +67,18 @@ export function AppSidebar() {
                   <Link href="/marketplace" className="flex items-center gap-3" data-testid="link-marketplace">
                     <Store className="w-4 h-4" />
                     <span className="font-medium">Marketplace</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/dashboard/preferences"}
+                  className="data-[active=true]:bg-primary/15 data-[active=true]:text-primary data-[active=true]:border-l-2 data-[active=true]:border-primary transition-all duration-200 rounded-lg"
+                >
+                  <Link href="/dashboard/preferences" className="flex items-center gap-3" data-testid="link-preferences">
+                    <Settings2 className="w-4 h-4" />
+                    <span className="font-medium">Preferences</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

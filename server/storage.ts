@@ -6,7 +6,7 @@ import {
   ticketConfig, ticketPanels, scheduledMessages, auditLogConfig,
   users, templates, automations, serverVariables, economy, roleShop,
   economyTransactions, memberNotes, serverInsights, commandShares,
-  commandImports, serverWebhooks, polls, giveaways,
+  commandImports, serverWebhooks, polls, giveaways, userPreferences,
   type Server, type ServerSettings, type CustomCommand, type Embed,
   type ChannelSetting, type ReactionRole, type AutoRole, type Warning,
   type PunishmentConfigType, type LevelingConfigType, type StarboardConfigType,
@@ -14,6 +14,7 @@ import {
   type User, type Template, type Automation, type ServerVariable, type EconomyAccount,
   type RoleShopItem, type EconomyTransaction, type MemberNote, type ServerInsight,
   type CommandShare, type CommandImport, type ServerWebhook, type Poll, type Giveaway,
+  type UserPreferences,
 } from "@shared/schema";
 import { type ServerWithRelations } from "@shared/routes";
 import { eq, and, sql } from "drizzle-orm";
@@ -571,6 +572,27 @@ export class DatabaseStorage {
   }
   async deleteGiveaway(id: number): Promise<void> {
     await db.delete(giveaways).where(eq(giveaways.id, id));
+  }
+
+  // --- USER PREFERENCES ---
+  async getUserPreferences(userId: number): Promise<UserPreferences | null> {
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userId, userId));
+    return prefs || null;
+  }
+  async upsertUserPreferences(userId: number, data: Partial<Omit<UserPreferences, 'id' | 'userId'>>): Promise<UserPreferences> {
+    const existing = await this.getUserPreferences(userId);
+    if (existing) {
+      const [updated] = await db.update(userPreferences)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(userPreferences.userId, userId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(userPreferences)
+        .values({ userId, ...data })
+        .returning();
+      return created;
+    }
   }
 }
 

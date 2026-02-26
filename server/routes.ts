@@ -36,6 +36,27 @@ export async function registerRoutes(_server: Server, app: Express) {
     });
   });
 
+  // --- INVITE URL ---
+  app.get("/api/invite-url", (_req, res) => {
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    if (!clientId) return res.status(503).json({ message: "Bot not configured" });
+    const permissions = "8";
+    const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot+applications.commands`;
+    res.json({ url });
+  });
+
+  // --- USER PREFERENCES ---
+  app.get("/api/preferences", requireAuth, async (req, res) => {
+    const prefs = await storage.getUserPreferences(req.user!.id);
+    res.json(prefs || { accentColor: "#dc2626", embedStyle: "modern", brandName: null });
+  });
+
+  app.put("/api/preferences", requireAuth, async (req, res) => {
+    const { accentColor, embedStyle, brandName } = req.body;
+    const updated = await storage.upsertUserPreferences(req.user!.id, { accentColor, embedStyle, brandName });
+    res.json(updated);
+  });
+
   // --- TEMPLATES ---
   app.get("/api/templates", requireAuth, async (req, res) => {
     const serverId = req.query.serverId ? parseInt(req.query.serverId as string) : undefined;

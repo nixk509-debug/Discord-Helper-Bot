@@ -67,9 +67,9 @@ export async function setupAuth(app: Express) {
   app.use(passport.session());
 
   if (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET) {
-    const callbackURL = process.env.REPLIT_DOMAINS
-      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}/auth/discord/callback`
-      : "http://localhost:5000/auth/discord/callback";
+    const baseUrl = process.env.PUBLIC_BASE_URL
+      || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "http://localhost:5000");
+    const callbackURL = `${baseUrl}/auth/discord/callback`;
 
     passport.use(
       new DiscordStrategy(
