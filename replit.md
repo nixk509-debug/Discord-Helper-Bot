@@ -81,7 +81,7 @@ The project uses a three-folder monorepo pattern:
 ### Database Schema
 17 tables total:
 1. **`users`** — Discord user data: id, discordId, username, discriminator, avatar, email, accessToken, refreshToken, isPremium, premiumSince, premiumExpiresAt, stripeCustomerId, stripeSubscriptionId, createdAt
-2. **`templates`** — Saved embed/panel templates: id, userId, serverId, name, type, data (jsonb), createdAt. Free: 2 limit, Premium: 10 limit
+2. **`templates`** — Saved embed/panel templates: id, userId, serverId, name, type, data (jsonb), createdAt. Limit: 10 for all users (free tier mode)
 3. **`servers`** — Discord servers (guilds): id, discordId, name, iconUrl, memberCount, joinedAt, ownerId
 4. **`server_settings`** — Per-server config: prefix, welcome/leave, automod (6 filters + raid protection), whitelists, mod settings
 5. **`custom_commands`** — Commands with triggerType (command/keyword/regex/startsWith), conditions (jsonb), actions (jsonb), usageCount, lastUsedAt, premiumOnly, plus existing fields

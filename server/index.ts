@@ -121,7 +121,9 @@ app.use((req, res, next) => {
         .then(() => console.log("Stripe data synced"))
         .catch((err: any) => console.error("Stripe sync error:", err.message));
     } catch (err: any) {
-      console.error("Stripe init error (non-fatal):", err.message);
+      if (!err.message?.includes("connection not found") && !err.message?.includes("X-Replit-Token")) {
+        console.error("Stripe init error (non-fatal):", err.message);
+      }
     }
   }
 
