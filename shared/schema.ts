@@ -152,6 +152,19 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// --- USER PREFERENCES ---
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  accentColor: text("accent_color").default("#dc2626"),
+  embedStyle: text("embed_style").default("modern"),
+  brandName: text("brand_name"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ id: true });
+export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+
 // --- TEMPLATES ---
 export const templates = pgTable("templates", {
   id: serial("id").primaryKey(),

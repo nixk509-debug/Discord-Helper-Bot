@@ -5,11 +5,13 @@ import { createServer } from "http";
 import { setupAuth } from "./auth";
 import { registerStripeRoutes } from "./stripe";
 import { WebhookHandlers } from "./webhookHandlers";
-import { startBot } from "./bot/index";
+import { startBot, getBotClient } from "./bot/index";
 import { WebSocketServer, WebSocket } from "ws";
 import { configEvents } from "./configService";
+import { pool } from "./db";
 
 const app = express();
+app.set("trust proxy", 1);
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -166,6 +168,18 @@ app.use((req, res, next) => {
   );
 
   startBot().catch((err) => console.error("Bot startup error:", err));
+
+  // --- GRACEFUL SHUTDOWN ---
+  function shutdown() {
+    log("Shutting down gracefully...");
+    getBotClient()?.destroy();
+    httpServer.close(() => {
+      pool.end().then(() => process.exit(0)).catch(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(0), 8000);
+  }
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 
   // --- WEBSOCKET SERVER ---
   // Use noServer:true so we can selectively handle only /ws upgrades,
