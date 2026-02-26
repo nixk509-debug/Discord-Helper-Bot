@@ -165,8 +165,20 @@ app.use((req, res, next) => {
   startBot().catch((err) => console.error("Bot startup error:", err));
 
   // --- WEBSOCKET SERVER ---
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  // Use noServer:true so we can selectively handle only /ws upgrades,
+  // leaving /vite-hmr and other paths untouched for Vite HMR to handle.
+  const wss = new WebSocketServer({ noServer: true });
   const wsClients = new Map<number, Set<WebSocket>>();
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    const pathname = new URL(request.url || "/", "http://localhost").pathname;
+    if (pathname === "/ws") {
+      wss.handleUpgrade(request, socket as any, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    }
+    // All other paths (e.g. /vite-hmr) are left for Vite to handle.
+  });
 
   wss.on("connection", (ws, req) => {
     const url = new URL(req.url || "/", `http://localhost`);
