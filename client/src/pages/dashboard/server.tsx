@@ -1,6 +1,6 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { ServerSettingsLayout } from "@/components/layout/server-settings-layout";
-import { useServer, useUpdateSettings } from "@/hooks/use-bot";
+import { useServer, useUpdateSettings, useBotStatus } from "@/hooks/use-bot";
 import { useRoute } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +55,7 @@ export default function ServerSettings() {
 
   const { data: server, isLoading } = useServer(serverId);
   const updateSettings = useUpdateSettings(serverId);
+  const { data: botStatus } = useBotStatus();
 
   if (isLoading || !server) {
     return (
@@ -167,8 +168,8 @@ export default function ServerSettings() {
         <div>
           <h1 className="text-3xl font-display font-bold" data-testid="text-server-name">{server.name}</h1>
           <p className="text-muted-foreground flex items-center gap-2 mt-1" data-testid="text-server-info">
-            <span className="w-2 h-2 rounded-full bg-green-500"></span>
-            Connected &middot; {server.memberCount} Members
+            <span className={`w-2 h-2 rounded-full ${botStatus?.ready ? "bg-green-500" : "bg-red-500"}`}></span>
+            {botStatus?.ready ? "Connected" : "Bot Offline"} &middot; {server.memberCount} Members
           </p>
         </div>
       </div>

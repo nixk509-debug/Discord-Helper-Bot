@@ -22,6 +22,15 @@ export function getBotUptime() {
   return Date.now() - botStartTime.getTime();
 }
 
+export function getBotStatus() {
+  const ready = !!botClient?.isReady();
+  return {
+    ready,
+    uptimeMs: ready && botStartTime ? Date.now() - botStartTime.getTime() : null,
+    guildCount: ready ? botClient!.guilds.cache.size : 0,
+  };
+}
+
 export async function startBot() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
@@ -65,6 +74,12 @@ export async function startBot() {
     } catch (err) {
       console.error(`[Bot] Failed to auto-setup ${guild.name}:`, err);
     }
+
+    try {
+      await registerGuildSlashCommands(client, guild.id);
+    } catch (err) {
+      console.error(`[Bot] Failed to register guild commands for ${guild.id}:`, err);
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction: Interaction) => {
@@ -105,7 +120,25 @@ export async function startBot() {
 }
 
 async function registerSlashCommands(client: Client<true>) {
-  const commands = [
+  const commands = getSlashCommandDefinitions();
+
+  try {
+    const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
+    await rest.put(Routes.applicationCommands(client.user.id), {
+      body: commands.map((c) => c.toJSON()),
+    });
+    console.log(`[Bot] Registered ${commands.length} global slash commands`);
+
+    for (const guild of Array.from(client.guilds.cache.values())) {
+      await registerGuildSlashCommands(client, guild.id);
+    }
+  } catch (err) {
+    console.error("[Bot] Failed to register slash commands:", err);
+  }
+}
+
+function getSlashCommandDefinitions() {
+  return [
     new SlashCommandBuilder().setName("setup").setDescription("Set up Archivist in this server"),
     new SlashCommandBuilder().setName("premium").setDescription("Check premium status for this server"),
     new SlashCommandBuilder().setName("help").setDescription("Show Archivist help and dashboard link"),
@@ -117,16 +150,16 @@ async function registerSlashCommands(client: Client<true>) {
     syncCommand,
     ...economyCommands,
   ];
+}
 
-  try {
-    const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
-    await rest.put(Routes.applicationCommands(client.user.id), {
+async function registerGuildSlashCommands(client: Client<boolean>, guildId: string) {
+  if (!client.user) return;
+  const commands = getSlashCommandDefinitions();
+  const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
+  await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), {
       body: commands.map((c) => c.toJSON()),
-    });
-    console.log(`[Bot] Registered ${commands.length} slash commands`);
-  } catch (err) {
-    console.error("[Bot] Failed to register slash commands:", err);
-  }
+  });
+  console.log(`[Bot] Registered ${commands.length} guild slash commands for ${guildId}`);
 }
 
 async function handleSetupCommand(interaction: any) {
@@ -202,10 +235,11 @@ async function handleHelpCommand(interaction: any) {
     content: [
       "**Archivist** — Your all-in-one Discord server manager",
       "",
-      "**Slash Commands:**",
-      "`/setup` — Set up Archivist in this server",
-      "`/premium` — Check premium status",
-      "`/help` — Show this help message",
+      "**Core Commands:**",
+      "`/setup`, `/premium`, `/help`, `/set`, `/lock`, `/sync`, `/audit`, `/code`",
+      "",
+      "**Economy Commands:**",
+      "`/balance`, `/daily`, `/work`, `/pay`, `/transfer`, `/shop`, `/buy`, `/slots`, `/coinflip`, `/richest`, `/transactions`, `/rob`",
       "",
       `**Dashboard:** ${dashUrl}/dashboard`,
       "",

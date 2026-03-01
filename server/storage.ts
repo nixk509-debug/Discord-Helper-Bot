@@ -30,11 +30,11 @@ export class DatabaseStorage {
     return await db.query.servers.findFirst({
       where: eq(servers.id, id),
       with: {
-        settings: true, customCommands: true, embeds: true,
-        channelSettings: true, reactionRoles: true, autoRoles: true,
-        warnings: true, punishmentConfig: true, levelingConfig: true,
-        starboardConfig: true, ticketConfig: true, ticketPanels: true,
-        scheduledMessages: true, auditLogConfig: true,
+        // Keep this payload intentionally light for the main dashboard route.
+        // Module-specific tabs fetch their own data from dedicated endpoints.
+        settings: true,
+        customCommands: true,
+        embeds: true,
       },
     }) as any;
   }

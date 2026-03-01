@@ -7,7 +7,7 @@ import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots }
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
-import { getBotClient, getBotUptime } from "./bot/index";
+import { getBotClient, getBotUptime, getBotStatus } from "./bot/index";
 import { recordAudit, getAuditLog } from "./auditService";
 import { createSnapshot, listSnapshots, rollback } from "./snapshotService";
 import { generateCode, redeemCode, listCodes, revokeCode } from "./codeVaultService";
@@ -24,16 +24,27 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   // --- HEALTH ---
   app.get("/health", async (_req, res) => {
+    const bot = getBotStatus();
+
     if (!hasDatabaseUrl) {
-      return res.status(503).json({ ok: false, message: "DATABASE_URL not configured" });
+      return res.status(503).json({ ok: false, botReady: bot.ready, message: "DATABASE_URL not configured" });
     }
 
     try {
       await db.execute(sql`SELECT 1`);
-      return res.json({ ok: true });
+      return res.json({ ok: true, botReady: bot.ready, botGuilds: bot.guildCount });
     } catch {
-      return res.status(503).json({ ok: false, message: "Database unavailable" });
+      return res.status(503).json({ ok: false, botReady: bot.ready, message: "Database unavailable" });
     }
+  });
+
+  app.get(api.bot.status.path, (_req, res) => {
+    const bot = getBotStatus();
+    res.json({
+      ready: bot.ready,
+      uptimeMs: bot.uptimeMs,
+      guildCount: bot.guildCount,
+    });
   });
 
   // --- INVITE URL ---
@@ -88,25 +99,38 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
-    const allServers = await storage.getServers();
-    const totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
-    const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
-    const commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
-    const botUptimeMs = getBotUptime();
-    const uptimeStr = botUptimeMs != null
-      ? (() => {
-          const s = Math.floor(botUptimeMs / 1000);
-          const h = Math.floor(s / 3600);
-          const m = Math.floor((s % 3600) / 60);
-          return h > 0 ? `${h}h ${m}m` : `${m}m`;
-        })()
-      : "offline";
-    res.json({
-      totalServers: allServers.length,
-      totalMembers,
-      commandsExecuted,
-      uptime: uptimeStr,
-    });
+    try {
+      const allServers = await storage.getServers();
+      const totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
+      const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
+      const commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
+      const bot = getBotStatus();
+      const uptimeStr = bot.ready && bot.uptimeMs != null
+        ? (() => {
+            const secs = Math.floor(bot.uptimeMs / 1000);
+            const hours = Math.floor(secs / 3600);
+            const minutes = Math.floor((secs % 3600) / 60);
+            return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+          })()
+        : "offline";
+
+      return res.json({
+        totalServers: allServers.length,
+        totalMembers,
+        commandsExecuted,
+        uptime: uptimeStr,
+        botReady: bot.ready,
+      });
+    } catch (err: any) {
+      console.error("[Stats] Failed to build dashboard stats:", err?.message || err);
+      return res.status(200).json({
+        totalServers: 0,
+        totalMembers: 0,
+        commandsExecuted: 0,
+        uptime: "offline",
+        botReady: getBotStatus().ready,
+      });
+    }
   });
 
   // --- SERVERS ---

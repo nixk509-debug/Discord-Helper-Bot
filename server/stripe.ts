@@ -6,6 +6,10 @@ import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 
+function getPublicAppUrl() {
+  return (process.env.APP_URL || process.env.PUBLIC_BASE_URL || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "http://localhost:5000")).replace(/\/$/, "");
+}
+
 export function registerStripeRoutes(app: Express) {
   app.get("/api/premium/key", async (_req, res) => {
     try {
@@ -57,7 +61,7 @@ export function registerStripeRoutes(app: Express) {
           .where(eq(users.id, req.user!.id));
       }
 
-      const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+      const baseUrl = getPublicAppUrl();
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
         payment_method_types: ["card"],
@@ -81,7 +85,7 @@ export function registerStripeRoutes(app: Express) {
         return res.status(400).json({ message: "No billing account found" });
       }
       const stripe = await getUncachableStripeClient();
-      const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+      const baseUrl = getPublicAppUrl();
       const session = await stripe.billingPortal.sessions.create({
         customer: req.user!.stripeCustomerId,
         return_url: `${baseUrl}/premium`,

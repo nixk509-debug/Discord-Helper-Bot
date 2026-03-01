@@ -1,14 +1,28 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
+import { buildApiUrl } from "@/lib/http";
 
 export function useStats() {
   return useQuery({
     queryKey: [api.stats.get.path],
     queryFn: async () => {
-      const res = await fetch(api.stats.get.path, { credentials: "include" });
+      const res = await fetch(buildApiUrl(api.stats.get.path), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch stats");
       return await res.json();
     },
+  });
+}
+
+
+export function useBotStatus() {
+  return useQuery({
+    queryKey: [api.bot.status.path],
+    queryFn: async () => {
+      const res = await fetch(buildApiUrl(api.bot.status.path), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch bot status");
+      return await res.json();
+    },
+    refetchInterval: 15000,
   });
 }
 
@@ -16,7 +30,7 @@ export function useServers() {
   return useQuery({
     queryKey: [api.servers.list.path],
     queryFn: async () => {
-      const res = await fetch(api.servers.list.path, { credentials: "include" });
+      const res = await fetch(buildApiUrl(api.servers.list.path), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch servers");
       return await res.json();
     },
@@ -28,7 +42,7 @@ export function useServer(id: number) {
     queryKey: [api.servers.get.path, id],
     queryFn: async () => {
       const url = buildUrl(api.servers.get.path, { id });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch server");
       return await res.json();
@@ -42,7 +56,7 @@ export function useUpdateSettings(serverId: number) {
   return useMutation({
     mutationFn: async (updates: any) => {
       const url = buildUrl(api.settings.update.path, { serverId });
-      const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updates), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -59,7 +73,7 @@ export function useCommands(serverId: number) {
     queryKey: [api.commands.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.commands.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch commands");
       return await res.json();
     },
@@ -72,7 +86,7 @@ export function useCreateCommand(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.commands.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -88,7 +102,7 @@ export function useUpdateCommand(serverId: number) {
   return useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
       const url = buildUrl(api.commands.update.path, { id });
-      const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -104,7 +118,7 @@ export function useDeleteCommand(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.commands.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed to delete command");
     },
     onSuccess: () => {
@@ -120,7 +134,7 @@ export function useEmbeds(serverId: number) {
     queryKey: [api.embeds.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.embeds.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch embeds");
       return await res.json();
     },
@@ -133,7 +147,7 @@ export function useCreateEmbed(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.embeds.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -149,7 +163,7 @@ export function useUpdateEmbed(serverId: number) {
   return useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
       const url = buildUrl(api.embeds.update.path, { id });
-      const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -165,7 +179,7 @@ export function useDeleteEmbed(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.embeds.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed to delete embed");
     },
     onSuccess: () => {
@@ -181,7 +195,7 @@ export function useChannelSettings(serverId: number) {
     queryKey: [api.channelSettings.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.channelSettings.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -193,7 +207,7 @@ export function useUpsertChannelSettings(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.channelSettings.upsert.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -209,7 +223,7 @@ export function useDeleteChannelSettings(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.channelSettings.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -225,7 +239,7 @@ export function useReactionRoles(serverId: number) {
     queryKey: [api.reactionRoles.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.reactionRoles.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -237,7 +251,7 @@ export function useCreateReactionRole(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.reactionRoles.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -253,7 +267,7 @@ export function useDeleteReactionRole(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.reactionRoles.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -269,7 +283,7 @@ export function useAutoRoles(serverId: number) {
     queryKey: [api.autoRoles.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.autoRoles.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -281,7 +295,7 @@ export function useCreateAutoRole(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.autoRoles.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -297,7 +311,7 @@ export function useDeleteAutoRole(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.autoRoles.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -313,7 +327,7 @@ export function useWarnings(serverId: number) {
     queryKey: [api.warnings.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.warnings.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -325,7 +339,7 @@ export function useCreateWarning(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.warnings.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -341,7 +355,7 @@ export function useDeleteWarning(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.warnings.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -356,7 +370,7 @@ export function useClearWarnings(serverId: number) {
   return useMutation({
     mutationFn: async (userId: string) => {
       const url = buildUrl(api.warnings.clear.path, { serverId, userId });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => {
@@ -371,7 +385,7 @@ export function usePunishments(serverId: number) {
     queryKey: [api.punishments.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.punishments.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -383,7 +397,7 @@ export function useUpsertPunishment(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.punishments.upsert.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -396,7 +410,7 @@ export function useDeletePunishment(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.punishments.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: [api.punishments.list.path, serverId] }); },
@@ -409,7 +423,7 @@ export function useLeveling(serverId: number) {
     queryKey: [api.leveling.get.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.leveling.get.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -421,7 +435,7 @@ export function useUpsertLeveling(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.leveling.upsert.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -438,7 +452,7 @@ export function useStarboard(serverId: number) {
     queryKey: [api.starboard.get.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.starboard.get.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -450,7 +464,7 @@ export function useUpsertStarboard(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.starboard.upsert.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -467,7 +481,7 @@ export function useTicketConfig(serverId: number) {
     queryKey: [api.tickets.getConfig.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.tickets.getConfig.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -479,7 +493,7 @@ export function useUpsertTicketConfig(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.tickets.upsertConfig.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -495,7 +509,7 @@ export function useTicketPanels(serverId: number) {
     queryKey: [api.tickets.listPanels.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.tickets.listPanels.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -507,7 +521,7 @@ export function useCreateTicketPanel(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.tickets.createPanel.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -520,7 +534,7 @@ export function useDeleteTicketPanel(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.tickets.deletePanel.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: [api.tickets.listPanels.path, serverId] }); },
@@ -533,7 +547,7 @@ export function useScheduledMessages(serverId: number) {
     queryKey: [api.scheduledMessages.list.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.scheduledMessages.list.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -545,7 +559,7 @@ export function useCreateScheduledMessage(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.scheduledMessages.create.path, { serverId });
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -558,7 +572,7 @@ export function useUpdateScheduledMessage(serverId: number) {
   return useMutation({
     mutationFn: async ({ id, data }: { id: number; data: any }) => {
       const url = buildUrl(api.scheduledMessages.update.path, { id });
-      const res = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },
@@ -571,7 +585,7 @@ export function useDeleteScheduledMessage(serverId: number) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.scheduledMessages.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: [api.scheduledMessages.list.path, serverId] }); },
@@ -716,7 +730,7 @@ export function useAuditLogConfig(serverId: number) {
     queryKey: [api.auditLog.get.path, serverId],
     queryFn: async () => {
       const url = buildUrl(api.auditLog.get.path, { serverId });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
     enabled: !!serverId,
@@ -728,7 +742,7 @@ export function useUpsertAuditLogConfig(serverId: number) {
   return useMutation({
     mutationFn: async (data: any) => {
       const url = buildUrl(api.auditLog.upsert.path, { serverId });
-      const res = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
+      const res = await fetch(buildApiUrl(url), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
       return await res.json();
     },

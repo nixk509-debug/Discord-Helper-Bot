@@ -11,7 +11,8 @@ import { configEvents } from "./configService";
 import { pool } from "./db";
 
 const app = express();
-app.set("trust proxy", 1);
+const trustProxy = process.env.TRUST_PROXY ?? "1";
+app.set("trust proxy", trustProxy === "true" ? true : /^\d+$/.test(trustProxy) ? Number(trustProxy) : 1);
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -76,7 +77,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const compact = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${compact.length > 400 ? compact.slice(0, 400) + "…" : compact}`;
       }
 
       log(logLine);
@@ -91,10 +93,16 @@ app.use((req, res, next) => {
 
   async function initStripe() {
     try {
-      const { runMigrations } = await import("stripe-replit-sync");
       const databaseUrl = process.env.DATABASE_URL;
       if (!databaseUrl) return;
 
+      // Replit Stripe sync requires Replit connector identity; skip quietly on DO/self-hosted deployments.
+      if (!process.env.REPLIT_CONNECTORS_HOSTNAME || (!process.env.REPL_IDENTITY && !process.env.WEB_REPL_RENEWAL)) {
+        console.log("Stripe sync init skipped (non-Replit environment)");
+        return;
+      }
+
+      const { runMigrations } = await import("stripe-replit-sync");
       console.log("Initializing Stripe schema...");
       await (runMigrations as any)({ databaseUrl, schema: "stripe" });
       console.log("Stripe schema ready");
@@ -102,12 +110,11 @@ app.use((req, res, next) => {
       const { getStripeSync } = await import("./stripeClient");
       const stripeSync = await getStripeSync();
 
-      const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+      const domain = process.env.APP_URL || process.env.PUBLIC_BASE_URL || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null);
       if (domain) {
-        const webhookBaseUrl = `https://${domain}`;
         try {
           const whResult = await stripeSync.findOrCreateManagedWebhook(
-            `${webhookBaseUrl}/api/stripe/webhook`
+            `${domain.replace(/\/$/, "")}/api/stripe/webhook`
           );
           const webhook = whResult?.webhook ?? whResult;
           console.log(`Webhook configured: ${webhook?.url ?? "unknown"}`);
