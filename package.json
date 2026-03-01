@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "setup:env": "node scripts/bootstrap-env.mjs"
+    "setup:env": "node scripts/bootstrap-env.mjs",
+    "verify:build-output": "node scripts/verify-build-output.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

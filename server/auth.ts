@@ -48,7 +48,9 @@ export async function setupAuth(app: Express) {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
+      // Same-site dashboard + OAuth callback works reliably with lax behind nginx.
+      // Using "none" can cause cookie drops in some browser/proxy combinations.
+      sameSite: "lax",
     },
   };
 
@@ -226,6 +228,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated() && req.user) {
     return next();
   }
+
+  console.warn(`[Auth] Unauthorized request: ${req.method} ${req.originalUrl} ip=${req.ip}`);
   res.status(401).json({ message: "Authentication required" });
 }
 

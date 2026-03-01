@@ -18,11 +18,21 @@ const dashboardStatsSchema = z.object({
   totalMembers: z.number(),
   commandsExecuted: z.number(),
   uptime: z.string(),
+  botReady: z.boolean().optional(),
+});
+
+const botStatusSchema = z.object({
+  ready: z.boolean(),
+  uptimeMs: z.number().nullable(),
+  guildCount: z.number(),
 });
 
 export const api = {
   stats: {
     get: { method: 'GET' as const, path: '/api/stats' as const, responses: { 200: dashboardStatsSchema } },
+  },
+  bot: {
+    status: { method: 'GET' as const, path: '/api/bot/status' as const, responses: { 200: botStatusSchema } },
   },
   servers: {
     list: { method: 'GET' as const, path: '/api/servers' as const, responses: { 200: z.array(z.custom<ServerResponse>()) } },

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { buildApiUrl } from "@/lib/http";
 
 export interface AuthUser {
   id: number;
@@ -16,7 +17,7 @@ export function useAuth() {
   return useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const res = await fetch(buildApiUrl("/api/auth/me"), { credentials: "include" });
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to check auth");
       return await res.json();
@@ -30,7 +31,7 @@ export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch("/auth/logout", { method: "POST", credentials: "include" });
+      const res = await fetch(buildApiUrl("/auth/logout"), { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error("Logout failed");
     },
     onSuccess: () => {
@@ -45,7 +46,7 @@ export function useGuilds() {
   return useQuery({
     queryKey: ["/api/auth/guilds"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/guilds", { credentials: "include" });
+      const res = await fetch(buildApiUrl("/api/auth/guilds"), { credentials: "include" });
       if (res.status === 401) return [];
       if (!res.ok) throw new Error("Failed to fetch guilds");
       return await res.json();
@@ -58,7 +59,7 @@ export function usePremiumStatus() {
   return useQuery({
     queryKey: ["/api/premium/status"],
     queryFn: async () => {
-      const res = await fetch("/api/premium/status", { credentials: "include" });
+      const res = await fetch(buildApiUrl("/api/premium/status"), { credentials: "include" });
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch premium status");
       return await res.json();
