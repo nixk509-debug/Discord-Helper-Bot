@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from "discord.js";
+import { SlashCommandBuilder, PermissionFlagsBits, ChannelType } from "discord.js";
 import { db } from "../../db";
 import { servers, serverSettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -12,10 +12,10 @@ export const setCommand = new SlashCommandBuilder()
   .addSubcommand(sub => sub.setName("mode").setDescription("Set server control mode").addStringOption(o => o.setName("mode").setDescription("Mode").setRequired(true).addChoices({ name: "Relaxed", value: "relaxed" }, { name: "Normal", value: "normal" }, { name: "Shield", value: "shield" })))
   .addSubcommand(sub => sub.setName("automod").setDescription("Toggle automod").addStringOption(o => o.setName("status").setDescription("On or off").setRequired(true).addChoices({ name: "On", value: "on" }, { name: "Off", value: "off" })))
   .addSubcommandGroup(grp => grp.setName("logs").setDescription("Set log channels")
-    .addSubcommand(sub => sub.setName("mod").setDescription("Set mod log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
-    .addSubcommand(sub => sub.setName("config").setDescription("Set config log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
-    .addSubcommand(sub => sub.setName("raid").setDescription("Set raid log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
-    .addSubcommand(sub => sub.setName("auto").setDescription("Set auto-mod log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true)))
+    .addSubcommand(sub => sub.setName("mod").setDescription("Set mod log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
+    .addSubcommand(sub => sub.setName("config").setDescription("Set config log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
+    .addSubcommand(sub => sub.setName("raid").setDescription("Set raid log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
+    .addSubcommand(sub => sub.setName("auto").setDescription("Set auto-mod log channel").addChannelOption(o => o.setName("channel").setDescription("Channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
   );
 
 export async function handleSetCommand(interaction: any) {
@@ -56,7 +56,9 @@ export async function handleSetCommand(interaction: any) {
       normal: { raidProtectionEnabled: false, raidJoinThreshold: 10, raidMinAccountAge: 0, serverControlMode: "normal" },
       shield: { raidProtectionEnabled: true, antiSpamEnabled: true, antiLinkEnabled: true, antiMassMentionEnabled: true, raidJoinThreshold: 5, raidJoinWindow: 10, raidMinAccountAge: 7, serverControlMode: "shield" },
     };
-    await patchGuildConfig(server.id, "settings", modeSettings[mode], actorId);
+    const patch = modeSettings[mode];
+    if (!patch) return interaction.reply({ content: "Unknown mode.", ephemeral: true });
+    await patchGuildConfig(server.id, "settings", patch, actorId);
     return interaction.reply({ content: `✅ Server mode set to **${mode}**`, ephemeral: true });
   }
 

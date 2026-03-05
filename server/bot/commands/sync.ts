@@ -1,7 +1,7 @@
-import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } from "discord.js";
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } from "discord.js";
 import { db } from "../../db";
 import { servers, channelSettings, channelSyncTemplates } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export const syncCommand = new SlashCommandBuilder()
   .setName("sync")
@@ -9,7 +9,7 @@ export const syncCommand = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand(sub => sub.setName("save").setDescription("Save current channel settings as a template")
     .addStringOption(o => o.setName("name").setDescription("Template name").setRequired(true))
-    .addChannelOption(o => o.setName("channel").setDescription("Source channel").setRequired(true))
+    .addChannelOption(o => o.setName("channel").setDescription("Source channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .addStringOption(o => o.setName("description").setDescription("Optional description"))
   )
   .addSubcommand(sub => sub.setName("apply").setDescription("Apply a template to channels")
@@ -46,7 +46,7 @@ export async function handleSyncCommand(interaction: any) {
       autoPurgeAfterMinutes: existingSettings?.autoPurgeAfterMinutes ?? 60,
     };
 
-    const existing = await db.select().from(channelSyncTemplates).where(eq(channelSyncTemplates.name, name));
+    const existing = await db.select().from(channelSyncTemplates).where(and(eq(channelSyncTemplates.serverId, server.id), eq(channelSyncTemplates.name, name)));
     if (existing.length > 0) {
       return interaction.reply({ content: `Template \`${name}\` already exists. Choose a different name.`, ephemeral: true });
     }
@@ -70,7 +70,7 @@ export async function handleSyncCommand(interaction: any) {
     const previewOnly = interaction.options.getBoolean("preview") ?? false;
 
     const [template] = await db.select().from(channelSyncTemplates)
-      .where(eq(channelSyncTemplates.name, templateName));
+      .where(and(eq(channelSyncTemplates.serverId, server.id), eq(channelSyncTemplates.name, templateName)));
     if (!template) return interaction.reply({ content: `Template \`${templateName}\` not found.`, ephemeral: true });
 
     const allChannelSettings = await db.select().from(channelSettings).where(eq(channelSettings.serverId, server.id));

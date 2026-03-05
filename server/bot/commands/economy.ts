@@ -201,8 +201,9 @@ export async function handleEconomyCommand(interaction: ChatInputCommandInteract
 
   if (commandName === "buy") {
     const roleName = interaction.options.getString("role", true);
-    const [item] = await db.select().from(roleShop).where(and(eq(roleShop.serverId, server.id), eq(roleShop.isActive, true)));
-    if (!item || item.roleName.toLowerCase() !== roleName.toLowerCase()) {
+    const items = await db.select().from(roleShop).where(and(eq(roleShop.serverId, server.id), eq(roleShop.isActive, true)));
+    const item = items.find((entry) => entry.roleName.toLowerCase() === roleName.toLowerCase());
+    if (!item) {
       return interaction.reply({ content: `Role **${roleName}** not found in the shop.`, ephemeral: true });
     }
     const account = await getOrCreateAccount(server.id, interaction.user.id, interaction.user.username, startingBalance);
