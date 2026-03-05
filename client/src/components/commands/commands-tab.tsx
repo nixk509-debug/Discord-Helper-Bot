@@ -23,6 +23,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { CustomCommand } from "@shared/schema";
 import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
+import { EmbedPreview } from "@/components/embed-builder/embed-preview";
 
 interface HttpHeader {
   key: string;
@@ -60,6 +61,7 @@ interface CommandFormState {
   deleteInvocation: boolean;
   dmResponse: boolean;
   httpAction: HttpActionConfig;
+  actions: any;
 }
 
 const DEFAULT_HTTP_ACTION: HttpActionConfig = {
@@ -88,6 +90,7 @@ const DEFAULT_FORM: CommandFormState = {
   deleteInvocation: false,
   dmResponse: false,
   httpAction: { ...DEFAULT_HTTP_ACTION },
+  actions: {},
 };
 
 const VARIABLES = [
@@ -1171,6 +1174,7 @@ function CommandFormDialog({
     deleteInvocation: command.deleteInvocation ?? false,
     dmResponse: command.dmResponse ?? false,
     httpAction: (command as any).httpAction || { ...DEFAULT_HTTP_ACTION },
+    actions: (command as any).actions || {},
   } : { ...DEFAULT_FORM };
 
   const [form, setForm] = useState<CommandFormState>(initialForm);
@@ -1232,6 +1236,7 @@ function CommandFormDialog({
       deleteInvocation: form.deleteInvocation,
       dmResponse: form.dmResponse,
       httpAction: form.httpAction,
+      actions: form.actions,
     };
 
     if (mode === "edit" && command) {
@@ -1547,27 +1552,20 @@ function CommandFormDialog({
                       </p>
                     )}
                     {(form.responseType === "embed" || form.responseType === "both") && form.embedResponse && (
-                      <div
-                        className="mt-1 rounded-md overflow-visible max-w-[400px]"
-                        style={{ borderLeft: `4px solid ${form.embedResponse.color || "#5865F2"}` }}
-                      >
-                        <div className="bg-[#2B2D31] p-3 space-y-1">
-                          {form.embedResponse.title && (
-                            <p className="text-white font-semibold text-sm" data-testid="text-preview-embed-title">
-                              {resolvePreview(form.embedResponse.title)}
-                            </p>
-                          )}
-                          {form.embedResponse.description && (
-                            <p className="text-[#DBDEE1] text-sm" data-testid="text-preview-embed-desc">
-                              {resolvePreview(form.embedResponse.description)}
-                            </p>
-                          )}
-                          {form.embedResponse.footer && (
-                            <p className="text-[#949BA4] text-xs pt-1" data-testid="text-preview-embed-footer">
-                              {resolvePreview(form.embedResponse.footer)}
-                            </p>
-                          )}
-                        </div>
+                      <div className="mt-2 max-w-[520px]">
+                        <EmbedPreview
+                          embed={{
+                            ...form.embedResponse,
+                            title: form.embedResponse.title ? resolvePreview(form.embedResponse.title) : undefined,
+                            description: form.embedResponse.description ? resolvePreview(form.embedResponse.description) : undefined,
+                            footerText: form.embedResponse.footerText ? resolvePreview(form.embedResponse.footerText) : undefined,
+                            fields: (form.embedResponse.fields || []).map((field: any) => ({
+                              ...field,
+                              name: resolvePreview(field.name || ""),
+                              value: resolvePreview(field.value || ""),
+                            })),
+                          }}
+                        />
                       </div>
                     )}
                   </div>
@@ -1584,6 +1582,7 @@ function CommandFormDialog({
                 <span>Enabled: <span className="text-foreground">{form.enabled ? "Yes" : "No"}</span></span>
                 <span>Aliases: <span className="text-foreground">{form.aliases.length > 0 ? form.aliases.join(", ") : "None"}</span></span>
                 <span>DM: <span className="text-foreground">{form.dmResponse ? "Yes" : "No"}</span></span>
+                <span>Components: <span className="text-foreground">{(form.embedResponse?.components || []).length}</span></span>
               </div>
             </div>
           </TabsContent>

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, PermissionOverwriteOptions } from "discord.js";
+import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } from "discord.js";
 import { db } from "../../db";
 import { servers, serverSettings, categoryLockSnapshots } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
@@ -15,7 +15,7 @@ export const lockCommand = new SlashCommandBuilder()
     .addChannelOption(o => o.setName("notify-channel").setDescription("Channel to post notification in"))
   )
   .addSubcommand(sub => sub.setName("category").setDescription("Lock or unlock a category")
-    .addStringOption(o => o.setName("category-id").setDescription("Category channel ID").setRequired(true))
+    .addChannelOption(o => o.setName("category").setDescription("Category to target").setRequired(true).addChannelTypes(ChannelType.GuildCategory))
     .addStringOption(o => o.setName("action").setDescription("Lock or unlock").setRequired(true).addChoices({ name: "Lock", value: "on" }, { name: "Unlock", value: "off" }))
     .addStringOption(o => o.setName("message").setDescription("Message to post in locked channels"))
   )
@@ -53,7 +53,6 @@ export async function handleLockCommand(interaction: any) {
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const bypassRoleIds = (settings?.lockdownBypassRoleIds as string[]) ?? [];
       const everyoneRole = guild.roles.everyone;
       const textChannels = guild.channels.cache.filter((c: any) => c.isTextBased() && !c.isThread());
       let processed = 0;
@@ -61,12 +60,6 @@ export async function handleLockCommand(interaction: any) {
       for (const [, channel] of textChannels) {
         try {
           if (locking) {
-            const currentPerms = channel.permissionOverwrites.resolve(everyoneRole.id);
-            const currentAllow = currentPerms?.allow?.toArray() ?? [];
-            const hasBypassMember = bypassRoleIds.some((rid: string) => {
-              const overwrite = channel.permissionOverwrites.resolve(rid);
-              return overwrite?.allow?.has("SendMessages");
-            });
             await channel.permissionOverwrites.edit(everyoneRole, { SendMessages: false });
           } else {
             await channel.permissionOverwrites.edit(everyoneRole, { SendMessages: null });
@@ -97,7 +90,9 @@ export async function handleLockCommand(interaction: any) {
   }
 
   if (sub === "category") {
-    const categoryId = interaction.options.getString("category-id");
+    const categoryChannel = interaction.options.getChannel("category", true);
+    if (categoryChannel.type !== ChannelType.GuildCategory) return interaction.reply({ content: "Please select a category.", ephemeral: true });
+    const categoryId = categoryChannel.id;
     const action = interaction.options.getString("action");
     const lockMsg = interaction.options.getString("message");
     const locking = action === "on";
@@ -106,7 +101,7 @@ export async function handleLockCommand(interaction: any) {
 
     try {
       const category = guild.channels.cache.get(categoryId);
-      if (!category) return interaction.editReply({ content: "Category not found." });
+      if (!category || category.type !== ChannelType.GuildCategory) return interaction.editReply({ content: "Category not found." });
 
       const childChannels = guild.channels.cache.filter((c: any) => c.parentId === categoryId && c.isTextBased());
       const everyoneRole = guild.roles.everyone;

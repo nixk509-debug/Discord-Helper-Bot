@@ -1,7 +1,7 @@
-import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
+import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
 import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { economyCommands, handleEconomyCommand } from "./commands/economy";
 import { funCommand, handleFunCommand } from "./commands/fun";
 import { setCommand, handleSetCommand } from "./commands/set";
@@ -9,6 +9,8 @@ import { lockCommand, handleLockCommand } from "./commands/lock";
 import { codeCommand, handleCodeCommand } from "./commands/code";
 import { auditCommand, handleAuditCommand } from "./commands/audit";
 import { syncCommand, handleSyncCommand } from "./commands/sync";
+import { adminCommand, handleAdminCommand } from "./commands/admin";
+import { ownerCommand, handleOwnerCommand } from "./commands/owner";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
@@ -83,6 +85,11 @@ export async function startBot() {
   });
 
   client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      await handleCustomComponentInteraction(interaction);
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
@@ -98,6 +105,8 @@ export async function startBot() {
       else if (commandName === "code") await handleCodeCommand(interaction);
       else if (commandName === "audit") await handleAuditCommand(interaction);
       else if (commandName === "sync") await handleSyncCommand(interaction);
+      else if (commandName === "admin") await handleAdminCommand(interaction as ChatInputCommandInteraction);
+      else if (commandName === "owner") await handleOwnerCommand(interaction as ChatInputCommandInteraction, client);
       else if (economyCommandNames.includes(commandName)) await handleEconomyCommand(interaction as ChatInputCommandInteraction);
     } catch (err: any) {
       console.error(`[Bot] Command error (${commandName}):`, err.message);
@@ -148,6 +157,8 @@ function getSlashCommandDefinitions() {
     codeCommand,
     auditCommand,
     syncCommand,
+    adminCommand,
+    ownerCommand,
     ...economyCommands,
   ];
 }
@@ -236,7 +247,10 @@ async function handleHelpCommand(interaction: any) {
       "**Archivist** — Your all-in-one Discord server manager",
       "",
       "**Core Commands:**",
-      "`/setup`, `/premium`, `/help`, `/set`, `/lock`, `/sync`, `/audit`, `/code`",
+      "`/setup`, `/premium`, `/help`, `/set`, `/lock`, `/sync`, `/audit`, `/code`, `/fun`",
+      "",
+      "**Admin / Owner Commands:**",
+      "`/admin purge|say|slowmode|nickname`, `/owner status|guilds|leave|announce`",
       "",
       "**Economy Commands:**",
       "`/balance`, `/daily`, `/work`, `/pay`, `/transfer`, `/shop`, `/buy`, `/slots`, `/coinflip`, `/richest`, `/transactions`, `/rob`",
@@ -302,13 +316,16 @@ async function handleCustomCommand(message: Message) {
     if (cmd.blockedRoles && (cmd.blockedRoles as string[]).some((r) => memberRoles.includes(r))) continue;
     if (cmd.requiredRoles && (cmd.requiredRoles as string[]).length > 0 && !(cmd.requiredRoles as string[]).some((r) => memberRoles.includes(r))) continue;
 
-    let response = resolveVariables(cmd.response, message);
-
     try {
+      const payload = buildCustomCommandPayload(cmd as any, message);
+      if (!payload.content && payload.embeds.length === 0) {
+        continue;
+      }
+
       if (cmd.dmResponse) {
-        await message.author.send(response);
+        await message.author.send(payload);
       } else {
-        await message.reply(response);
+        await message.reply(payload);
       }
 
       if (cmd.deleteInvocation) {
@@ -327,6 +344,163 @@ async function handleCustomCommand(message: Message) {
     }
 
     break;
+  }
+}
+
+
+function buildCustomCommandPayload(cmd: any, message: Message) {
+  const responseType = cmd.responseType || "text";
+  const content = responseType === "embed" ? "" : resolveVariables(cmd.response || "", message);
+  const embed = (responseType === "embed" || responseType === "both") ? buildEmbedFromResponse(cmd, message) : null;
+  const components = buildMessageComponents(cmd);
+
+  return {
+    content: content || undefined,
+    embeds: embed ? [embed] : [],
+    components,
+  };
+}
+
+function buildEmbedFromResponse(cmd: any, message: Message) {
+  const data = cmd.embedResponse as any;
+  if (!data) return null;
+
+  const embed = new EmbedBuilder();
+  if (data.title) embed.setTitle(resolveVariables(data.title, message));
+  if (data.description) embed.setDescription(resolveVariables(data.description, message));
+  if (data.url) embed.setURL(data.url);
+  if (data.color) {
+    const hex = String(data.color).replace("#", "");
+    const parsed = Number.parseInt(hex, 16);
+    if (!Number.isNaN(parsed)) embed.setColor(parsed);
+  }
+  if (data.authorName) {
+    embed.setAuthor({
+      name: resolveVariables(data.authorName, message),
+      url: data.authorUrl || undefined,
+      iconURL: data.authorIconUrl || undefined,
+    });
+  }
+  if (data.footerText) {
+    embed.setFooter({ text: resolveVariables(data.footerText, message), iconURL: data.footerIconUrl || undefined });
+  }
+  if (data.thumbnailUrl) embed.setThumbnail(data.thumbnailUrl);
+  if (data.imageUrl) embed.setImage(data.imageUrl);
+  if (data.timestamp) embed.setTimestamp(new Date());
+  if (Array.isArray(data.fields) && data.fields.length > 0) {
+    embed.addFields(data.fields.slice(0, 25).map((field: any) => ({
+      name: resolveVariables(field.name || "​", message),
+      value: resolveVariables(field.value || "​", message),
+      inline: !!field.inline,
+    })));
+  }
+  return embed;
+}
+
+function buildMessageComponents(cmd: any) {
+  const components = ((cmd.embedResponse as any)?.components || []) as any[];
+  if (!Array.isArray(components) || components.length === 0) return [];
+
+  const rows: any[] = [];
+  let buttonRow: ButtonBuilder[] = [];
+
+  for (const component of components) {
+    if (component.type === 2) {
+      const button = new ButtonBuilder()
+        .setLabel(component.label || "Button")
+        .setStyle((component.style || 1) as ButtonStyle)
+        .setDisabled(!!component.disabled);
+
+      if (component.emoji) button.setEmoji(component.emoji);
+
+      if ((component.style || 1) === 5) {
+        if (!component.url) continue;
+        button.setURL(component.url);
+      } else {
+        const key = (component.customId || `btn_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+        button.setCustomId(`cc:${cmd.id}:${key}`);
+      }
+
+      buttonRow.push(button);
+      if (buttonRow.length === 5) {
+        rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...buttonRow));
+        buttonRow = [];
+      }
+    }
+
+    if (component.type === 3) {
+      const options = Array.isArray(component.options) ? component.options.slice(0, 25) : [];
+      if (options.length === 0) continue;
+
+      const key = (component.customId || `select_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(`cc:${cmd.id}:${key}`)
+        .setPlaceholder(component.label || "Choose an option")
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setDisabled(!!component.disabled)
+        .addOptions(options.map((opt: any) => {
+          const option = new StringSelectMenuOptionBuilder()
+            .setLabel(String(opt.label || opt.value || "Option").slice(0, 100))
+            .setValue(String(opt.value || opt.label || "value").slice(0, 100));
+          if (opt.description) option.setDescription(String(opt.description).slice(0, 100));
+          return option;
+        }));
+
+      if (buttonRow.length > 0) {
+        rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...buttonRow));
+        buttonRow = [];
+      }
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
+    }
+  }
+
+  if (buttonRow.length > 0) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...buttonRow));
+  }
+
+  return rows.slice(0, 5);
+}
+
+async function handleCustomComponentInteraction(interaction: any) {
+  const customId = interaction.customId || "";
+  if (!customId.startsWith("cc:")) return;
+
+  const [, commandIdRaw, componentKey] = customId.split(":");
+  const commandId = Number.parseInt(commandIdRaw, 10);
+  if (Number.isNaN(commandId)) return;
+
+  try {
+    const [cmd] = await db.select().from(customCommands).where(eq(customCommands.id, commandId));
+    if (!cmd || !cmd.enabled) {
+      return interaction.reply({ content: "This component is no longer active.", ephemeral: true });
+    }
+
+    const components = (((cmd as any).embedResponse as any)?.components || []) as any[];
+    const source = components.find((c) => (c.customId || "") === componentKey);
+    const baseResponse = source?.content || cmd.response || "Action completed.";
+
+    const messageLike = {
+      author: interaction.user,
+      guild: interaction.guild,
+      channel: interaction.channel,
+    } as any;
+
+    let response = resolveVariables(baseResponse, messageLike);
+    if (interaction.isStringSelectMenu()) {
+      response = response.replace(/\{selection\}/g, interaction.values.join(", "));
+    }
+
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({ content: response, ephemeral: true });
+    } else {
+      await interaction.reply({ content: response, ephemeral: true });
+    }
+  } catch (err) {
+    console.error("[Bot] Component interaction error:", err);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "Component interaction failed.", ephemeral: true }).catch(() => {});
+    }
   }
 }
 

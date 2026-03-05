@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Upload, Code, Eye, Expand, Plus, Trash2, ChevronDown } from "lucide-react";
+import { Download, Upload, Code, Eye, Expand, Plus, Trash2 } from "lucide-react";
 import { EmbedPreview, type EmbedField, type EmbedComponent } from "./embed-preview";
 
 export interface EmbedData {
@@ -43,6 +43,48 @@ const EMPTY_EMBED: EmbedData = {
   thumbnailUrl: "",
   fields: [],
   components: [],
+};
+
+
+const EMBED_TEMPLATES: Record<string, Partial<EmbedData>> = {
+  welcome: {
+    title: "Welcome to the Server!",
+    description: "Hey {user.mention}, welcome in! Check #rules and grab roles in #roles.",
+    color: "#57F287",
+    footerText: "Enjoy your stay",
+    timestamp: true,
+    components: [
+      { type: 2, label: "Rules", style: 1, customId: "btn_rules", content: "Please read the server rules in #rules." },
+      { type: 2, label: "Roles", style: 3, customId: "btn_roles", content: "Pick your roles in #roles." },
+    ],
+  },
+  announcement: {
+    title: "Important Update",
+    description: "We just shipped a new update. Use the button below to read patch notes.",
+    color: "#FEE75C",
+    timestamp: true,
+    components: [
+      { type: 2, label: "Patch Notes", style: 5, url: "https://example.com/changelog" },
+    ],
+  },
+  support: {
+    title: "Support Center",
+    description: "Select what you need help with and we’ll guide you.",
+    color: "#5865F2",
+    components: [
+      {
+        type: 3,
+        label: "Choose support topic",
+        customId: "support_topic",
+        content: "Thanks! A staff member will help with **{selection}**.",
+        options: [
+          { label: "Billing", value: "billing", description: "Payments and subscriptions" },
+          { label: "Technical", value: "technical", description: "Bugs and issues" },
+          { label: "Partnership", value: "partnership", description: "Collab requests" },
+        ],
+      },
+    ],
+  },
 };
 
 interface EmbedComposerProps {
@@ -142,6 +184,58 @@ function FullEmbedDialog({
     updateForm({ fields: (form.fields || []).filter((_, idx) => idx !== i) });
   };
 
+  const addComponent = (type: 2 | 3) => {
+    const next = [...(form.components || [])];
+    if (type === 2) {
+      next.push({ type: 2, label: "Button", style: 1, customId: `btn_${Date.now()}` });
+    } else {
+      next.push({
+        type: 3,
+        label: "Choose an option",
+        customId: `select_${Date.now()}`,
+        options: [{ label: "Option 1", value: "option_1" }],
+      });
+    }
+    updateForm({ components: next });
+  };
+
+  const updateComponent = (index: number, updates: Partial<EmbedComponent>) => {
+    const components = [...(form.components || [])];
+    components[index] = { ...components[index], ...updates } as EmbedComponent;
+    updateForm({ components });
+  };
+
+  const removeComponent = (index: number) => {
+    updateForm({ components: (form.components || []).filter((_, i) => i !== index) });
+  };
+
+  const addSelectOption = (index: number) => {
+    const target = (form.components || [])[index];
+    const options = [...(target?.options || [])];
+    options.push({ label: `Option ${options.length + 1}`, value: `option_${options.length + 1}` });
+    updateComponent(index, { options });
+  };
+
+  const updateSelectOption = (componentIndex: number, optionIndex: number, key: "label" | "value" | "description" | "emoji", value: string) => {
+    const target = (form.components || [])[componentIndex];
+    const options = [...(target?.options || [])];
+    options[optionIndex] = { ...options[optionIndex], [key]: value };
+    updateComponent(componentIndex, { options });
+  };
+
+  const removeSelectOption = (componentIndex: number, optionIndex: number) => {
+    const target = (form.components || [])[componentIndex];
+    const options = (target?.options || []).filter((_, i) => i !== optionIndex);
+    updateComponent(componentIndex, { options });
+  };
+
+  const applyTemplate = (key: string) => {
+    const template = EMBED_TEMPLATES[key];
+    if (!template) return;
+    const next = { ...EMPTY_EMBED, ...template };
+    updateForm(next);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
@@ -164,6 +258,19 @@ function FullEmbedDialog({
                   <Label className="text-xs">Title</Label>
                   <Input value={form.title || ""} onChange={(e) => updateForm({ title: e.target.value })} placeholder="Embed title" className="bg-background/50 border-white/10 h-8 text-sm" data-testid="composer-title" />
                 </div>
+                <div className="rounded-lg border border-white/5 bg-background/20 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs">Quick Templates</Label>
+                    <div className="flex gap-1 flex-wrap">
+                      {Object.keys(EMBED_TEMPLATES).map((key) => (
+                        <Button key={key} variant="outline" size="sm" className="h-7 text-xs" onClick={() => applyTemplate(key)} data-testid={`composer-template-${key}`}>
+                          {key}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label className="text-xs">Description</Label>
                   <Textarea value={form.description || ""} onChange={(e) => updateForm({ description: e.target.value })} placeholder="Embed description (markdown)" className="bg-background/50 border-white/10 text-sm min-h-[80px]" data-testid="composer-description" />
@@ -209,6 +316,91 @@ function FullEmbedDialog({
                     <Input value={form.footerIconUrl || ""} onChange={(e) => updateForm({ footerIconUrl: e.target.value })} placeholder="https://..." className="bg-background/50 border-white/10 h-8 text-xs" data-testid="composer-footer-icon" />
                   </div>
                 </div>
+                <div className="space-y-2 rounded-lg border border-white/5 bg-background/20 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs">Interactive Components ({(form.components || []).length})</Label>
+                    <div className="flex gap-1">
+                      <Button variant="outline" size="sm" onClick={() => addComponent(2)} className="h-7 text-xs" data-testid="composer-add-button">
+                        <Plus className="w-3 h-3 mr-1" /> Button
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => addComponent(3)} className="h-7 text-xs" data-testid="composer-add-select">
+                        <Plus className="w-3 h-3 mr-1" /> Menu
+                      </Button>
+                    </div>
+                  </div>
+                  {(form.components || []).length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">Add buttons or select menus. Non-link components can send an ephemeral interaction response.</p>
+                  )}
+                  {(form.components || []).map((component, ci) => (
+                    <div key={ci} className="rounded-md border border-white/10 p-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary" className="text-[10px]">{component.type === 2 ? "Button" : "Select Menu"}</Badge>
+                        <Button variant="ghost" size="icon" onClick={() => removeComponent(ci)} className="h-6 w-6 text-destructive" data-testid={`composer-remove-component-${ci}`}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+
+                      {component.type === 2 && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input value={component.label || ""} onChange={(e) => updateComponent(ci, { label: e.target.value })} placeholder="Button label" className="h-7 text-xs bg-background/50" data-testid={`composer-button-label-${ci}`} />
+                            <Select value={String(component.style || 1)} onValueChange={(v) => updateComponent(ci, { style: parseInt(v, 10) })}>
+                              <SelectTrigger className="h-7 text-xs bg-background/50" data-testid={`composer-button-style-${ci}`}><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1">Primary</SelectItem>
+                                <SelectItem value="2">Secondary</SelectItem>
+                                <SelectItem value="3">Success</SelectItem>
+                                <SelectItem value="4">Danger</SelectItem>
+                                <SelectItem value="5">Link</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Input
+                            value={(component.style || 1) === 5 ? component.url || "" : component.customId || ""}
+                            onChange={(e) => (component.style || 1) === 5 ? updateComponent(ci, { url: e.target.value }) : updateComponent(ci, { customId: e.target.value })}
+                            placeholder={(component.style || 1) === 5 ? "https://example.com" : "button_custom_id"}
+                            className="h-7 text-xs bg-background/50"
+                            data-testid={`composer-button-target-${ci}`}
+                          />
+                          <Input value={component.content || ""} onChange={(e) => updateComponent(ci, { content: e.target.value })} placeholder="Interaction response text (optional)" className="h-7 text-xs bg-background/50" data-testid={`composer-button-content-${ci}`} />
+                          <div className="flex items-center justify-between">
+                            <Input value={component.emoji || ""} onChange={(e) => updateComponent(ci, { emoji: e.target.value })} placeholder="Emoji (optional)" className="h-7 text-xs bg-background/50 max-w-[180px]" data-testid={`composer-button-emoji-${ci}`} />
+                            <div className="flex items-center gap-1">
+                              <Switch checked={!!component.disabled} onCheckedChange={(v) => updateComponent(ci, { disabled: v })} className="scale-75" />
+                              <Label className="text-[11px] text-muted-foreground">Disabled</Label>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {component.type === 3 && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input value={component.label || ""} onChange={(e) => updateComponent(ci, { label: e.target.value })} placeholder="Placeholder" className="h-7 text-xs bg-background/50" data-testid={`composer-select-placeholder-${ci}`} />
+                            <Input value={component.customId || ""} onChange={(e) => updateComponent(ci, { customId: e.target.value })} placeholder="select_custom_id" className="h-7 text-xs bg-background/50" data-testid={`composer-select-id-${ci}`} />
+                          </div>
+                          <Input value={component.content || ""} onChange={(e) => updateComponent(ci, { content: e.target.value })} placeholder="Interaction response text (optional)" className="h-7 text-xs bg-background/50" data-testid={`composer-select-content-${ci}`} />
+                          <div className="space-y-1">
+                            {(component.options || []).map((option, oi) => (
+                              <div key={oi} className="grid grid-cols-12 gap-1 items-center">
+                                <Input value={option.label} onChange={(e) => updateSelectOption(ci, oi, "label", e.target.value)} placeholder="Label" className="h-7 text-xs bg-background/50 col-span-4" />
+                                <Input value={option.value} onChange={(e) => updateSelectOption(ci, oi, "value", e.target.value)} placeholder="Value" className="h-7 text-xs bg-background/50 col-span-3" />
+                                <Input value={option.description || ""} onChange={(e) => updateSelectOption(ci, oi, "description", e.target.value)} placeholder="Description" className="h-7 text-xs bg-background/50 col-span-4" />
+                                <Button variant="ghost" size="icon" onClick={() => removeSelectOption(ci, oi)} className="h-7 w-7 text-destructive col-span-1">
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                            <Button variant="outline" size="sm" onClick={() => addSelectOption(ci)} className="h-7 text-xs w-full" data-testid={`composer-select-add-option-${ci}`}>
+                              <Plus className="w-3 h-3 mr-1" /> Add Option
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
                 <div className="space-y-2">
                   <Label className="text-xs">Fields ({(form.fields || []).length})</Label>
                   {(form.fields || []).map((f, i) => (
@@ -299,7 +491,7 @@ function FullEmbedDialog({
 export function EmbedComposer({ value, onChange, label = "Embed", className = "" }: EmbedComposerProps) {
   const [open, setOpen] = useState(false);
   const current = { ...EMPTY_EMBED, ...value };
-  const hasContent = !!(current.title || current.description || current.fields?.length);
+  const hasContent = !!(current.title || current.description || current.fields?.length || current.components?.length);
 
   return (
     <div className={`space-y-2 ${className}`}>
@@ -331,6 +523,7 @@ export function EmbedComposer({ value, onChange, label = "Embed", className = ""
                 current.title && "title",
                 current.description && "desc",
                 (current.fields?.length || 0) > 0 && `${current.fields!.length} fields`,
+                (current.components?.length || 0) > 0 && `${current.components!.length} components`,
               ].filter(Boolean).join(", ")}
             </Badge>
           )}

@@ -28,7 +28,7 @@ export async function handleCodeCommand(interaction: any) {
   const sub = interaction.options.getSubcommand();
 
   if (sub === "gen") {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild)) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       return interaction.reply({ content: "You need Manage Server permission.", ephemeral: true });
     }
     const format = interaction.options.getString("format");
@@ -63,7 +63,7 @@ export async function handleCodeCommand(interaction: any) {
           .setTimestamp()
         ]
       });
-      await interaction.reply({ content: "✅ Code generated and sent to your DMs!", ephemeral: true });
+      return interaction.reply({ content: "✅ Code generated and sent to your DMs!", ephemeral: true });
     } catch {
       await interaction.reply({ content: `✅ Code generated: \`${code.code}\`\n*(Could not DM you — check your privacy settings)*`, ephemeral: true });
     }
@@ -91,7 +91,7 @@ export async function handleCodeCommand(interaction: any) {
       }
     }
 
-    await interaction.reply({
+    return interaction.reply({
       embeds: [new EmbedBuilder()
         .setColor(0x2ecc71)
         .setTitle("✅ Code Redeemed!")
@@ -102,7 +102,7 @@ export async function handleCodeCommand(interaction: any) {
   }
 
   if (sub === "list") {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild)) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       return interaction.reply({ content: "You need Manage Server permission.", ephemeral: true });
     }
     const codes = await listCodes(server.id);
@@ -114,11 +114,11 @@ export async function handleCodeCommand(interaction: any) {
       const status = c.revoked ? "🔴 Revoked" : c.expiresAt && new Date() > c.expiresAt ? "⏰ Expired" : "🟢 Active";
       embed.addFields({ name: `\`${c.code}\``, value: `${status} | ${c.usesCount}/${c.maxUses ?? "∞"} uses | Format: ${c.format}`, inline: false });
     }
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
   if (sub === "revoke") {
-    if (!interaction.member?.permissions?.has(PermissionFlagsBits.ManageGuild)) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       return interaction.reply({ content: "You need Manage Server permission.", ephemeral: true });
     }
     const codeStr = interaction.options.getString("code").toUpperCase();
@@ -126,6 +126,6 @@ export async function handleCodeCommand(interaction: any) {
     const found = codes.find(c => c.code === codeStr);
     if (!found) return interaction.reply({ content: "Code not found in this server.", ephemeral: true });
     await revokeCode(found.id);
-    await interaction.reply({ content: `✅ Code \`${codeStr}\` revoked.`, ephemeral: true });
+    return interaction.reply({ content: `✅ Code \`${codeStr}\` revoked.`, ephemeral: true });
   }
 }
