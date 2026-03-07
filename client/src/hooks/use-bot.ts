@@ -51,6 +51,45 @@ export function useServer(id: number) {
   });
 }
 
+export interface DiscordContextChannel {
+  id: string;
+  name: string;
+  type: string;
+  parentId: string | null;
+}
+
+export interface DiscordContextRole {
+  id: string;
+  name: string;
+  color: number;
+  position: number;
+}
+
+export interface DiscordContextResponse {
+  guildId: string;
+  guildName: string;
+  memberCount: number;
+  channels: DiscordContextChannel[];
+  roles: DiscordContextRole[];
+}
+
+export function useDiscordContext(serverId: number) {
+  return useQuery<DiscordContextResponse>({
+    queryKey: [api.servers.discordContext.path, serverId],
+    queryFn: async () => {
+      const url = buildUrl(api.servers.discordContext.path, { serverId });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.message || "Failed to fetch discord context");
+      }
+      return await res.json();
+    },
+    enabled: !!serverId,
+    staleTime: 60_000,
+  });
+}
+
 export function useUpdateSettings(serverId: number) {
   const qc = useQueryClient();
   return useMutation({
@@ -752,3 +791,4 @@ export function useUpsertAuditLogConfig(serverId: number) {
     },
   });
 }
+

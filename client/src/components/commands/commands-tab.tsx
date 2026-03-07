@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useCommands, useCreateCommand, useUpdateCommand, useDeleteCommand } from "@/hooks/use-bot";
+import { useCommands, useCreateCommand, useUpdateCommand, useDeleteCommand, useDiscordContext } from "@/hooks/use-bot";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1154,6 +1154,7 @@ function CommandFormDialog({
 }) {
   const createCommand = useCreateCommand(serverId);
   const updateCommand = useUpdateCommand(serverId);
+  const { data: discordContext, isLoading: discordContextLoading } = useDiscordContext(serverId);
 
   const initialForm: CommandFormState = command ? {
     name: command.name,
@@ -1178,6 +1179,11 @@ function CommandFormDialog({
   const [roleInput, setRoleInput] = useState("");
   const [channelInput, setChannelInput] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+
+  const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
+  const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
+  const roleLabelById = Object.fromEntries(roleOptions.map((role) => [role.id, role.name]));
+  const channelLabelById = Object.fromEntries(channelOptions.map((channel) => [channel.id, channel.name]));
 
   function updateField<K extends keyof CommandFormState>(key: K, value: CommandFormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -1495,6 +1501,9 @@ function CommandFormDialog({
               placeholder="Role ID"
               icon={<Shield className="w-4 h-4" />}
               testIdPrefix="required-roles"
+              options={roleOptions}
+              optionLabelById={roleLabelById}
+              optionsLoading={discordContextLoading}
             />
             <PermissionListEditor
               label="Blocked Roles"
@@ -1505,6 +1514,9 @@ function CommandFormDialog({
               placeholder="Role ID"
               icon={<Shield className="w-4 h-4" />}
               testIdPrefix="blocked-roles"
+              options={roleOptions}
+              optionLabelById={roleLabelById}
+              optionsLoading={discordContextLoading}
             />
             <PermissionListEditor
               label="Allowed Channels"
@@ -1515,6 +1527,9 @@ function CommandFormDialog({
               placeholder="Channel ID"
               icon={<Hash className="w-4 h-4" />}
               testIdPrefix="allowed-channels"
+              options={channelOptions}
+              optionLabelById={channelLabelById}
+              optionsLoading={discordContextLoading}
             />
             <PermissionListEditor
               label="Blocked Channels"
@@ -1525,6 +1540,9 @@ function CommandFormDialog({
               placeholder="Channel ID"
               icon={<Hash className="w-4 h-4" />}
               testIdPrefix="blocked-channels"
+              options={channelOptions}
+              optionLabelById={channelLabelById}
+              optionsLoading={discordContextLoading}
             />
           </TabsContent>
 
@@ -2209,7 +2227,17 @@ function HttpActionEditor({
 }
 
 function PermissionListEditor({
-  label, description, items, onAdd, onRemove, placeholder, icon, testIdPrefix
+  label,
+  description,
+  items,
+  onAdd,
+  onRemove,
+  placeholder,
+  icon,
+  testIdPrefix,
+  options = [],
+  optionLabelById = {},
+  optionsLoading = false,
 }: {
   label: string;
   description: string;
@@ -2219,14 +2247,29 @@ function PermissionListEditor({
   placeholder: string;
   icon: JSX.Element;
   testIdPrefix: string;
+  options?: Array<{ id: string; name: string }>;
+  optionLabelById?: Record<string, string>;
+  optionsLoading?: boolean;
 }) {
   const [input, setInput] = useState("");
+  const [pickerValue, setPickerValue] = useState("");
 
-  function handleAdd() {
-    if (input.trim()) {
-      onAdd(input.trim());
-      setInput("");
-    }
+  function handleAdd(value?: string) {
+    const candidate = (value ?? input).trim();
+    if (!candidate) return;
+    onAdd(candidate);
+    setInput("");
+  }
+
+  function handleSelect(value: string) {
+    if (!value) return;
+    onAdd(value);
+    setPickerValue("");
+  }
+
+  function getDisplayLabel(item: string) {
+    const friendly = optionLabelById[item];
+    return friendly ? `${friendly} (${item})` : item;
   }
 
   return (
@@ -2238,24 +2281,44 @@ function PermissionListEditor({
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
       </div>
+
+      {options.length > 0 && (
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Pick from server {label.toLowerCase()}</Label>
+          <Select value={pickerValue || undefined} onValueChange={handleSelect} disabled={optionsLoading}>
+            <SelectTrigger className="bg-background" data-testid={`select-${testIdPrefix}`}>
+              <SelectValue placeholder={optionsLoading ? "Loading..." : `Select ${label.toLowerCase()}...`} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={placeholder}
+          placeholder={options.length > 0 ? `${placeholder} (manual fallback)` : placeholder}
           className="bg-background flex-1"
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } }}
           data-testid={`input-${testIdPrefix}`}
         />
-        <Button variant="outline" size="sm" onClick={handleAdd} data-testid={`button-add-${testIdPrefix}`}>
+        <Button variant="outline" size="sm" onClick={() => handleAdd()} data-testid={`button-add-${testIdPrefix}`}>
           <Plus className="w-4 h-4" />
         </Button>
       </div>
+
       {items.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {items.map(item => (
             <Badge key={item} variant="secondary" className="gap-1">
-              {item}
+              <span className="max-w-[260px] truncate">{getDisplayLabel(item)}</span>
               <button onClick={() => onRemove(item)}>
                 <X className="w-3 h-3" />
               </button>
@@ -2266,3 +2329,5 @@ function PermissionListEditor({
     </div>
   );
 }
+
+

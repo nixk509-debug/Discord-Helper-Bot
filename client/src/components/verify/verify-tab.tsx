@@ -8,7 +8,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useUpdateSettings } from "@/hooks/use-bot";
+import { useUpdateSettings, useDiscordContext } from "@/hooks/use-bot";
 import { ShieldCheck, Save, Loader2, Info } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -20,6 +20,9 @@ interface VerifyTabProps {
 export function VerifyTab({ serverId, settings }: VerifyTabProps) {
   const { toast } = useToast();
   const updateSettings = useUpdateSettings(serverId);
+  const { data: discordContext, isLoading: discordContextLoading } = useDiscordContext(serverId);
+  const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
+  const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
 
   const [enabled, setEnabled] = useState(false);
   const [verifyType, setVerifyType] = useState("button");
@@ -133,43 +136,71 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
             </div>
 
             <div className="space-y-2">
-              <Label>Verification Channel ID</Label>
-              <Input
-                value={channelId}
-                onChange={(e) => setChannelId(e.target.value)}
-                placeholder="Channel ID"
-                data-testid="input-verify-channel"
-              />
+              <Label>Verification Channel</Label>
+              <Select value={channelId || "__none__"} onValueChange={(value) => setChannelId(value === "__none__" ? "" : value)}>
+                <SelectTrigger data-testid="select-verify-channel">
+                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select channel"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not Set</SelectItem>
+                  {channelOptions.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      # {channel.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Verified Role ID</Label>
-              <Input
-                value={roleId}
-                onChange={(e) => setRoleId(e.target.value)}
-                placeholder="Role ID to assign on verify"
-                data-testid="input-verify-role"
-              />
+              <Label>Verified Role</Label>
+              <Select value={roleId || "__none__"} onValueChange={(value) => setRoleId(value === "__none__" ? "" : value)}>
+                <SelectTrigger data-testid="select-verify-role">
+                  <SelectValue placeholder={discordContextLoading ? "Loading roles..." : "Select role"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not Set</SelectItem>
+                  {roleOptions.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Unverified Role ID</Label>
-              <Input
-                value={unverifiedRoleId}
-                onChange={(e) => setUnverifiedRoleId(e.target.value)}
-                placeholder="Role ID for unverified members"
-                data-testid="input-unverified-role"
-              />
+              <Label>Unverified Role</Label>
+              <Select value={unverifiedRoleId || "__none__"} onValueChange={(value) => setUnverifiedRoleId(value === "__none__" ? "" : value)}>
+                <SelectTrigger data-testid="select-unverified-role">
+                  <SelectValue placeholder={discordContextLoading ? "Loading roles..." : "Select role"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not Set</SelectItem>
+                  {roleOptions.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">
-              <Label>Log Channel ID</Label>
-              <Input
-                value={logChannelId}
-                onChange={(e) => setLogChannelId(e.target.value)}
-                placeholder="Channel ID for verification logs"
-                data-testid="input-verify-log-channel"
-              />
+              <Label>Log Channel</Label>
+              <Select value={logChannelId || "__none__"} onValueChange={(value) => setLogChannelId(value === "__none__" ? "" : value)}>
+                <SelectTrigger data-testid="select-verify-log-channel">
+                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select channel"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not Set</SelectItem>
+                  {channelOptions.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      # {channel.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -227,3 +258,4 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
     </div>
   );
 }
+

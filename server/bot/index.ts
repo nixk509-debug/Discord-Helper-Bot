@@ -1,7 +1,7 @@
-import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
+import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
 import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { economyCommands, handleEconomyCommand } from "./commands/economy";
 import { funCommand, handleFunCommand } from "./commands/fun";
 import { setCommand, handleSetCommand } from "./commands/set";
@@ -261,54 +261,79 @@ async function handleCustomCommand(message: Message) {
   const cmds = await db.select().from(customCommands).where(eq(customCommands.serverId, server.id));
   if (cmds.length === 0) return;
 
-  const content = message.content;
+  const content = message.content.trim();
+  const lowerContent = content.toLowerCase();
 
   for (const cmd of cmds) {
     if (!cmd.enabled) continue;
 
     let matched = false;
-    const triggerType = cmd.triggerType || "command";
+    const triggerType = (cmd.triggerType || "command").toLowerCase();
 
     if (triggerType === "command") {
-      const trigger = `${prefix}${cmd.name}`;
-      if (content === trigger || content.startsWith(trigger + " ")) {
+      const trigger = `${prefix}${cmd.name}`.toLowerCase();
+      if (lowerContent === trigger || lowerContent.startsWith(trigger + " ")) {
         matched = true;
       }
-      if (!matched && cmd.aliases) {
+      if (!matched && Array.isArray(cmd.aliases)) {
         for (const alias of cmd.aliases as string[]) {
-          const aliasTrigger = `${prefix}${alias}`;
-          if (content === aliasTrigger || content.startsWith(aliasTrigger + " ")) {
+          const aliasTrigger = `${prefix}${alias}`.toLowerCase();
+          if (lowerContent === aliasTrigger || lowerContent.startsWith(aliasTrigger + " ")) {
             matched = true;
             break;
           }
         }
       }
     } else if (triggerType === "keyword") {
-      matched = content.toLowerCase().includes(cmd.name.toLowerCase());
+      matched = lowerContent.includes((cmd.name || "").toLowerCase());
     } else if (triggerType === "regex") {
       try {
         matched = new RegExp(cmd.name, "i").test(content);
-      } catch {}
-    } else if (triggerType === "startsWith") {
-      matched = content.toLowerCase().startsWith(cmd.name.toLowerCase());
+      } catch {
+        matched = false;
+      }
+    } else if (triggerType === "startswith") {
+      matched = lowerContent.startsWith((cmd.name || "").toLowerCase());
     }
 
     if (!matched) continue;
 
-    if (cmd.blockedChannels && (cmd.blockedChannels as string[]).includes(message.channel.id)) continue;
-    if (cmd.allowedChannels && (cmd.allowedChannels as string[]).length > 0 && !(cmd.allowedChannels as string[]).includes(message.channel.id)) continue;
+    const blockedChannels = normalizeIdList(cmd.blockedChannels as string[] | null | undefined);
+    const allowedChannels = normalizeIdList(cmd.allowedChannels as string[] | null | undefined);
+    if (blockedChannels.includes(message.channel.id)) continue;
+    if (allowedChannels.length > 0 && !allowedChannels.includes(message.channel.id)) continue;
 
-    const memberRoles = message.member?.roles.cache.map((r) => r.id) || [];
-    if (cmd.blockedRoles && (cmd.blockedRoles as string[]).some((r) => memberRoles.includes(r))) continue;
-    if (cmd.requiredRoles && (cmd.requiredRoles as string[]).length > 0 && !(cmd.requiredRoles as string[]).some((r) => memberRoles.includes(r))) continue;
+    const memberRoles = message.member?.roles.cache.map((role) => role.id) || [];
+    const blockedRoles = normalizeIdList(cmd.blockedRoles as string[] | null | undefined);
+    const requiredRoles = normalizeIdList(cmd.requiredRoles as string[] | null | undefined);
+    if (blockedRoles.some((roleId) => memberRoles.includes(roleId))) continue;
+    if (requiredRoles.length > 0 && !requiredRoles.some((roleId) => memberRoles.includes(roleId))) continue;
 
-    let response = resolveVariables(cmd.response, message);
+    const responseTemplate = pickCommandResponseTemplate(cmd.response, cmd.responseVariations as string[] | null | undefined);
+    const responseText = resolveVariables(responseTemplate, message);
+    const responseType = (cmd.responseType || "text").toLowerCase();
+    const includeText = responseType !== "embed";
+    const includeEmbed = responseType === "embed" || responseType === "both";
+
+    const payload: { content?: string; embeds?: EmbedBuilder[] } = {};
+    if (includeText && responseText.trim().length > 0) {
+      payload.content = responseText;
+    }
+    if (includeEmbed) {
+      const embed = buildCommandEmbed(cmd.embedResponse, message);
+      if (embed) payload.embeds = [embed];
+    }
+
+    if (!payload.content && (!payload.embeds || payload.embeds.length === 0)) {
+      console.warn(`[Bot] Skipping command ${cmd.name}: no text/embed content configured.`);
+      continue;
+    }
 
     try {
       if (cmd.dmResponse) {
-        await message.author.send(response);
+        await message.author.send(payload);
       } else {
-        await message.reply(response);
+        await message.reply(payload);
       }
 
       if (cmd.deleteInvocation) {
@@ -323,22 +348,161 @@ async function handleCustomCommand(message: Message) {
         })
         .where(eq(customCommands.id, cmd.id));
     } catch (err) {
-      console.error(`[Bot] Command error (${cmd.name}):`, err);
+      console.error(`[Bot] Command error (${cmd.name}, mode=${responseType}):`, err);
     }
 
     break;
   }
 }
 
+function pickCommandResponseTemplate(base: string | null, variations: string[] | null | undefined): string {
+  const templates = [base || "", ...((Array.isArray(variations) ? variations : []).filter((v): v is string => typeof v === "string"))]
+    .map((template) => template.trim())
+    .filter(Boolean);
+  if (templates.length === 0) return "";
+  return templates[Math.floor(Math.random() * templates.length)] || templates[0];
+}
+
+function normalizeId(value: unknown): string {
+  const trimmed = String(value ?? "").trim();
+  const match = trimmed.match(/\d{15,21}/);
+  return match ? match[0] : trimmed;
+}
+
+function normalizeIdList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values.map((value) => normalizeId(value)).filter(Boolean);
+}
+
+function parseEmbedColor(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/^#/, "");
+    if (/^[0-9a-fA-F]{6}$/.test(normalized)) return parseInt(normalized, 16);
+  }
+  return null;
+}
+
+function buildCommandEmbed(rawEmbed: any, message: Message): EmbedBuilder | null {
+  if (!rawEmbed || typeof rawEmbed !== "object") return null;
+
+  const embed = new EmbedBuilder();
+  let hasData = false;
+
+  const title = typeof rawEmbed.title === "string" ? resolveVariables(rawEmbed.title, message).trim() : "";
+  if (title) {
+    embed.setTitle(title);
+    hasData = true;
+  }
+
+  const description = typeof rawEmbed.description === "string" ? resolveVariables(rawEmbed.description, message).trim() : "";
+  if (description) {
+    embed.setDescription(description);
+    hasData = true;
+  }
+
+  const url = typeof rawEmbed.url === "string" ? rawEmbed.url.trim() : "";
+  if (url) {
+    embed.setURL(url);
+    hasData = true;
+  }
+
+  const color = parseEmbedColor(rawEmbed.color);
+  if (color !== null) {
+    embed.setColor(color);
+    hasData = true;
+  }
+
+  const authorName = typeof rawEmbed.authorName === "string" ? resolveVariables(rawEmbed.authorName, message).trim() : "";
+  if (authorName) {
+    embed.setAuthor({
+      name: authorName,
+      url: typeof rawEmbed.authorUrl === "string" && rawEmbed.authorUrl.trim() ? rawEmbed.authorUrl.trim() : undefined,
+      iconURL: typeof rawEmbed.authorIconUrl === "string" && rawEmbed.authorIconUrl.trim() ? rawEmbed.authorIconUrl.trim() : undefined,
+    });
+    hasData = true;
+  }
+
+  const footerTextRaw = typeof rawEmbed.footerText === "string"
+    ? rawEmbed.footerText
+    : typeof rawEmbed.footer === "string"
+      ? rawEmbed.footer
+      : typeof rawEmbed.footer?.text === "string"
+        ? rawEmbed.footer.text
+        : "";
+  const footerText = resolveVariables(footerTextRaw, message).trim();
+  if (footerText) {
+    embed.setFooter({
+      text: footerText,
+      iconURL:
+        (typeof rawEmbed.footerIconUrl === "string" && rawEmbed.footerIconUrl.trim()) ||
+        (typeof rawEmbed.footer?.icon_url === "string" && rawEmbed.footer.icon_url.trim()) ||
+        undefined,
+    });
+    hasData = true;
+  }
+
+  if (typeof rawEmbed.imageUrl === "string" && rawEmbed.imageUrl.trim()) {
+    embed.setImage(rawEmbed.imageUrl.trim());
+    hasData = true;
+  } else if (typeof rawEmbed.image?.url === "string" && rawEmbed.image.url.trim()) {
+    embed.setImage(rawEmbed.image.url.trim());
+    hasData = true;
+  }
+
+  if (typeof rawEmbed.thumbnailUrl === "string" && rawEmbed.thumbnailUrl.trim()) {
+    embed.setThumbnail(rawEmbed.thumbnailUrl.trim());
+    hasData = true;
+  } else if (typeof rawEmbed.thumbnail?.url === "string" && rawEmbed.thumbnail.url.trim()) {
+    embed.setThumbnail(rawEmbed.thumbnail.url.trim());
+    hasData = true;
+  }
+
+  if (Array.isArray(rawEmbed.fields) && rawEmbed.fields.length > 0) {
+    const fields = rawEmbed.fields
+      .filter((field) => field && typeof field.name === "string" && typeof field.value === "string")
+      .slice(0, 25)
+      .map((field) => ({
+        name: resolveVariables(field.name, message).trim() || "-",
+        value: resolveVariables(field.value, message).trim() || "-",
+        inline: Boolean(field.inline),
+      }));
+    if (fields.length > 0) {
+      embed.addFields(fields);
+      hasData = true;
+    }
+  }
+
+  if (rawEmbed.timestamp) {
+    embed.setTimestamp(new Date());
+    hasData = true;
+  }
+
+  return hasData ? embed : null;
+}
+
 function resolveVariables(text: string, message: Message): string {
+  const channelName = (message.channel as any)?.name || "channel";
+
   return text
-    .replace(/\{user\}/g, message.author.toString())
-    .replace(/\{username\}/g, message.author.username)
-    .replace(/\{server\}/g, message.guild?.name || "")
-    .replace(/\{channel\}/g, message.channel.toString())
-    .replace(/\{membercount\}/g, String(message.guild?.memberCount || 0))
-    .replace(/\{random:([^}]+)\}/g, (_match, options) => {
-      const items = options.split(",");
-      return items[Math.floor(Math.random() * items.length)].trim();
+    .replace(/\{user\.mention\}/gi, message.author.toString())
+    .replace(/\{user\.name\}|\{username\}/gi, message.author.username)
+    .replace(/\{user\}/gi, message.author.username)
+    .replace(/\{user\.id\}/gi, message.author.id)
+    .replace(/\{server\.name\}|\{server\}/gi, message.guild?.name || "")
+    .replace(/\{server\.id\}/gi, message.guild?.id || "")
+    .replace(/\{server\.membercount\}|\{membercount\}/gi, String(message.guild?.memberCount || 0))
+    .replace(/\{channel\.mention\}/gi, message.channel.toString())
+    .replace(/\{channel\.name\}|\{channel\}/gi, channelName)
+    .replace(/\{channel\.id\}/gi, message.channel.id)
+    .replace(/\{random:([^}]+)\}/gi, (_match, options) => {
+      const items = String(options)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (items.length === 0) return "";
+      return items[Math.floor(Math.random() * items.length)] || "";
     });
 }
+
+

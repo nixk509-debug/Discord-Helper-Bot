@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { storage } from "./storage";
-import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots } from "@shared/schema";
+import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots, memberNotes, economy } from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
@@ -147,6 +147,52 @@ export async function registerRoutes(_server: Server, app: Express) {
     res.json(server);
   });
 
+  app.get(api.servers.discordContext.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot to load roles/channels." });
+    }
+
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+    await guild.channels.fetch().catch(() => null);
+    await guild.roles.fetch().catch(() => null);
+
+    const channels = Array.from(guild.channels.cache.values())
+      .filter((channel: any) => channel && channel.isTextBased() && !channel.isThread())
+      .map((channel: any) => ({
+        id: channel.id,
+        name: channel.name,
+        type: String(channel.type),
+        parentId: channel.parentId ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const roles = Array.from(guild.roles.cache.values())
+      .filter((role: any) => role && role.id !== guild.id)
+      .map((role: any) => ({
+        id: role.id,
+        name: role.name,
+        color: role.color || 0,
+        position: role.position || 0,
+      }))
+      .sort((a, b) => (b.position - a.position) || a.name.localeCompare(b.name));
+
+    res.json({
+      guildId: guild.id,
+      guildName: guild.name,
+      memberCount: guild.memberCount,
+      channels,
+      roles,
+    });
+  });
   // --- SETTINGS ---
   app.patch(api.settings.update.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
@@ -560,10 +606,74 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get("/api/servers/:serverId/members", async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const search = req.query.search as string | undefined;
-    res.json(await storage.getMembers(serverId, page, limit, search));
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit as string) || 50));
+    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot to load members." });
+    }
+
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+    await guild.members.fetch().catch(() => null);
+
+    const [allWarnings, allNotes, allEconomy] = await Promise.all([
+      storage.getWarnings(serverId),
+      db.select().from(memberNotes).where(eq(memberNotes.serverId, serverId)),
+      db.select().from(economy).where(eq(economy.serverId, serverId)),
+    ]);
+
+    const warningsByUser: Record<string, number> = {};
+    for (const warning of allWarnings) {
+      if (warning.active) warningsByUser[warning.userId] = (warningsByUser[warning.userId] || 0) + 1;
+    }
+
+    const notesByUser: Record<string, number> = {};
+    for (const note of allNotes) {
+      notesByUser[note.targetUserId] = (notesByUser[note.targetUserId] || 0) + 1;
+    }
+
+    const economyByUser: Record<string, number> = {};
+    for (const balance of allEconomy) {
+      economyByUser[balance.userId] = balance.balance ?? 0;
+    }
+
+    const membersData = Array.from(guild.members.cache.values()).map((member: any) => {
+      const username = member.displayName || member.user?.username || member.user?.tag || member.id;
+      return {
+        userId: member.id,
+        username,
+        warningCount: warningsByUser[member.id] || 0,
+        noteCount: notesByUser[member.id] || 0,
+        economyBalance: Object.prototype.hasOwnProperty.call(economyByUser, member.id) ? economyByUser[member.id] : null,
+      };
+    });
+
+    const filtered = search
+      ? membersData.filter((member) =>
+          member.username.toLowerCase().includes(search) ||
+          member.userId.includes(search),
+        )
+      : membersData;
+
+    filtered.sort((a, b) => a.username.localeCompare(b.username));
+
+    const total = filtered.length;
+    const offset = (page - 1) * limit;
+
+    await db
+      .update(servers)
+      .set({ memberCount: guild.memberCount })
+      .where(eq(servers.id, serverId))
+      .catch(() => undefined);
+
+    res.json({ members: filtered.slice(offset, offset + limit), total });
   });
 
   app.get("/api/servers/:serverId/members/:userId", async (req, res) => {
@@ -1075,3 +1185,4 @@ async function seedDatabase() {
     responseType: "text",
   });
 }
+

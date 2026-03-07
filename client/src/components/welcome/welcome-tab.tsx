@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds } from "@/hooks/use-bot";
+import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds, useDiscordContext } from "@/hooks/use-bot";
 import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -77,6 +77,10 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const createAutoRole = useCreateAutoRole(serverId);
   const deleteAutoRole = useDeleteAutoRole(serverId);
   const { data: embeds = [] } = useEmbeds(serverId);
+  const { data: discordContext, isLoading: discordContextLoading } = useDiscordContext(serverId);
+  const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
+  const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
+  const roleNameById = Object.fromEntries(roleOptions.map((role) => [role.id, role.name]));
 
   const [welcomeEnabled, setWelcomeEnabled] = useState(settings?.welcomeEnabled ?? false);
   const [welcomeChannelId, setWelcomeChannelId] = useState(settings?.welcomeChannelId ?? "");
@@ -120,6 +124,11 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
           toast({ title: "Error", description: err.message, variant: "destructive" }),
       }
     );
+  };
+
+  const handleSelectAutoRole = (roleId: string) => {
+    setNewRoleId(roleId);
+    setNewRoleName(roleNameById[roleId] || "");
   };
 
   const handleAddAutoRole = () => {
@@ -274,18 +283,24 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
         </CardHeader>
         <CardContent className={`space-y-6 transition-opacity duration-300 ${!welcomeEnabled ? "opacity-50 pointer-events-none" : ""}`}>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Welcome Channel ID</label>
+            <label className="text-sm font-medium">Welcome Channel</label>
             <div className="flex items-center gap-2">
               <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Input
-                value={welcomeChannelId}
-                onChange={(e) => setWelcomeChannelId(e.target.value)}
-                placeholder="e.g. 123456789012345678"
-                className="bg-background max-w-md"
-                data-testid="input-welcome-channel-id"
-              />
+              <Select value={welcomeChannelId || "__none__"} onValueChange={(value) => setWelcomeChannelId(value === "__none__" ? "" : value)}>
+                <SelectTrigger className="bg-background max-w-md" data-testid="select-welcome-channel-id">
+                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Not Set</SelectItem>
+                  {channelOptions.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      # {channel.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <p className="text-xs text-muted-foreground">The channel where welcome messages will be sent.</p>
+            <p className="text-xs text-muted-foreground">Pick the channel where welcome messages will be sent.</p>
           </div>
 
           <div className="space-y-2">
@@ -360,18 +375,24 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
         </CardHeader>
         <CardContent className={`space-y-6 transition-opacity duration-300 ${!leaveEnabled ? "opacity-50 pointer-events-none" : ""}`}>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Leave Channel ID</label>
+            <label className="text-sm font-medium">Leave Channel</label>
             <div className="flex items-center gap-2">
               <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Input
-                value={leaveChannelId}
-                onChange={(e) => setLeaveChannelId(e.target.value)}
-                placeholder="e.g. 123456789012345678"
-                className="bg-background max-w-md"
-                data-testid="input-leave-channel-id"
-              />
+              <Select value={leaveChannelId || "__none__"} onValueChange={(value) => setLeaveChannelId(value === "__none__" ? "" : value)}>
+                <SelectTrigger className="bg-background max-w-md" data-testid="select-leave-channel-id">
+                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Use Welcome Channel</SelectItem>
+                  {channelOptions.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      # {channel.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <p className="text-xs text-muted-foreground">The channel where leave messages will be sent. Leave blank to use the welcome channel.</p>
+            <p className="text-xs text-muted-foreground">Pick where leave messages will be sent. Leave blank to reuse the welcome channel.</p>
           </div>
 
           <div className="space-y-2">
@@ -419,11 +440,24 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Role ID</label>
+                    <label className="text-sm font-medium">Role</label>
+                    <Select value={newRoleId || "__none__"} onValueChange={(value) => handleSelectAutoRole(value === "__none__" ? "" : value)}>
+                      <SelectTrigger className="bg-background" data-testid="select-auto-role-id">
+                        <SelectValue placeholder={discordContextLoading ? "Loading roles..." : "Select a role"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Select Role</SelectItem>
+                        {roleOptions.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Input
                       value={newRoleId}
                       onChange={(e) => setNewRoleId(e.target.value)}
-                      placeholder="e.g. 123456789012345678"
+                      placeholder="Role ID (manual fallback)"
                       className="bg-background"
                       data-testid="input-auto-role-id"
                     />
@@ -578,3 +612,4 @@ function VariableHints() {
     </p>
   );
 }
+

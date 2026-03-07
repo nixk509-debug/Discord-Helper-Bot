@@ -37,6 +37,7 @@ export const api = {
   servers: {
     list: { method: 'GET' as const, path: '/api/servers' as const, responses: { 200: z.array(z.custom<ServerResponse>()) } },
     get: { method: 'GET' as const, path: '/api/servers/:id' as const, responses: { 200: z.custom<ServerResponse>(), 404: errorSchemas.notFound } },
+    discordContext: { method: 'GET' as const, path: '/api/servers/:serverId/discord-context' as const, responses: { 200: z.any(), 404: errorSchemas.notFound } },
   },
   settings: {
     update: { method: 'PATCH' as const, path: '/api/servers/:serverId/settings' as const, input: insertSettingsSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
@@ -125,3 +126,4 @@ export type CreateCommandInput = z.infer<typeof api.commands.create.input>;
 export type UpdateCommandInput = z.infer<typeof api.commands.update.input>;
 export type CreateEmbedInput = z.infer<typeof api.embeds.create.input>;
 export type UpdateEmbedInput = z.infer<typeof api.embeds.update.input>;
+
