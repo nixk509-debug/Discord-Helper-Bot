@@ -268,9 +268,17 @@ export class DatabaseStorage {
     }
     return await db.select().from(templates).where(eq(templates.userId, userId));
   }
+  async getTemplateById(id: number): Promise<Template | undefined> {
+    const [template] = await db.select().from(templates).where(eq(templates.id, id));
+    return template;
+  }
   async createTemplate(data: any): Promise<Template> {
     const [created] = await db.insert(templates).values(data).returning();
     return created;
+  }
+  async updateTemplate(id: number, data: any): Promise<Template> {
+    const [updated] = await db.update(templates).set(data).where(eq(templates.id, id)).returning();
+    return updated;
   }
   async deleteTemplate(id: number): Promise<void> {
     await db.delete(templates).where(eq(templates.id, id));

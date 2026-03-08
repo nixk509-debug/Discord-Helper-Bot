@@ -17,14 +17,28 @@ const dashboardStatsSchema = z.object({
   totalServers: z.number(),
   totalMembers: z.number(),
   commandsExecuted: z.number(),
-  uptime: z.string(),
+  uptime: z.string().optional(),
   botReady: z.boolean().optional(),
+  bot: z.object({
+    ready: z.boolean(),
+    processStatus: z.enum(["online", "offline"]),
+    uptimeMs: z.number().nullable(),
+    uptimeHuman: z.string(),
+    guildCount: z.number(),
+    gatewayPingMs: z.number().nullable(),
+    lastHeartbeatAt: z.string().nullable(),
+    wsStatus: z.string(),
+  }).optional(),
 });
 
 const botStatusSchema = z.object({
   ready: z.boolean(),
   uptimeMs: z.number().nullable(),
   guildCount: z.number(),
+  gatewayPingMs: z.number().nullable(),
+  lastHeartbeatAt: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  wsStatus: z.string(),
 });
 
 const discordContextSchema = z.object({
@@ -35,10 +49,14 @@ const discordContextSchema = z.object({
     id: z.string(),
     name: z.string(),
     type: z.string(),
+    typeName: z.string().optional(),
     parentId: z.string().nullable(),
     position: z.number().optional(),
     isTextBased: z.boolean().optional(),
     isVoiceBased: z.boolean().optional(),
+    isAnnouncement: z.boolean().optional(),
+    isForum: z.boolean().optional(),
+    isStage: z.boolean().optional(),
     isCategory: z.boolean().optional(),
     isThread: z.boolean().optional(),
     nsfw: z.boolean().optional(),

@@ -55,10 +55,14 @@ export interface DiscordContextChannel {
   id: string;
   name: string;
   type: string;
+  typeName?: string;
   parentId: string | null;
   position?: number;
   isTextBased?: boolean;
   isVoiceBased?: boolean;
+  isAnnouncement?: boolean;
+  isForum?: boolean;
+  isStage?: boolean;
   isCategory?: boolean;
   isThread?: boolean;
   nsfw?: boolean;

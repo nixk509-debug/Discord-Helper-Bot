@@ -18,7 +18,7 @@ import {
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
-import { getBotClient, getBotUptime, getBotStatus } from "./bot/index";
+import { getBotClient, getBotStatus } from "./bot/index";
 import { recordAudit, getAuditLog } from "./auditService";
 import { createSnapshot, listSnapshots, rollback } from "./snapshotService";
 import { generateCode, redeemCode, listCodes, revokeCode } from "./codeVaultService";
@@ -59,11 +59,7 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   app.get(api.bot.status.path, (_req, res) => {
     const bot = getBotStatus();
-    res.json({
-      ready: bot.ready,
-      uptimeMs: bot.uptimeMs,
-      guildCount: bot.guildCount,
-    });
+    res.json(bot);
   });
 
   // --- INVITE URL ---
@@ -105,17 +101,30 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.post("/api/templates", requireAuth, async (req, res) => {
-    const count = await storage.getTemplateCount(req.user!.id);
-    if (count >= 10) {
-      return res.status(403).json({ message: "Template limit reached (10)." });
-    }
     const created = await storage.createTemplate({ ...req.body, userId: req.user!.id });
     res.status(201).json(created);
+  });
+
+  app.patch("/api/templates/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const existing = await storage.getTemplateById(id);
+    if (!existing || existing.userId !== req.user!.id) {
+      return res.status(404).json({ message: "Template not found" });
+    }
+
+    const updated = await storage.updateTemplate(id, req.body);
+    res.json(updated);
   });
 
   app.delete("/api/templates/:id", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id as string);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const existing = await storage.getTemplateById(id);
+    if (!existing || existing.userId !== req.user!.id) {
+      return res.status(404).json({ message: "Template not found" });
+    }
     await storage.deleteTemplate(id);
     res.status(204).send();
   });
@@ -127,14 +136,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
       const commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
       const bot = getBotStatus();
-      const uptimeStr = bot.ready && bot.uptimeMs != null
-        ? (() => {
-            const secs = Math.floor(bot.uptimeMs / 1000);
-            const hours = Math.floor(secs / 3600);
-            const minutes = Math.floor((secs % 3600) / 60);
-            return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-          })()
-        : "offline";
+      const uptimeStr = formatDuration(bot.uptimeMs);
 
       return res.json({
         totalServers: allServers.length,
@@ -142,6 +144,16 @@ export async function registerRoutes(_server: Server, app: Express) {
         commandsExecuted,
         uptime: uptimeStr,
         botReady: bot.ready,
+        bot: {
+          ready: bot.ready,
+          processStatus: bot.ready ? "online" : "offline",
+          uptimeMs: bot.uptimeMs,
+          uptimeHuman: uptimeStr,
+          guildCount: bot.guildCount,
+          gatewayPingMs: bot.gatewayPingMs,
+          lastHeartbeatAt: bot.lastHeartbeatAt,
+          wsStatus: bot.wsStatus,
+        },
       });
     } catch (err: any) {
       console.error("[Stats] Failed to build dashboard stats:", err?.message || err);
@@ -151,6 +163,16 @@ export async function registerRoutes(_server: Server, app: Express) {
         commandsExecuted: 0,
         uptime: "offline",
         botReady: getBotStatus().ready,
+        bot: {
+          ready: false,
+          processStatus: "offline",
+          uptimeMs: null,
+          uptimeHuman: "offline",
+          guildCount: 0,
+          gatewayPingMs: null,
+          lastHeartbeatAt: null,
+          wsStatus: "offline",
+        },
       });
     }
   });
@@ -205,10 +227,14 @@ export async function registerRoutes(_server: Server, app: Express) {
           id: channel.id,
           name: channel.name ?? channel.id,
           type: String(channel.type),
+          typeName: mapDiscordChannelTypeName(String(channel.type)),
           parentId: channel.parentId ?? null,
           position: typeof channel.position === "number" ? channel.position : 0,
           isTextBased: Boolean(channel.isTextBased?.()),
           isVoiceBased: Boolean(channel.isVoiceBased?.()),
+          isAnnouncement: String(channel.type) === "5",
+          isForum: String(channel.type) === "15",
+          isStage: String(channel.type) === "13",
           isCategory: String(channel.type) === "4",
           isThread: Boolean(channel.isThread?.()),
           nsfw: "nsfw" in channel ? Boolean(channel.nsfw) : false,
@@ -354,15 +380,23 @@ export async function registerRoutes(_server: Server, app: Express) {
     }
 
     const preparedEmbed = buildDiscordEmbed(embedRecord);
+    const diagnostics: ComponentDiagnostic[] = [];
+    const rawComponents = (embedRecord.components as EmbedComponentType[] | null | undefined) || [];
     const preparedComponents = buildActionRows({
-      components: (embedRecord.components as EmbedComponentType[] | null | undefined) || [],
+      components: rawComponents,
       serverId,
       guildId: guild.id,
       embedId: embedRecord.id,
+      diagnostics,
     });
 
     if (!preparedEmbed && preparedComponents.length === 0) {
-      return res.status(400).json({ message: "Embed has no sendable content." });
+      return res.status(400).json({
+        message: rawComponents.length > 0
+          ? "Embed has Components V2 content, but no sendable interactive components were generated."
+          : "Embed has no sendable content.",
+        diagnostics,
+      });
     }
 
     try {
@@ -372,9 +406,46 @@ export async function registerRoutes(_server: Server, app: Express) {
       });
       return res.json({ messageId: sentMessage.id, channelId: sentMessage.channelId });
     } catch (err: any) {
-      console.error("[Embeds] Failed to send embed:", err?.message || err);
-      return res.status(400).json({ message: "Failed to send embed. Verify bot permissions for this channel." });
+      console.error("[Embeds] Failed to send embed:", err?.message || err, {
+        embedId,
+        serverId,
+        channelId,
+        diagnostics,
+      });
+      return res.status(400).json({
+        message: "Failed to send embed. Verify bot permissions and interactive component configuration.",
+        diagnostics,
+      });
     }
+  });
+
+  app.get("/api/servers/:serverId/embeds/:id/components-debug", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    const embedId = parseInt(req.params.id);
+    if (isNaN(serverId) || isNaN(embedId)) {
+      return res.status(400).json({ message: "Invalid ID" });
+    }
+
+    const [embedRecord] = await db.select().from(embedsTable)
+      .where(and(eq(embedsTable.id, embedId), eq(embedsTable.serverId, serverId)));
+    if (!embedRecord) return res.status(404).json({ message: "Embed not found" });
+
+    const diagnostics: ComponentDiagnostic[] = [];
+    const actionRows = buildActionRows({
+      components: (embedRecord.components as EmbedComponentType[] | null | undefined) || [],
+      serverId,
+      guildId: "debug",
+      embedId,
+      diagnostics,
+      debugMode: true,
+    });
+
+    return res.json({
+      embedId,
+      actionRowCount: actionRows.length,
+      diagnostics,
+      hasEmbedBody: Boolean(buildDiscordEmbed(embedRecord)),
+    });
   });
 
   app.delete(api.embeds.delete.path, async (req, res) => {
@@ -1167,6 +1238,37 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 }
 
+function formatDuration(ms: number | null): string {
+  if (!ms || ms <= 0) return "offline";
+  const secs = Math.floor(ms / 1000);
+  const days = Math.floor(secs / 86400);
+  const hours = Math.floor((secs % 86400) / 3600);
+  const minutes = Math.floor((secs % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function mapDiscordChannelTypeName(type: string): string {
+  switch (type) {
+    case "0":
+      return "text";
+    case "2":
+      return "voice";
+    case "4":
+      return "category";
+    case "5":
+      return "announcement";
+    case "13":
+      return "stage";
+    case "15":
+      return "forum";
+    default:
+      return "other";
+  }
+}
+
 function parseEmbedColor(color: unknown): number | null {
   if (typeof color === "number" && Number.isFinite(color)) return color;
   if (typeof color !== "string") return null;
@@ -1271,14 +1373,62 @@ function mapButtonStyle(style?: number): ButtonStyle {
   return ButtonStyle.Primary;
 }
 
+type ComponentDiagnostic = {
+  level: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  path?: string;
+};
+
+function isLikelyHttpUrl(value: string): boolean {
+  return /^https?:\/\/\S+$/i.test(value.trim());
+}
+
+function collectInteractiveComponents(
+  components: EmbedComponentType[],
+  basePath = "components"
+): Array<{ component: EmbedComponentType; path: string }> {
+  const output: Array<{ component: EmbedComponentType; path: string }> = [];
+  const walk = (items: EmbedComponentType[] | undefined, path: string) => {
+    if (!Array.isArray(items)) return;
+
+    for (let index = 0; index < items.length; index++) {
+      const current = items[index];
+      if (!current || typeof current.type !== "number") continue;
+      const currentPath = `${path}[${index}]`;
+
+      if (current.type === 2 || current.type === 3) {
+        output.push({ component: current, path: currentPath });
+      }
+
+      if (Array.isArray(current.components)) {
+        walk(current.components, `${currentPath}.components`);
+      }
+
+      if (current.accessory) {
+        walk([current.accessory], `${currentPath}.accessory`);
+      }
+    }
+  };
+
+  walk(components, basePath);
+  return output;
+}
+
 function buildActionRows(input: {
   components: EmbedComponentType[];
   serverId: number;
   guildId: string;
   embedId: number;
+  diagnostics?: ComponentDiagnostic[];
+  debugMode?: boolean;
 }) {
+  // Discord.js currently serializes only interactive components (buttons/selects) for message sends.
+  // Non-interactive V2 blocks (e.g. section/container/text) are preview-only in this runtime path.
+  const diagnostics = input.diagnostics ?? [];
   const rows: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];
   let buttonBuffer: ButtonBuilder[] = [];
+  const interactiveComponents = collectInteractiveComponents(input.components);
 
   const flushButtons = () => {
     if (buttonBuffer.length === 0 || rows.length >= 5) return;
@@ -1296,14 +1446,9 @@ function buildActionRows(input: {
     return token ? `${EMBED_ACTION_TOKEN_PREFIX}${token}` : null;
   };
 
-  for (let componentIndex = 0; componentIndex < input.components.length; componentIndex++) {
+  for (let componentIndex = 0; componentIndex < interactiveComponents.length; componentIndex++) {
     if (rows.length >= 5) break;
-    const component = input.components[componentIndex];
-
-    if (!component || (component.type !== 2 && component.type !== 3)) {
-      flushButtons();
-      continue;
-    }
+    const { component, path } = interactiveComponents[componentIndex];
 
     if (component.type === 2) {
       const action = component.action;
@@ -1319,12 +1464,50 @@ function buildActionRows(input: {
 
       if (isLink) {
         const url = String(action?.url || component.url || "").trim();
-        if (!url) continue;
+        if (!isLikelyHttpUrl(url)) {
+          diagnostics.push({
+            level: "warning",
+            code: "BUTTON_LINK_URL_INVALID",
+            message: "Link button skipped because URL is missing or invalid.",
+            path,
+          });
+          continue;
+        }
         button.setStyle(ButtonStyle.Link).setURL(url);
       } else {
-        if (!action) continue;
-        const customId = buildToken(action);
-        if (!customId) continue;
+        let customId: string | null = null;
+        if (action) {
+          customId = buildToken(action);
+          if (!customId) {
+            diagnostics.push({
+              level: "warning",
+              code: "BUTTON_ACTION_TOKEN_FAILED",
+              message: "Button action token generation failed.",
+              path,
+            });
+          }
+        }
+
+        if (!customId && component.customId) {
+          customId = component.customId.slice(0, 100);
+          diagnostics.push({
+            level: "info",
+            code: "BUTTON_CUSTOM_ID_FALLBACK",
+            message: "Button used customId fallback because no action token was available.",
+            path,
+          });
+        }
+
+        if (!customId) {
+          diagnostics.push({
+            level: "warning",
+            code: "BUTTON_NO_CUSTOM_ID",
+            message: "Button skipped because it has no valid action token or customId.",
+            path,
+          });
+          continue;
+        }
+
         button.setCustomId(customId).setStyle(mapButtonStyle(component.style));
       }
 
@@ -1348,8 +1531,30 @@ function buildActionRows(input: {
       }> => {
         const opt = option as EmbedComponentOption;
         const action = opt.action || component.action;
-        if (!action) return [];
-        const tokenValue = buildToken(action);
+        const fallbackValue = String(opt.value || "").trim();
+        let tokenValue: string | null = null;
+        if (action) {
+          tokenValue = buildToken(action);
+          if (!tokenValue) {
+            diagnostics.push({
+              level: "warning",
+              code: "SELECT_OPTION_TOKEN_FAILED",
+              message: "Select option action token generation failed.",
+              path,
+            });
+          }
+        }
+
+        if (!tokenValue && fallbackValue) {
+          tokenValue = fallbackValue.slice(0, 100);
+          diagnostics.push({
+            level: "info",
+            code: "SELECT_OPTION_VALUE_FALLBACK",
+            message: "Select option used its raw value because no action token was available.",
+            path,
+          });
+        }
+
         if (!tokenValue) return [];
 
         return [{
@@ -1360,7 +1565,15 @@ function buildActionRows(input: {
         }];
       });
 
-      if (preparedOptions.length === 0) continue;
+      if (preparedOptions.length === 0) {
+        diagnostics.push({
+          level: "warning",
+          code: "SELECT_NO_OPTIONS",
+          message: "Select menu skipped because no valid options were generated.",
+          path,
+        });
+        continue;
+      }
 
       const menu = new StringSelectMenuBuilder()
         .setCustomId(
@@ -1380,6 +1593,22 @@ function buildActionRows(input: {
   }
 
   flushButtons();
+  if (interactiveComponents.length === 0 && input.components.length > 0) {
+    diagnostics.push({
+      level: "warning",
+      code: "NO_INTERACTIVE_COMPONENTS",
+      message: "No sendable interactive components were found. Non-interactive Components V2 blocks are not serialized by this Discord.js runtime path.",
+    });
+  }
+
+  if (rows.length >= 5 && interactiveComponents.length > 5) {
+    diagnostics.push({
+      level: "warning",
+      code: "ACTION_ROW_LIMIT",
+      message: "Discord limits interactive rows to 5. Additional components were truncated.",
+    });
+  }
+
   return rows.slice(0, 5);
 }
 

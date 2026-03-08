@@ -38,6 +38,7 @@ import {
   Webhook,
   BarChart3,
   Gift,
+  Sparkles,
   Key,
   RefreshCw,
   FileText,
@@ -61,6 +62,7 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
     label: "Core",
     modules: [
       { id: "general", label: "General", icon: Settings, enabled: true },
+      { id: "design-studio", label: "Design Studio", icon: Sparkles, enabled: true },
       { id: "channels", label: "Channels", icon: Hash, enabled: false },
       { id: "server-control", label: "Server Control", icon: Shield, enabled: false },
       { id: "smart-permissions", label: "Permissions", icon: Key, enabled: false },
@@ -245,20 +247,22 @@ export function ServerSettingsLayout({
   }
 
   return (
-    <div className="flex gap-6">
+    <div className="flex gap-6 min-h-0 items-start">
       <div className="w-64 shrink-0">
-        <div className="glass-card rounded-xl sticky top-0 overflow-hidden" style={{ maxHeight: "calc(100vh - 10rem)" }}>
+        <div className="glass-card rounded-xl sticky top-4 overflow-hidden flex h-[calc(100vh-7rem)] min-h-[24rem] flex-col">
           <div className="px-4 py-3 border-b border-white/5">
             <h3 className="text-sm font-display font-bold text-muted-foreground uppercase tracking-wider" data-testid="text-modules-heading">
               Modules
             </h3>
           </div>
-          <SidebarNavContent
-            activeModule={activeModule}
-            onModuleChange={onModuleChange}
-            moduleStatuses={moduleStatuses}
-            serverId={serverId}
-          />
+          <div className="min-h-0 flex-1">
+            <SidebarNavContent
+              activeModule={activeModule}
+              onModuleChange={onModuleChange}
+              moduleStatuses={moduleStatuses}
+              serverId={serverId}
+            />
+          </div>
         </div>
       </div>
       <div className="flex-1 min-w-0">{children}</div>

@@ -19,6 +19,7 @@ import { EmbedPreview, type EmbedField, type EmbedComponent } from "./embed-prev
 import { COMPONENT_TYPES } from "@shared/schema";
 import type { Embed, InteractiveActionConfig, InteractiveReplyMode } from "@shared/schema";
 import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
+import { DiscordChannelPicker } from "@/components/discord/channel-picker";
 
 interface EmbedFormState {
   name: string;
@@ -401,14 +402,6 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const deleteEmbed = useDeleteEmbed(serverId);
   const sendEmbed = useSendEmbed(serverId);
   const { data: discordContext } = useDiscordContext(serverId);
-
-  const textChannelOptions = (discordContext?.channels || [])
-    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
-    .map((channel) => ({
-      id: channel.id,
-      label: `#${channel.name}`,
-      description: channel.id,
-    }));
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -1697,11 +1690,12 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
               <DialogDescription>Choose a destination channel and dispatch this embed from the bot.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              <DiscordEntityPicker
+              <DiscordChannelPicker
+                serverId={serverId}
                 label="Destination Channel"
                 value={sendChannelId}
                 onChange={setSendChannelId}
-                options={textChannelOptions}
+                allowedKinds={["text", "announcement", "forum"]}
                 placeholder="Select text channel..."
                 manualPlaceholder="Channel ID"
                 testIdPrefix="send-embed-channel"

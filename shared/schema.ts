@@ -21,6 +21,8 @@ export const serverSettings = pgTable("server_settings", {
   prefix: text("prefix").default("!").notNull(),
   botNickname: text("bot_nickname"),
   locale: text("locale").default("en"),
+  botConfig: jsonb("bot_config").$type<BotCoreConfig>().default({}),
+  behaviorConfig: jsonb("behavior_config").$type<BotBehaviorConfig>().default({}),
 
   // Welcome / Leave
   welcomeEnabled: boolean("welcome_enabled").default(false),
@@ -239,6 +241,9 @@ export const channelSettings = pgTable("channel_settings", {
   serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: 'cascade' }),
   channelId: text("channel_id").notNull(),
   channelName: text("channel_name").notNull(),
+  channelType: text("channel_type"),
+  parentChannelId: text("parent_channel_id"),
+  channelMeta: jsonb("channel_meta").$type<ChannelMetadata>().default({}),
   slowmode: integer("slowmode").default(0),
   autoDeleteAfter: integer("auto_delete_after").default(0),
   automodOverride: boolean("automod_override"),
@@ -869,6 +874,58 @@ export interface InteractiveComponent {
 }
 
 // --- WELCOME/ONBOARDING TYPES ---
+export interface BotCoreConfig {
+  defaultEmbedColor?: string;
+  defaultFooterText?: string;
+  defaultFooterIconUrl?: string;
+  locale?: string;
+  timezone?: string;
+  loggingEnabled?: boolean;
+  dashboardAccessRoleIds?: string[];
+  defaultModerationRoleId?: string;
+  defaultStaffRoleId?: string;
+  activityText?: string;
+  activityType?: "playing" | "watching" | "listening" | "competing";
+  welcomeDefaults?: {
+    enabled?: boolean;
+    channelId?: string;
+    messageTemplate?: string;
+  };
+  autoResponseDefaults?: {
+    enabled?: boolean;
+    mode?: "keyword" | "contains" | "regex";
+    response?: string;
+  };
+  errorMessageStyle?: "minimal" | "detailed" | "friendly";
+  ephemeralRepliesByDefault?: boolean;
+}
+
+export interface BotBehaviorConfig {
+  commandCooldownSeconds?: number;
+  permissionsFallback?: "deny" | "allow" | "staff_only";
+  nsfwRestrictions?: "block" | "allow_marked_only" | "allow_all";
+  dmUsageEnabled?: boolean;
+  moduleToggles?: Record<string, boolean>;
+  featureToggles?: Record<string, boolean>;
+  auditLogChannelId?: string;
+  systemLogChannelId?: string;
+  notificationChannelIds?: string[];
+  notificationPreferences?: {
+    moderation?: boolean;
+    automations?: boolean;
+    commandErrors?: boolean;
+    memberEvents?: boolean;
+  };
+}
+
+export interface ChannelMetadata {
+  name?: string;
+  type?: string;
+  typeName?: string;
+  parentId?: string | null;
+  lastSyncedAt?: string;
+}
+
 export interface WelcomeMessage {
   content: string;
   embedData?: Record<string, unknown>;
@@ -1109,5 +1166,15 @@ export interface DashboardStats {
   totalServers: number;
   totalMembers: number;
   commandsExecuted: number;
-  uptime: string;
+  uptime?: string;
+  bot?: {
+    ready: boolean;
+    processStatus: "online" | "offline";
+    uptimeMs: number | null;
+    uptimeHuman: string;
+    guildCount: number;
+    gatewayPingMs: number | null;
+    lastHeartbeatAt: string | null;
+    wsStatus: string;
+  };
 }

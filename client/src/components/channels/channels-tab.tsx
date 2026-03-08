@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useChannelSettings, useUpsertChannelSettings, useDeleteChannelSettings } from "@/hooks/use-bot";
+import { useChannelSettings, useUpsertChannelSettings, useDeleteChannelSettings, useDiscordContext } from "@/hooks/use-bot";
 import type { ChannelSetting } from "@shared/schema";
 import {
   Plus,
@@ -33,6 +33,8 @@ import {
   CheckSquare,
   XSquare,
 } from "lucide-react";
+import { DiscordChannelPicker } from "@/components/discord/channel-picker";
+import { inferChannelKind } from "@/lib/discord-channels";
 
 const SLOWMODE_PRESETS = [
   { label: "Off", value: 0 },
@@ -64,6 +66,7 @@ interface ChannelsTabProps {
 export function ChannelsTab({ serverId }: ChannelsTabProps) {
   const { toast } = useToast();
   const { data: channels, isLoading } = useChannelSettings(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
   const upsertChannel = useUpsertChannelSettings(serverId);
   const deleteChannel = useDeleteChannelSettings(serverId);
 
@@ -72,6 +75,7 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [newChannelId, setNewChannelId] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
+  const [search, setSearch] = useState("");
 
   const [bulkSelectedIds, setBulkSelectedIds] = useState<number[]>([]);
   const [bulkSettings, setBulkSettings] = useState({
@@ -82,17 +86,43 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
   });
 
   const channelList: ChannelSetting[] = channels || [];
+  const discordChannelsById = useMemo(() => {
+    const entries = (discordContext?.channels || []).map((channel) => [channel.id, channel] as const);
+    return Object.fromEntries(entries);
+  }, [discordContext?.channels]);
   const selectedChannel = channelList.find((c) => c.id === selectedChannelId) || null;
+  const filteredChannels = channelList.filter((channel) => {
+    if (!search.trim()) return true;
+    const term = search.toLowerCase();
+    return channel.channelName.toLowerCase().includes(term) || channel.channelId.includes(term);
+  });
 
   const handleAddChannel = () => {
-    if (!newChannelId.trim() || !newChannelName.trim()) {
-      toast({ title: "Error", description: "Channel ID and name are required", variant: "destructive" });
+    if (!newChannelId.trim()) {
+      toast({ title: "Error", description: "Channel ID is required", variant: "destructive" });
       return;
     }
+    const selectedDiscordChannel = discordChannelsById[newChannelId.trim()];
+    const resolvedName = selectedDiscordChannel?.name || newChannelName.trim();
+    if (!resolvedName) {
+      toast({ title: "Error", description: "Select a channel or enter a display name", variant: "destructive" });
+      return;
+    }
+
+    const inferredKind = selectedDiscordChannel ? inferChannelKind(selectedDiscordChannel) : undefined;
     upsertChannel.mutate(
       {
         channelId: newChannelId.trim(),
-        channelName: newChannelName.trim(),
+        channelName: resolvedName,
+        channelType: selectedDiscordChannel?.typeName || inferredKind || null,
+        parentChannelId: selectedDiscordChannel?.parentId || null,
+        channelMeta: selectedDiscordChannel ? {
+          name: selectedDiscordChannel.name,
+          type: selectedDiscordChannel.type,
+          typeName: selectedDiscordChannel.typeName || inferredKind,
+          parentId: selectedDiscordChannel.parentId || null,
+          lastSyncedAt: new Date().toISOString(),
+        } : null,
         slowmode: 0,
         autoDeleteAfter: 0,
         automodOverride: null,
@@ -103,7 +133,7 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
       },
       {
         onSuccess: () => {
-          toast({ title: "Channel Added", description: `#${newChannelName.trim()} has been configured` });
+          toast({ title: "Channel Added", description: `#${resolvedName} has been configured` });
           setNewChannelId("");
           setNewChannelName("");
           setAddDialogOpen(false);
@@ -182,6 +212,14 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
         <div>
           <h2 className="text-xl font-semibold" data-testid="text-channels-title">Channel Customization</h2>
           <p className="text-sm text-muted-foreground">Configure per-channel settings and restrictions</p>
+        </div>
+        <div className="w-full md:w-auto md:min-w-[280px]">
+          <Input
+            placeholder="Search configured channels..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            data-testid="input-channel-search"
+          />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
@@ -278,19 +316,25 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add Channel</DialogTitle>
-                <DialogDescription>Enter the Discord channel ID and a display name to configure</DialogDescription>
+                <DialogDescription>Select an existing guild channel (recommended) or enter an ID manually.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="channel-id">Channel ID</Label>
-                  <Input
-                    id="channel-id"
-                    placeholder="e.g. 1234567890123456789"
-                    value={newChannelId}
-                    onChange={(e) => setNewChannelId(e.target.value)}
-                    data-testid="input-new-channel-id"
-                  />
-                </div>
+                <DiscordChannelPicker
+                  serverId={serverId}
+                  label="Channel"
+                  value={newChannelId}
+                  onChange={(value) => {
+                    setNewChannelId(value);
+                    const selected = discordChannelsById[value];
+                    if (selected?.name) {
+                      setNewChannelName(selected.name);
+                    }
+                  }}
+                  allowedKinds={["text", "announcement", "forum", "voice", "stage", "category"]}
+                  placeholder="Select channel..."
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix="add-channel-picker"
+                />
                 <div className="space-y-2">
                   <Label htmlFor="channel-name">Display Name</Label>
                   <Input
@@ -313,23 +357,29 @@ export function ChannelsTab({ serverId }: ChannelsTabProps) {
         </div>
       </div>
 
-      {channelList.length === 0 ? (
+      {filteredChannels.length === 0 ? (
         <Card className="glass-card">
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Hash className="w-12 h-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2" data-testid="text-no-channels">No Channels Configured</h3>
+            <h3 className="text-lg font-medium mb-2" data-testid="text-no-channels">
+              {channelList.length === 0 ? "No Channels Configured" : "No Channels Match Your Search"}
+            </h3>
             <p className="text-sm text-muted-foreground mb-4 text-center">
-              Add a channel to start customizing per-channel settings
+              {channelList.length === 0
+                ? "Add a channel to start customizing per-channel settings"
+                : "Try a different search term or clear the filter."}
             </p>
-            <Button onClick={() => setAddDialogOpen(true)} data-testid="button-add-channel-empty">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Your First Channel
-            </Button>
+            {channelList.length === 0 && (
+              <Button onClick={() => setAddDialogOpen(true)} data-testid="button-add-channel-empty">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Your First Channel
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {channelList.map((ch) => (
+          {filteredChannels.map((ch) => (
             <ChannelCard
               key={ch.id}
               channel={ch}
@@ -374,8 +424,11 @@ function ChannelCard({
             <CardTitle className="text-base truncate" data-testid={`text-channel-name-${channel.id}`}>
               {channel.channelName}
             </CardTitle>
-            <CardDescription className="text-xs font-mono truncate" data-testid={`text-channel-id-${channel.id}`}>
-              {channel.channelId}
+            <CardDescription className="text-xs font-mono truncate flex items-center gap-2" data-testid={`text-channel-id-${channel.id}`}>
+              <span>{channel.channelId}</span>
+              {channel.channelType && (
+                <Badge variant="outline" className="text-[10px] uppercase">{channel.channelType}</Badge>
+              )}
             </CardDescription>
           </div>
         </div>

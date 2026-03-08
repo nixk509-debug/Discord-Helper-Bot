@@ -23,7 +23,8 @@ import {
   CheckSquare,
   Link2,
 } from "lucide-react";
-import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
+import { DiscordEntityListPicker } from "@/components/discord/entity-pickers";
+import { DiscordChannelListPicker, DiscordChannelPicker } from "@/components/discord/channel-picker";
 
 interface LoggingTabProps {
   serverId: number;
@@ -114,13 +115,6 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
   const [ignoredChannels, setIgnoredChannels] = useState<string[]>([]);
   const [ignoredRoles, setIgnoredRoles] = useState<string[]>([]);
 
-  const textChannelOptions = (discordContext?.channels || [])
-    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
-    .map((channel) => ({
-      id: channel.id,
-      label: `#${channel.name}`,
-      description: channel.id,
-    }));
   const roleOptions = (discordContext?.roles || [])
     .map((role) => ({
       id: role.id,
@@ -279,10 +273,11 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
                   <Hash className="w-3 h-3 inline mr-1" />
                   Log Channel ID
                 </label>
-                <DiscordEntityPicker
+                <DiscordChannelPicker
+                  serverId={serverId}
                   value={channels[category.channelKey]}
                   onChange={(value) => setChannels((prev) => ({ ...prev, [category.channelKey]: value }))}
-                  options={textChannelOptions}
+                  allowedKinds={["text", "announcement", "forum"]}
                   placeholder="Select log channel..."
                   manualPlaceholder="Channel ID"
                   testIdPrefix={`input-channel-${key}`}
@@ -385,10 +380,11 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
               <Hash className="w-3 h-3 inline mr-1" />
               Ignored Channels
             </label>
-            <DiscordEntityListPicker
+            <DiscordChannelListPicker
+              serverId={serverId}
               values={ignoredChannels}
               onChange={setIgnoredChannels}
-              options={textChannelOptions}
+              allowedKinds={["text", "announcement", "forum", "voice", "stage"]}
               placeholder="Add ignored channel..."
               manualPlaceholder="Channel ID"
               testIdPrefix="ignored-channels"

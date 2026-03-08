@@ -27,6 +27,27 @@ import { decodeEmbedActionToken } from "./embed-action-token";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
+let botHeartbeatTimer: NodeJS.Timeout | null = null;
+let botLastHeartbeatAt: Date | null = null;
+
+function mapWsStatus(status: number | undefined): string {
+  switch (status) {
+    case 0:
+      return "ready";
+    case 1:
+      return "connecting";
+    case 2:
+      return "reconnecting";
+    case 3:
+      return "idle";
+    case 4:
+      return "nearly";
+    case 5:
+      return "disconnected";
+    default:
+      return "unknown";
+  }
+}
 
 function getPublicBaseUrl() {
   const explicit = (process.env.APP_URL || process.env.PUBLIC_BASE_URL || "").trim();
@@ -58,10 +79,16 @@ export function getBotUptime() {
 
 export function getBotStatus() {
   const ready = !!botClient?.isReady();
+  const wsStatus = botClient ? mapWsStatus(botClient.ws.status) : "offline";
+  const gatewayPingMs = ready ? botClient!.ws.ping : null;
   return {
     ready,
     uptimeMs: ready && botStartTime ? Date.now() - botStartTime.getTime() : null,
     guildCount: ready ? botClient!.guilds.cache.size : 0,
+    gatewayPingMs: Number.isFinite(gatewayPingMs as number) ? gatewayPingMs : null,
+    lastHeartbeatAt: botLastHeartbeatAt ? botLastHeartbeatAt.toISOString() : null,
+    startedAt: botStartTime ? botStartTime.toISOString() : null,
+    wsStatus,
   };
 }
 
@@ -84,6 +111,14 @@ export async function startBot() {
   client.once(Events.ClientReady, async (c) => {
     console.log(`[Bot] Logged in as ${c.user.tag}`);
     botStartTime = new Date();
+    botLastHeartbeatAt = new Date();
+    if (botHeartbeatTimer) clearInterval(botHeartbeatTimer);
+    botHeartbeatTimer = setInterval(() => {
+      if (!client.isReady()) return;
+      if (typeof client.ws.ping === "number" && Number.isFinite(client.ws.ping)) {
+        botLastHeartbeatAt = new Date();
+      }
+    }, 15_000);
     await registerSlashCommands(c);
   });
 

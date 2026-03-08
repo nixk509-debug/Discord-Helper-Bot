@@ -266,11 +266,18 @@ export default function Landing() {
     visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 100 } }
   };
 
-  const statItems = [
-    { label: "Active Servers", value: stats?.totalServers || 12400, suffix: "+" },
-    { label: "Total Members", value: stats?.totalMembers || 2100000, suffix: "+" },
-    { label: "Commands Executed", value: stats?.commandsExecuted || 45000000, suffix: "+" },
-    { label: "Uptime", value: 9999, suffix: "%" },
+  const statItems: Array<{ label: string; value: number | null; suffix?: string; fallbackText?: string }> = [
+    { label: "Active Servers", value: stats?.totalServers ?? null },
+    { label: "Total Members", value: stats?.totalMembers ?? null },
+    { label: "Commands Executed", value: stats?.commandsExecuted ?? null },
+    {
+      label: "Gateway Ping",
+      value: stats?.bot?.ready && typeof stats?.bot?.gatewayPingMs === "number"
+        ? Math.round(stats.bot.gatewayPingMs)
+        : null,
+      suffix: "ms",
+      fallbackText: stats?.bot?.ready ? "N/A" : "Offline",
+    },
   ];
 
   return (
@@ -431,7 +438,11 @@ export default function Landing() {
               {statItems.map((stat, i) => (
                 <div key={i} className="flex flex-col items-center justify-center text-center py-2">
                   <span className="text-2xl md:text-3xl font-display font-bold text-foreground text-glow" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, "-")}`}>
-                    <TypingCounter target={stat.value} suffix={stat.suffix} />
+                    {typeof stat.value === "number" ? (
+                      <TypingCounter target={stat.value} suffix={stat.suffix} />
+                    ) : (
+                      <span className="stats-monospace text-lg md:text-xl">{stat.fallbackText || "N/A"}</span>
+                    )}
                   </span>
                   <span className="section-header mt-1">{stat.label}</span>
                 </div>
