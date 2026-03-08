@@ -738,7 +738,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         scope: kind === "template" ? "personal" : "server",
         kind,
         name,
-        moduleBinding: binding || null,
+        moduleBinding: binding || undefined,
         document,
       },
       {
@@ -761,7 +761,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         scope: asTemplate ? "personal" : "server",
         kind: asTemplate ? "template" : "surface",
         name: `${draft.meta.name} Copy`,
-        moduleBinding: currentRecord?.moduleBinding || null,
+        moduleBinding: currentRecord?.moduleBinding || undefined,
         document: draft,
       },
       {

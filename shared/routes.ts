@@ -79,16 +79,19 @@ const discordContextSchema = z.object({
   })).default([]),
 });
 
+
 const sendEmbedSchema = z.object({
   channelId: z.string().min(1),
 });
+
+const optionalStringInput = z.preprocess((value) => value == null ? undefined : value, z.string().optional());
 
 const studioDocumentInputSchema = z.object({
   scope: z.enum(["server", "personal", "starter"]).default("server"),
   kind: z.enum(["surface", "template", "divider_preset", "style_block", "theme_pack"]).default("surface"),
   name: z.string().min(1),
-  slug: z.string().optional(),
-  moduleBinding: z.string().optional(),
+  slug: optionalStringInput,
+  moduleBinding: optionalStringInput,
   document: z.any(),
   isArchived: z.boolean().optional(),
 });
@@ -98,8 +101,8 @@ const studioPublishSchema = z.object({
   document: z.any().optional(),
   target: z.object({
     channelId: z.string().min(1),
-    messageId: z.string().optional(),
-    viewId: z.string().optional(),
+    messageId: optionalStringInput,
+    viewId: optionalStringInput,
   }),
 });
 
@@ -238,4 +241,3 @@ export type SendEmbedInput = z.infer<typeof api.embeds.send.input>;
 export type DiscordContext = z.infer<typeof discordContextSchema>;
 export type StudioDocumentInput = z.infer<typeof studioDocumentInputSchema>;
 export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
-
