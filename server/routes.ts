@@ -448,6 +448,97 @@ export async function registerRoutes(_server: Server, app: Express) {
     });
   });
 
+  app.post("/api/servers/:serverId/design-studio/publish", async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = z.object({
+      channelId: z.string().min(1),
+      messageId: z.string().optional(),
+      content: z.string().max(2000).optional(),
+      embeds: z.array(z.any()).max(10).optional(),
+      blocks: z.array(z.any()).optional(),
+      interactiveComponents: z.array(z.any()).optional(),
+    }).safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot before publishing." });
+    }
+
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+    const channel = await guild.channels.fetch(parsed.data.channelId.trim()).catch(() => null);
+    if (!channel || !channel.isTextBased() || channel.isThread()) {
+      return res.status(400).json({ message: "Selected channel is not a valid text channel." });
+    }
+
+    const diagnostics: ComponentDiagnostic[] = [];
+    const interactiveComponents = (parsed.data.interactiveComponents || []) as EmbedComponentType[];
+    const actionRows = buildActionRows({
+      components: interactiveComponents,
+      serverId,
+      guildId: guild.id,
+      embedId: 0,
+      diagnostics,
+    });
+
+    const embeds = (parsed.data.embeds || [])
+      .map((embedPayload) => buildDiscordEmbed(embedPayload))
+      .filter((entry): entry is EmbedBuilder => Boolean(entry));
+
+    const studioBlocks = Array.isArray(parsed.data.blocks) ? parsed.data.blocks : [];
+    const previewOnlyCount = studioBlocks.filter((block: any) => {
+      const type = String(block?.type || "");
+      return type && type !== "button" && type !== "select_menu";
+    }).length;
+    if (previewOnlyCount > 0) {
+      diagnostics.push({
+        level: "info",
+        code: "PREVIEW_ONLY_BLOCKS",
+        message: `${previewOnlyCount} non-interactive studio blocks are preview-only in current runtime path.`,
+      });
+    }
+
+    const content = String(parsed.data.content || "").trim();
+    if (!content && embeds.length === 0 && actionRows.length === 0) {
+      return res.status(400).json({ message: "Nothing to publish. Add message content, embeds, or interactive components.", diagnostics });
+    }
+
+    const payload = {
+      content: content || undefined,
+      embeds,
+      components: actionRows,
+    };
+
+    try {
+      if (parsed.data.messageId?.trim()) {
+        const existing = await (channel as any).messages.fetch(parsed.data.messageId.trim()).catch(() => null);
+        if (!existing) return res.status(404).json({ message: "Message not found for update." });
+        const updated = await existing.edit(payload);
+        return res.json({ messageId: updated.id, channelId: updated.channelId, updated: true, diagnostics });
+      }
+
+      const sent = await (channel as any).send(payload);
+      return res.json({ messageId: sent.id, channelId: sent.channelId, updated: false, diagnostics });
+    } catch (err: any) {
+      console.error("[DesignStudio] Publish failed:", err?.message || err, {
+        serverId,
+        channelId: parsed.data.channelId,
+        diagnostics,
+      });
+      return res.status(400).json({ message: "Failed to publish design studio message.", diagnostics });
+    }
+  });
+
   app.delete(api.embeds.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });

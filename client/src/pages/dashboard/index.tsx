@@ -34,11 +34,11 @@ const PILLAR_CARDS = [
   },
   {
     id: "studio",
-    title: "Command + Embed Studio",
-    description: "Create command logic and interactive embeds with send-ready workflows.",
+    title: "Design Studio",
+    description: "Build Discord messages, embeds, components, templates, and publish flows in one visual workspace.",
     icon: Layout,
-    moduleId: "embeds",
-    cta: "Open Embed Studio",
+    moduleId: "design-studio",
+    cta: "Open Design Studio",
   },
 ] as const;
 function TerminalStat({ label, value, icon: Icon, delay = 0 }: { label: string; value: string | number; icon: any; delay?: number }) {

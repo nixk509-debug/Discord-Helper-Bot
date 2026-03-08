@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -144,8 +143,8 @@ function SidebarNavContent({
   const [, navigate] = useLocation();
 
   return (
-    <ScrollArea className="h-full">
-      <div className="space-y-6 p-4">
+    <div className="h-full overflow-y-auto overscroll-contain pr-1">
+      <div className="space-y-6 p-4 pb-6">
         {MODULE_CATEGORIES.map((category) => (
           <div key={category.label}>
             <p
@@ -195,7 +194,7 @@ function SidebarNavContent({
           </div>
         ))}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
