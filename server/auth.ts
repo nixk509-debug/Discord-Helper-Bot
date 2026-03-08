@@ -170,9 +170,30 @@ export async function setupAuth(app: Express) {
       if (!hasDatabaseUrl) {
         return res.redirect("/?error=database_not_configured");
       }
-      passport.authenticate("discord", {
-        failureRedirect: "/?error=auth_failed",
-        successRedirect: "/dashboard",
+
+      passport.authenticate("discord", (err: any, user: any, info: any) => {
+        if (err) {
+          console.error("[Auth] Discord callback error:", err?.message || err);
+          return res.redirect("/?error=auth_failed");
+        }
+
+        if (!user) {
+          const infoMsg = typeof info === "string" ? info : info?.message;
+          if (infoMsg) {
+            console.warn("[Auth] Discord callback failed:", infoMsg);
+          } else {
+            console.warn("[Auth] Discord callback failed: no user returned");
+          }
+          return res.redirect("/?error=auth_failed");
+        }
+
+        req.logIn(user, (loginErr) => {
+          if (loginErr) {
+            console.error("[Auth] Session login error:", (loginErr as any)?.message || loginErr);
+            return res.redirect("/?error=session_failed");
+          }
+          return res.redirect("/dashboard");
+        });
       })(req, res, next);
     }
   );
