@@ -9,6 +9,7 @@ import { startBot, getBotClient } from "./bot/index";
 import { WebSocketServer, WebSocket } from "ws";
 import { configEvents } from "./configService";
 import { pool } from "./db";
+import { ensureRuntimeSchema } from "./runtime-schema";
 
 const app = express();
 const trustProxy = process.env.TRUST_PROXY ?? "1";
@@ -99,6 +100,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  await ensureRuntimeSchema();
   await setupAuth(app);
 
   async function initStripe() {

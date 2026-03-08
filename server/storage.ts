@@ -19,24 +19,52 @@ import {
 import { type ServerWithRelations } from "@shared/routes";
 import { eq, and, sql } from "drizzle-orm";
 
+function isSchemaMismatchError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /column .* does not exist|relation .* does not exist/i.test(message);
+}
+
+function toBasicServerPayload(server: Server): ServerWithRelations {
+  return {
+    ...server,
+    settings: null as any,
+    customCommands: [],
+    embeds: [],
+  } as any;
+}
+
 export class DatabaseStorage {
   async getServers(): Promise<ServerWithRelations[]> {
-    return await db.query.servers.findMany({
-      with: { settings: true, customCommands: true, embeds: true },
-    }) as any;
+    try {
+      return await db.query.servers.findMany({
+        with: { settings: true, customCommands: true, embeds: true },
+      }) as any;
+    } catch (error) {
+      if (!isSchemaMismatchError(error)) throw error;
+      console.warn("[Storage] Falling back to basic server list:", error instanceof Error ? error.message : error);
+      const baseServers = await db.select().from(servers);
+      return baseServers.map(toBasicServerPayload);
+    }
   }
 
   async getServer(id: number): Promise<ServerWithRelations | undefined> {
-    return await db.query.servers.findFirst({
-      where: eq(servers.id, id),
-      with: {
-        // Keep this payload intentionally light for the main dashboard route.
-        // Module-specific tabs fetch their own data from dedicated endpoints.
-        settings: true,
-        customCommands: true,
-        embeds: true,
-      },
-    }) as any;
+    try {
+      return await db.query.servers.findFirst({
+        where: eq(servers.id, id),
+        with: {
+          // Keep this payload intentionally light for the main dashboard route.
+          // Module-specific tabs fetch their own data from dedicated endpoints.
+          settings: true,
+          customCommands: true,
+          embeds: true,
+        },
+      }) as any;
+    } catch (error) {
+      if (!isSchemaMismatchError(error)) throw error;
+      console.warn(`[Storage] Falling back to basic server payload for ${id}:`, error instanceof Error ? error.message : error);
+      const [baseServer] = await db.select().from(servers).where(eq(servers.id, id));
+      return baseServer ? toBasicServerPayload(baseServer) : undefined;
+    }
   }
 
   // --- SETTINGS ---
