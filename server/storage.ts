@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, pool } from "./db";
 import {
   servers, serverSettings, customCommands, embeds,
   channelSettings, reactionRoles, autoRoles, warnings,
@@ -33,15 +33,75 @@ function toBasicServerPayload(server: Server): ServerWithRelations {
   } as any;
 }
 
+function camelizeKey(key: string) {
+  return key.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+function camelizeValue<T = any>(value: any): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => camelizeValue(item)) as T;
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [camelizeKey(key), camelizeValue(entryValue)]),
+    ) as T;
+  }
+  return value as T;
+}
+
+function buildServerListPayload(row: any): ServerWithRelations {
+  const customCommandCount = Number(row.customCommandCount ?? 0);
+  const embedCount = Number(row.embedCount ?? 0);
+
+  return {
+    id: Number(row.id),
+    discordId: row.discordId,
+    name: row.name,
+    iconUrl: row.iconUrl ?? null,
+    memberCount: Number(row.memberCount ?? 0),
+    joinedAt: row.joinedAt ?? null,
+    ownerId: row.ownerId,
+    settings: row.settings ? camelizeValue(row.settings) : null,
+    customCommands: Array.from({ length: customCommandCount }, () => ({}) as any),
+    embeds: Array.from({ length: embedCount }, () => ({}) as any),
+    customCommandCount,
+    embedCount,
+  } as any;
+}
+
 export class DatabaseStorage {
   async getServers(): Promise<ServerWithRelations[]> {
     try {
-      return await db.query.servers.findMany({
-        with: { settings: true, customCommands: true, embeds: true },
-      }) as any;
+      const result = await pool.query(`
+        SELECT
+          s.id,
+          s.discord_id AS "discordId",
+          s.name,
+          s.icon_url AS "iconUrl",
+          s.member_count AS "memberCount",
+          s.joined_at AS "joinedAt",
+          s.owner_id AS "ownerId",
+          COALESCE(to_jsonb(ss), '{}'::jsonb) AS settings,
+          COALESCE(cmd.command_count, 0) AS "customCommandCount",
+          COALESCE(emb.embed_count, 0) AS "embedCount"
+        FROM servers s
+        LEFT JOIN server_settings ss ON ss.server_id = s.id
+        LEFT JOIN (
+          SELECT server_id, COUNT(*)::int AS command_count
+          FROM custom_commands
+          GROUP BY server_id
+        ) cmd ON cmd.server_id = s.id
+        LEFT JOIN (
+          SELECT server_id, COUNT(*)::int AS embed_count
+          FROM embeds
+          GROUP BY server_id
+        ) emb ON emb.server_id = s.id
+        ORDER BY s.id ASC
+      `);
+      return result.rows.map(buildServerListPayload);
     } catch (error) {
       console.warn(
-        `[Storage] Failed to load relational server list${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
+        `[Storage] Failed to load server list${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
         error instanceof Error ? error.message : error,
       );
       try {
@@ -56,19 +116,44 @@ export class DatabaseStorage {
 
   async getServer(id: number): Promise<ServerWithRelations | undefined> {
     try {
-      return await db.query.servers.findFirst({
-        where: eq(servers.id, id),
-        with: {
-          // Keep this payload intentionally light for the main dashboard route.
-          // Module-specific tabs fetch their own data from dedicated endpoints.
-          settings: true,
-          customCommands: true,
-          embeds: true,
-        },
-      }) as any;
+      const result = await pool.query(`
+        SELECT
+          s.id,
+          s.discord_id AS "discordId",
+          s.name,
+          s.icon_url AS "iconUrl",
+          s.member_count AS "memberCount",
+          s.joined_at AS "joinedAt",
+          s.owner_id AS "ownerId",
+          COALESCE(to_jsonb(ss), '{}'::jsonb) AS settings
+        FROM servers s
+        LEFT JOIN server_settings ss ON ss.server_id = s.id
+        WHERE s.id = $1
+        LIMIT 1
+      `, [id]);
+      const row = result.rows[0];
+      if (!row) return undefined;
+
+      const [serverCommands, serverEmbeds] = await Promise.all([
+        this.getCommands(id),
+        this.getEmbeds(id),
+      ]);
+
+      return {
+        id: Number(row.id),
+        discordId: row.discordId,
+        name: row.name,
+        iconUrl: row.iconUrl ?? null,
+        memberCount: Number(row.memberCount ?? 0),
+        joinedAt: row.joinedAt ?? null,
+        ownerId: row.ownerId,
+        settings: row.settings ? camelizeValue(row.settings) : null,
+        customCommands: serverCommands,
+        embeds: serverEmbeds,
+      } as any;
     } catch (error) {
       console.warn(
-        `[Storage] Failed to load relational server payload for ${id}${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
+        `[Storage] Failed to load server payload for ${id}${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
         error instanceof Error ? error.message : error,
       );
       try {
@@ -83,7 +168,6 @@ export class DatabaseStorage {
       }
     }
   }
-
   // --- SETTINGS ---
   async updateSettings(serverId: number, settings: any): Promise<ServerSettings> {
     const [updated] = await db.update(serverSettings)
@@ -654,3 +738,4 @@ export class DatabaseStorage {
 }
 
 export const storage = new DatabaseStorage();
+
