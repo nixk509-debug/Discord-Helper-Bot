@@ -13,6 +13,25 @@ import { syncCommand, handleSyncCommand } from "./commands/sync";
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
 
+function getPublicBaseUrl() {
+  const explicit = (process.env.APP_URL || process.env.PUBLIC_BASE_URL || "").trim();
+  if (explicit) {
+    const normalized = explicit.replace(/\/$/, "");
+    return /^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`;
+  }
+
+  const replitDomain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+  if (replitDomain) return `https://${replitDomain}`;
+
+  return "http://localhost:5000";
+}
+
+function shouldRegisterGuildCommands() {
+  if (process.env.DISCORD_REGISTER_GUILD_COMMANDS === "1") return true;
+  if (process.env.DISCORD_REGISTER_GUILD_COMMANDS === "0") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
 export function getBotClient() {
   return botClient;
 }
@@ -75,10 +94,12 @@ export async function startBot() {
       console.error(`[Bot] Failed to auto-setup ${guild.name}:`, err);
     }
 
-    try {
-      await registerGuildSlashCommands(client, guild.id);
-    } catch (err) {
-      console.error(`[Bot] Failed to register guild commands for ${guild.id}:`, err);
+    if (shouldRegisterGuildCommands()) {
+      try {
+        await registerGuildSlashCommands(client, guild.id);
+      } catch (err) {
+        console.error(`[Bot] Failed to register guild commands for ${guild.id}:`, err);
+      }
     }
   });
 
@@ -129,8 +150,13 @@ async function registerSlashCommands(client: Client<true>) {
     });
     console.log(`[Bot] Registered ${commands.length} global slash commands`);
 
+    const registerGuild = shouldRegisterGuildCommands();
     for (const guild of Array.from(client.guilds.cache.values())) {
-      await registerGuildSlashCommands(client, guild.id);
+      if (registerGuild) {
+        await registerGuildSlashCommands(client, guild.id);
+      } else {
+        await clearGuildSlashCommands(client, guild.id);
+      }
     }
   } catch (err) {
     console.error("[Bot] Failed to register slash commands:", err);
@@ -162,6 +188,15 @@ async function registerGuildSlashCommands(client: Client<boolean>, guildId: stri
   console.log(`[Bot] Registered ${commands.length} guild slash commands for ${guildId}`);
 }
 
+async function clearGuildSlashCommands(client: Client<boolean>, guildId: string) {
+  if (!client.user) return;
+  const rest = new REST().setToken(process.env.DISCORD_BOT_TOKEN!);
+  await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), {
+    body: [],
+  });
+  console.log(`[Bot] Cleared guild slash commands for ${guildId}`);
+}
+
 async function handleSetupCommand(interaction: any) {
   const guild = interaction.guild;
   if (!guild) {
@@ -176,7 +211,7 @@ async function handleSetupCommand(interaction: any) {
   try {
     const existing = await db.select().from(servers).where(eq(servers.discordId, guild.id));
     if (existing.length > 0) {
-      const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}/dashboard/servers/${existing[0].id}`;
+      const dashUrl = `${getPublicBaseUrl()}/dashboard/servers/${existing[0].id}`;
       return interaction.reply({
         content: `This server is already set up! Manage it here: ${dashUrl}`,
         ephemeral: true,
@@ -195,7 +230,7 @@ async function handleSetupCommand(interaction: any) {
       .returning();
     await db.insert(serverSettings).values({ serverId: server.id } as any);
 
-    const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}/dashboard/servers/${server.id}`;
+    const dashUrl = `${getPublicBaseUrl()}/dashboard/servers/${server.id}`;
     await interaction.reply({
       content: `Server setup complete! Configure Archivist here: ${dashUrl}`,
       ephemeral: true,
@@ -215,7 +250,7 @@ async function handlePremiumCommand(interaction: any) {
   const ownerIds = (process.env.OWNER_IDS || "").split(",").filter(Boolean);
   const isOwner = ownerIds.includes(interaction.user.id);
 
-  const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}/premium`;
+  const dashUrl = `${getPublicBaseUrl()}/premium`;
   if (isOwner) {
     return interaction.reply({
       content: "You have **Owner Premium** — all features are unlocked!",
@@ -230,7 +265,7 @@ async function handlePremiumCommand(interaction: any) {
 }
 
 async function handleHelpCommand(interaction: any) {
-  const dashUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+  const dashUrl = getPublicBaseUrl();
   await interaction.reply({
     content: [
       "**Archivist** — Your all-in-one Discord server manager",

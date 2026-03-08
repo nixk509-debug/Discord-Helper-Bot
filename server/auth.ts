@@ -100,33 +100,58 @@ export async function setupAuth(app: Express) {
 
             let user: User;
             if (existing.length > 0) {
-              const [updated] = await db
-                .update(users)
-                .set({
-                  username: profile.username,
-                  discriminator: profile.discriminator || null,
-                  avatar: profile.avatar,
-                  email: profile.email || null,
-                  accessToken,
-                  refreshToken,
-                })
-                .where(eq(users.discordId, profile.id))
-                .returning();
-              user = updated;
+              try {
+                const [updated] = await db
+                  .update(users)
+                  .set({
+                    username: profile.username,
+                    discriminator: profile.discriminator || null,
+                    avatar: profile.avatar,
+                    email: profile.email || null,
+                    accessToken,
+                    refreshToken,
+                  })
+                  .where(eq(users.discordId, profile.id))
+                  .returning();
+                user = updated;
+              } catch (err: any) {
+                // Fallback for older DB schemas that may be missing optional OAuth columns.
+                console.warn("[Auth] Full profile update failed; using minimal update:", err?.message || err);
+                const [updated] = await db
+                  .update(users)
+                  .set({
+                    username: profile.username,
+                  })
+                  .where(eq(users.discordId, profile.id))
+                  .returning();
+                user = updated as User;
+              }
             } else {
-              const [created] = await db
-                .insert(users)
-                .values({
-                  discordId: profile.id,
-                  username: profile.username,
-                  discriminator: profile.discriminator || null,
-                  avatar: profile.avatar,
-                  email: profile.email || null,
-                  accessToken,
-                  refreshToken,
-                })
-                .returning();
-              user = created;
+              try {
+                const [created] = await db
+                  .insert(users)
+                  .values({
+                    discordId: profile.id,
+                    username: profile.username,
+                    discriminator: profile.discriminator || null,
+                    avatar: profile.avatar,
+                    email: profile.email || null,
+                    accessToken,
+                    refreshToken,
+                  })
+                  .returning();
+                user = created;
+              } catch (err: any) {
+                console.warn("[Auth] Full profile insert failed; using minimal insert:", err?.message || err);
+                const [created] = await db
+                  .insert(users)
+                  .values({
+                    discordId: profile.id,
+                    username: profile.username,
+                  })
+                  .returning();
+                user = created as User;
+              }
             }
 
             return done(null, user);
