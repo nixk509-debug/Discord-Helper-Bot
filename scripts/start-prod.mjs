@@ -24,7 +24,6 @@ function loadDotEnv(filePath = ".env") {
 
     const key = trimmed.slice(0, eqIndex).trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    if (process.env[key] != null) continue;
 
     let value = trimmed.slice(eqIndex + 1).trim();
     if (
