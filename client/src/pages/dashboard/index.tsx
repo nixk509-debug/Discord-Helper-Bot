@@ -2,7 +2,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useServers } from "@/hooks/use-bot";
 import { useAuth, usePremiumStatus, getAvatarUrl } from "@/hooks/use-auth";
 import { Link } from "wouter";
-import { Server, Users, Settings, Shield, Terminal, Activity, TrendingUp, ChevronDown, ChevronUp, ExternalLink, Store, Crown, Coins, Ticket } from "lucide-react";
+import { Server, Users, Settings, Shield, Terminal, Activity, TrendingUp, ChevronDown, ChevronUp, ExternalLink, Store, Crown, Coins, Ticket, Workflow, Layout } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,11 +11,36 @@ import { useEffect, useState } from "react";
 import archivistAvatar from "@assets/archivist-avatar.png";
 
 const CHANGELOG = [
-  { date: "Feb 25, 2026", text: "Visual Flow Builder — node-based automation editor is now live." },
+  { date: "Feb 25, 2026", text: "Visual Flow Builder - node-based automation editor is now live." },
   { date: "Feb 20, 2026", text: "Server Economy system with role shop, gambling, and daily rewards." },
-  { date: "Feb 14, 2026", text: "Member Intelligence CRM — per-member profiles, notes, and timeline." },
+  { date: "Feb 14, 2026", text: "Member Intelligence CRM - per-member profiles, notes, and timeline." },
 ];
-
+const PILLAR_CARDS = [
+  {
+    id: "automation",
+    title: "Visual Automation Engine",
+    description: "Build trigger/action flows and operational automations from one canvas.",
+    icon: Workflow,
+    moduleId: "automations",
+    cta: "Open Flow Builder",
+  },
+  {
+    id: "crm",
+    title: "Member Intelligence CRM",
+    description: "Moderation notes, member timelines, and bulk actions in a single workspace.",
+    icon: Users,
+    membersRoute: true,
+    cta: "Open Member Intelligence",
+  },
+  {
+    id: "studio",
+    title: "Command + Embed Studio",
+    description: "Create command logic and interactive embeds with send-ready workflows.",
+    icon: Layout,
+    moduleId: "embeds",
+    cta: "Open Embed Studio",
+  },
+] as const;
 function TerminalStat({ label, value, icon: Icon, delay = 0 }: { label: string; value: string | number; icon: any; delay?: number }) {
   const [displayValue, setDisplayValue] = useState("");
   const [isDone, setIsDone] = useState(false);
@@ -51,7 +76,7 @@ function TerminalStat({ label, value, icon: Icon, delay = 0 }: { label: string; 
       </div>
       <p className="text-2xl font-display font-bold stats-monospace relative">
         {displayValue}
-        {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">▮</span>}
+        {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">|</span>}
         {isDone && (
           <motion.span 
             initial={{ opacity: 1 }}
@@ -82,6 +107,7 @@ export default function DashboardOverview() {
     + (sv.settings?.levelingEnabled ? 1 : 0)
     + (sv.settings?.economyEnabled ? 1 : 0), 0) || 0;
   const totalCommands = servers?.reduce((s: number, sv: any) => s + (sv.customCommands?.length || 0), 0) || 0;
+  const primaryServerId = (servers || []).find((sv: any) => typeof sv?.id === "number")?.id ?? null;
 
   const statCards = [
     { label: "Servers Indexed", value: servers?.length || 0, icon: Server },
@@ -146,6 +172,47 @@ export default function DashboardOverview() {
           </div>
         )}
 
+        <div className="feature-card rounded-2xl p-5 mb-6 relative overflow-hidden">
+          <div className="glitch-fragment" />
+          <div className="mb-4">
+            <h2 className="text-lg font-display font-bold">Why Archivist</h2>
+            <p className="text-sm text-muted-foreground">Three core systems that keep admins coming back.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {PILLAR_CARDS.map((pillar) => {
+              const Icon = pillar.icon;
+              const href = !primaryServerId
+                ? null
+                : pillar.membersRoute
+                  ? `/dashboard/servers/${primaryServerId}/members`
+                  : `/dashboard/servers/${primaryServerId}?module=${pillar.moduleId}`;
+
+              return (
+                <div key={pillar.id} className="rounded-xl border border-white/10 bg-background/30 p-4 flex flex-col gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                    <Icon className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-display font-bold">{pillar.title}</h3>
+                    <p className="text-xs text-muted-foreground mt-1">{pillar.description}</p>
+                  </div>
+                  {href ? (
+                    <Link href={href} className="mt-auto">
+                      <Button size="sm" variant="outline" className="w-full border-white/10 text-xs">
+                        {pillar.cta}
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button size="sm" variant="outline" disabled className="w-full border-white/10 text-xs">
+                      Add Archivist To A Server
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {isLoading ? (
             Array.from({ length: 6 }).map((_, i) => (
@@ -168,7 +235,7 @@ export default function DashboardOverview() {
               <h2 className="text-2xl font-display font-bold mb-2">No Servers Found</h2>
               <p className="text-muted-foreground max-w-md mb-6">You aren't managing any servers yet. Add Archivist to your Discord server to get started.</p>
               <Button className="gradient-brand text-white" asChild>
-                <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_ID&permissions=8&scope=bot" target="_blank" rel="noopener noreferrer">
+                <a href="/api/invite-url?redirect=1" target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="w-4 h-4 mr-2" /> Add Archivist to Discord
                 </a>
               </Button>

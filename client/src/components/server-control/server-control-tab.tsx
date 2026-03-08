@@ -1,16 +1,16 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, Zap, Lock, ShieldAlert, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDiscordContext } from "@/hooks/use-bot";
+import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface Props {
   serverId: number;
@@ -46,15 +46,43 @@ const MODES = [
 
 export function ServerControlTab({ serverId, settings }: Props) {
   const { toast } = useToast();
+  const { data: discordContext } = useDiscordContext(serverId);
+
   const [mode, setMode] = useState(settings?.serverControlMode ?? "normal");
   const [quarantineRoleId, setQuarantineRoleId] = useState(settings?.quarantineRoleId ?? "");
   const [lockdownEnabled, setLockdownEnabled] = useState(settings?.lockdownEnabled ?? false);
-  const [lockdownBypassRoles, setLockdownBypassRoles] = useState((settings?.lockdownBypassRoleIds ?? []).join(", "));
+  const [lockdownBypassRoleIds, setLockdownBypassRoleIds] = useState<string[]>(settings?.lockdownBypassRoleIds ?? []);
   const [lockdownNotifyChannelId, setLockdownNotifyChannelId] = useState(settings?.lockdownNotifyChannelId ?? "");
   const [modLogChannelId, setModLogChannelId] = useState(settings?.modLogChannelId ?? "");
   const [raidLogChannelId, setRaidLogChannelId] = useState(settings?.raidLogChannelId ?? "");
   const [configLogChannelId, setConfigLogChannelId] = useState(settings?.configLogChannelId ?? "");
   const [autoLogChannelId, setAutoLogChannelId] = useState(settings?.autoLogChannelId ?? "");
+
+  useEffect(() => {
+    setMode(settings?.serverControlMode ?? "normal");
+    setQuarantineRoleId(settings?.quarantineRoleId ?? "");
+    setLockdownEnabled(settings?.lockdownEnabled ?? false);
+    setLockdownBypassRoleIds(settings?.lockdownBypassRoleIds ?? []);
+    setLockdownNotifyChannelId(settings?.lockdownNotifyChannelId ?? "");
+    setModLogChannelId(settings?.modLogChannelId ?? "");
+    setRaidLogChannelId(settings?.raidLogChannelId ?? "");
+    setConfigLogChannelId(settings?.configLogChannelId ?? "");
+    setAutoLogChannelId(settings?.autoLogChannelId ?? "");
+  }, [settings]);
+
+  const roleOptions = (discordContext?.roles || []).map((role) => ({
+    id: role.id,
+    label: role.name,
+    description: role.id,
+  }));
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isCategory && !channel.isThread)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
 
   const updateMutation = useMutation({
     mutationFn: (data: any) => apiRequest("PATCH", `/api/servers/${serverId}/settings`, data),
@@ -70,7 +98,7 @@ export function ServerControlTab({ serverId, settings }: Props) {
       serverControlMode: mode,
       quarantineRoleId: quarantineRoleId || null,
       lockdownEnabled,
-      lockdownBypassRoleIds: lockdownBypassRoles.split(",").map(s => s.trim()).filter(Boolean),
+      lockdownBypassRoleIds,
       lockdownNotifyChannelId: lockdownNotifyChannelId || null,
       modLogChannelId: modLogChannelId || null,
       raidLogChannelId: raidLogChannelId || null,
@@ -93,7 +121,7 @@ export function ServerControlTab({ serverId, settings }: Props) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {MODES.map(m => {
+            {MODES.map((m) => {
               const Icon = m.icon;
               const isActive = mode === m.id;
               return (
@@ -138,26 +166,26 @@ export function ServerControlTab({ serverId, settings }: Props) {
               data-testid="switch-lockdown-enabled"
             />
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Bypass Role IDs (comma-separated)</Label>
-              <Input
-                value={lockdownBypassRoles}
-                onChange={e => setLockdownBypassRoles(e.target.value)}
-                placeholder="123456789, 987654321"
-                data-testid="input-lockdown-bypass-roles"
-                className="font-mono text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Notify Channel ID</Label>
-              <Input
-                value={lockdownNotifyChannelId}
-                onChange={e => setLockdownNotifyChannelId(e.target.value)}
-                placeholder="Channel ID for lockdown notification"
-                data-testid="input-lockdown-notify-channel"
-              />
-            </div>
+            <DiscordEntityListPicker
+              label="Bypass Roles"
+              values={lockdownBypassRoleIds}
+              onChange={setLockdownBypassRoleIds}
+              options={roleOptions}
+              placeholder="Add bypass role..."
+              manualPlaceholder="Role ID"
+              testIdPrefix="input-lockdown-bypass-roles"
+            />
+            <DiscordEntityPicker
+              label="Notify Channel"
+              value={lockdownNotifyChannelId}
+              onChange={setLockdownNotifyChannelId}
+              options={textChannelOptions}
+              placeholder="Select notify channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-lockdown-notify-channel"
+            />
           </div>
         </CardContent>
       </Card>
@@ -167,16 +195,16 @@ export function ServerControlTab({ serverId, settings }: Props) {
           <CardTitle className="font-display flex items-center gap-2"><Zap className="w-4 h-4" /> Anti-Raid</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="space-y-2">
-            <Label>Quarantine Role ID</Label>
-            <Input
-              value={quarantineRoleId}
-              onChange={e => setQuarantineRoleId(e.target.value)}
-              placeholder="Role ID to assign to raid joiners"
-              data-testid="input-quarantine-role-id"
-            />
-            <p className="text-xs text-muted-foreground">If set, raid joiners will be assigned this role instead of being kicked.</p>
-          </div>
+          <DiscordEntityPicker
+            label="Quarantine Role"
+            value={quarantineRoleId}
+            onChange={setQuarantineRoleId}
+            options={roleOptions}
+            placeholder="Select quarantine role..."
+            manualPlaceholder="Role ID"
+            testIdPrefix="input-quarantine-role-id"
+          />
+          <p className="text-xs text-muted-foreground">If set, raid joiners will be assigned this role instead of being kicked.</p>
         </CardContent>
       </Card>
 
@@ -187,17 +215,42 @@ export function ServerControlTab({ serverId, settings }: Props) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { label: "Mod Log Channel ID", value: modLogChannelId, setter: setModLogChannelId, testId: "input-mod-log-channel" },
-              { label: "Raid Log Channel ID", value: raidLogChannelId, setter: setRaidLogChannelId, testId: "input-raid-log-channel" },
-              { label: "Config Log Channel ID", value: configLogChannelId, setter: setConfigLogChannelId, testId: "input-config-log-channel" },
-              { label: "Auto-Mod Log Channel ID", value: autoLogChannelId, setter: setAutoLogChannelId, testId: "input-auto-log-channel" },
-            ].map(({ label, value, setter, testId }) => (
-              <div key={testId} className="space-y-2">
-                <Label>{label}</Label>
-                <Input value={value} onChange={e => setter(e.target.value)} placeholder="Channel ID" data-testid={testId} />
-              </div>
-            ))}
+            <DiscordEntityPicker
+              label="Mod Log Channel"
+              value={modLogChannelId}
+              onChange={setModLogChannelId}
+              options={textChannelOptions}
+              placeholder="Select mod log channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-mod-log-channel"
+            />
+            <DiscordEntityPicker
+              label="Raid Log Channel"
+              value={raidLogChannelId}
+              onChange={setRaidLogChannelId}
+              options={textChannelOptions}
+              placeholder="Select raid log channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-raid-log-channel"
+            />
+            <DiscordEntityPicker
+              label="Config Log Channel"
+              value={configLogChannelId}
+              onChange={setConfigLogChannelId}
+              options={textChannelOptions}
+              placeholder="Select config log channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-config-log-channel"
+            />
+            <DiscordEntityPicker
+              label="Auto-Mod Log Channel"
+              value={autoLogChannelId}
+              onChange={setAutoLogChannelId}
+              options={textChannelOptions}
+              placeholder="Select auto-mod log channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-auto-log-channel"
+            />
           </div>
         </CardContent>
       </Card>
@@ -208,7 +261,7 @@ export function ServerControlTab({ serverId, settings }: Props) {
         className="gradient-brand text-white"
         data-testid="button-save-server-control"
       >
-        {updateMutation.isPending ? "Saving…" : "Save Changes"}
+        {updateMutation.isPending ? "Saving..." : "Save Changes"}
       </Button>
     </div>
   );

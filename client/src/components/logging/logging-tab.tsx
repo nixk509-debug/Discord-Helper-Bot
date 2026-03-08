@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useAuditLogConfig, useUpsertAuditLogConfig } from "@/hooks/use-bot";
+import { useAuditLogConfig, useUpsertAuditLogConfig, useDiscordContext } from "@/hooks/use-bot";
 import {
   ScrollText,
   Save,
@@ -23,6 +23,7 @@ import {
   CheckSquare,
   Link2,
 } from "lucide-react";
+import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface LoggingTabProps {
   serverId: number;
@@ -97,6 +98,7 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
   const { toast } = useToast();
   const { data: config, isLoading } = useAuditLogConfig(serverId);
   const upsertMutation = useUpsertAuditLogConfig(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
 
   const [enabled, setEnabled] = useState(false);
   const [channels, setChannels] = useState<Record<ChannelKey, string>>({
@@ -111,8 +113,20 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [ignoredChannels, setIgnoredChannels] = useState<string[]>([]);
   const [ignoredRoles, setIgnoredRoles] = useState<string[]>([]);
-  const [newIgnoredChannel, setNewIgnoredChannel] = useState("");
-  const [newIgnoredRole, setNewIgnoredRole] = useState("");
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
+  const roleOptions = (discordContext?.roles || [])
+    .map((role) => ({
+      id: role.id,
+      label: role.name,
+      description: role.id,
+    }));
 
   useEffect(() => {
     if (config) {
@@ -148,30 +162,6 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
     } else {
       setEnabledEvents((prev) => Array.from(new Set([...prev, ...categoryEventIds])));
     }
-  };
-
-  const addIgnoredChannel = () => {
-    const trimmed = newIgnoredChannel.trim();
-    if (trimmed && !ignoredChannels.includes(trimmed)) {
-      setIgnoredChannels((prev) => [...prev, trimmed]);
-      setNewIgnoredChannel("");
-    }
-  };
-
-  const removeIgnoredChannel = (ch: string) => {
-    setIgnoredChannels((prev) => prev.filter((c) => c !== ch));
-  };
-
-  const addIgnoredRole = () => {
-    const trimmed = newIgnoredRole.trim();
-    if (trimmed && !ignoredRoles.includes(trimmed)) {
-      setIgnoredRoles((prev) => [...prev, trimmed]);
-      setNewIgnoredRole("");
-    }
-  };
-
-  const removeIgnoredRole = (r: string) => {
-    setIgnoredRoles((prev) => prev.filter((role) => role !== r));
   };
 
   const handleSave = () => {
@@ -289,11 +279,13 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
                   <Hash className="w-3 h-3 inline mr-1" />
                   Log Channel ID
                 </label>
-                <Input
-                  placeholder="Enter channel ID for these events"
+                <DiscordEntityPicker
                   value={channels[category.channelKey]}
-                  onChange={(e) => setChannels((prev) => ({ ...prev, [category.channelKey]: e.target.value }))}
-                  data-testid={`input-channel-${key}`}
+                  onChange={(value) => setChannels((prev) => ({ ...prev, [category.channelKey]: value }))}
+                  options={textChannelOptions}
+                  placeholder="Select log channel..."
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix={`input-channel-${key}`}
                 />
               </div>
               <div>
@@ -393,31 +385,14 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
               <Hash className="w-3 h-3 inline mr-1" />
               Ignored Channels
             </label>
-            <div className="flex gap-2 mb-2">
-              <Input
-                placeholder="Channel ID"
-                value={newIgnoredChannel}
-                onChange={(e) => setNewIgnoredChannel(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addIgnoredChannel()}
-                data-testid="input-ignored-channel"
-              />
-              <Button size="sm" variant="secondary" onClick={addIgnoredChannel} data-testid="button-add-ignored-channel">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {ignoredChannels.map((ch) => (
-                <Badge key={ch} variant="secondary" data-testid={`badge-ignored-channel-${ch}`}>
-                  #{ch}
-                  <button className="ml-1 hover:text-destructive" onClick={() => removeIgnoredChannel(ch)} data-testid={`button-remove-ignored-channel-${ch}`}>
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
-              {ignoredChannels.length === 0 && (
-                <span className="text-xs text-muted-foreground">No ignored channels</span>
-              )}
-            </div>
+            <DiscordEntityListPicker
+              values={ignoredChannels}
+              onChange={setIgnoredChannels}
+              options={textChannelOptions}
+              placeholder="Add ignored channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="ignored-channels"
+            />
           </div>
 
           <div>
@@ -425,31 +400,14 @@ export default function LoggingTab({ serverId }: LoggingTabProps) {
               <Users className="w-3 h-3 inline mr-1" />
               Ignored Roles
             </label>
-            <div className="flex gap-2 mb-2">
-              <Input
-                placeholder="Role ID"
-                value={newIgnoredRole}
-                onChange={(e) => setNewIgnoredRole(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addIgnoredRole()}
-                data-testid="input-ignored-role"
-              />
-              <Button size="sm" variant="secondary" onClick={addIgnoredRole} data-testid="button-add-ignored-role">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {ignoredRoles.map((r) => (
-                <Badge key={r} variant="secondary" data-testid={`badge-ignored-role-${r}`}>
-                  @{r}
-                  <button className="ml-1 hover:text-destructive" onClick={() => removeIgnoredRole(r)} data-testid={`button-remove-ignored-role-${r}`}>
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))}
-              {ignoredRoles.length === 0 && (
-                <span className="text-xs text-muted-foreground">No ignored roles</span>
-              )}
-            </div>
+            <DiscordEntityListPicker
+              values={ignoredRoles}
+              onChange={setIgnoredRoles}
+              options={roleOptions}
+              placeholder="Add ignored role..."
+              manualPlaceholder="Role ID"
+              testIdPrefix="ignored-roles"
+            />
           </div>
         </CardContent>
       </Card>

@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useTicketConfig, useUpsertTicketConfig, useTicketPanels, useCreateTicketPanel, useDeleteTicketPanel } from "@/hooks/use-bot";
+import { useTicketConfig, useUpsertTicketConfig, useTicketPanels, useCreateTicketPanel, useDeleteTicketPanel, useDiscordContext } from "@/hooks/use-bot";
 import { Ticket, Save, Plus, Trash2, Settings, Layout, Loader2, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface TicketsTabProps {
   serverId: number;
@@ -30,6 +31,26 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
   const { data: panels, isLoading: panelsLoading } = useTicketPanels(serverId);
   const createPanel = useCreateTicketPanel(serverId);
   const deletePanel = useDeleteTicketPanel(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const channelOptions = (discordContext?.channels || []).map((channel) => ({
+    id: channel.id,
+    label: channel.isCategory ? `Category: ${channel.name}` : `#${channel.name}`,
+    description: channel.id,
+  }));
+  const textChannelOptions = channelOptions.filter((option) => {
+    const raw = (discordContext?.channels || []).find((channel) => channel.id === option.id);
+    return Boolean(raw?.isTextBased && !raw?.isThread && !raw?.isCategory);
+  });
+  const categoryOptions = channelOptions.filter((option) => {
+    const raw = (discordContext?.channels || []).find((channel) => channel.id === option.id);
+    return Boolean(raw?.isCategory);
+  });
+  const roleOptions = (discordContext?.roles || []).map((role) => ({
+    id: role.id,
+    label: role.name,
+    description: role.id,
+  }));
 
   const [enabled, setEnabled] = useState(false);
   const [categoryChannelId, setCategoryChannelId] = useState("");
@@ -166,20 +187,45 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Category Channel ID</label>
-                <Input value={categoryChannelId} onChange={(e) => setCategoryChannelId(e.target.value)} placeholder="123456789012345678" className="bg-background" data-testid="input-ticket-category" />
+                <DiscordEntityPicker
+                  label="Category Channel ID"
+                  value={categoryChannelId}
+                  onChange={setCategoryChannelId}
+                  options={categoryOptions}
+                  placeholder="Select ticket category..."
+                  manualPlaceholder="Category channel ID"
+                  testIdPrefix="input-ticket-category"
+                />
                 <p className="text-xs text-muted-foreground">Category where new tickets are created.</p>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Transcript Channel ID</label>
-                <Input value={transcriptChannelId} onChange={(e) => setTranscriptChannelId(e.target.value)} placeholder="123456789012345678" className="bg-background" data-testid="input-ticket-transcript" />
+                <DiscordEntityPicker
+                  label="Transcript Channel ID"
+                  value={transcriptChannelId}
+                  onChange={setTranscriptChannelId}
+                  options={textChannelOptions}
+                  placeholder="Select transcript channel..."
+                  manualPlaceholder="Transcript channel ID"
+                  testIdPrefix="input-ticket-transcript"
+                />
                 <p className="text-xs text-muted-foreground">Channel where transcripts are saved.</p>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Support Role ID</label>
-                <Input value={supportRoleId} onChange={(e) => setSupportRoleId(e.target.value)} placeholder="123456789012345678" className="bg-background" data-testid="input-ticket-support-role-id" />
+                <DiscordEntityPicker
+                  label="Support Role ID"
+                  value={supportRoleId}
+                  onChange={(value) => {
+                    setSupportRoleId(value);
+                    const selectedRole = (discordContext?.roles || []).find((role) => role.id === value);
+                    if (selectedRole) setSupportRoleName(selectedRole.name);
+                  }}
+                  options={roleOptions}
+                  placeholder="Select support role..."
+                  manualPlaceholder="Support role ID"
+                  testIdPrefix="input-ticket-support-role-id"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Support Role Name</label>
@@ -223,8 +269,15 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Channel ID *</label>
-                  <Input value={panelChannelId} onChange={(e) => setPanelChannelId(e.target.value)} placeholder="123456789" className="bg-background" data-testid="input-panel-channel" />
+                  <DiscordEntityPicker
+                    label="Channel ID *"
+                    value={panelChannelId}
+                    onChange={setPanelChannelId}
+                    options={textChannelOptions}
+                    placeholder="Select panel channel..."
+                    manualPlaceholder="Panel channel ID"
+                    testIdPrefix="input-panel-channel"
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

@@ -3,7 +3,18 @@ import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { storage } from "./storage";
-import { servers, channelSyncTemplates, permissionRules, categoryLockSnapshots, memberNotes, economy } from "@shared/schema";
+import {
+  servers,
+  embeds as embedsTable,
+  channelSyncTemplates,
+  permissionRules,
+  categoryLockSnapshots,
+  memberNotes,
+  economy,
+  type EmbedComponentType,
+  type EmbedComponentOption,
+  type InteractiveActionConfig,
+} from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth } from "./auth";
@@ -13,10 +24,18 @@ import { createSnapshot, listSnapshots, rollback } from "./snapshotService";
 import { generateCode, redeemCode, listCodes, revokeCode } from "./codeVaultService";
 import { listPermissionRules, createPermissionRule, deletePermissionRule, checkPermission } from "./permissionsService";
 import { patchGuildConfig } from "./configService";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  StringSelectMenuBuilder,
+} from "discord.js";
+import { EMBED_ACTION_TOKEN_PREFIX, encodeEmbedActionToken } from "./bot/embed-action-token";
 
 export async function registerRoutes(_server: Server, app: Express) {
 
-  // Protect all /api/servers/* routes — exempt only the public code-redeem endpoint
+  // Protect all /api/servers/* routes - exempt only the public code-redeem endpoint
   app.use("/api/servers", (req, res, next) => {
     if (req.path.match(/\/codes\/redeem$/) && req.method === "POST") return next();
     return requireAuth(req as any, res, next);
@@ -181,14 +200,20 @@ export async function registerRoutes(_server: Server, app: Express) {
       await guild.roles.fetch().catch(() => null);
 
       const channels = Array.from(guild.channels.cache.values())
-        .filter((channel: any) => channel && channel.isTextBased() && !channel.isThread())
+        .filter((channel: any) => !!channel)
         .map((channel: any) => ({
           id: channel.id,
-          name: channel.name,
+          name: channel.name ?? channel.id,
           type: String(channel.type),
           parentId: channel.parentId ?? null,
+          position: typeof channel.position === "number" ? channel.position : 0,
+          isTextBased: Boolean(channel.isTextBased?.()),
+          isVoiceBased: Boolean(channel.isVoiceBased?.()),
+          isCategory: String(channel.type) === "4",
+          isThread: Boolean(channel.isThread?.()),
+          nsfw: "nsfw" in channel ? Boolean(channel.nsfw) : false,
         }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => (a.position - b.position) || a.name.localeCompare(b.name));
 
       const roles = Array.from(guild.roles.cache.values())
         .filter((role: any) => role && role.id !== guild.id)
@@ -197,6 +222,9 @@ export async function registerRoutes(_server: Server, app: Express) {
           name: role.name,
           color: role.color || 0,
           position: role.position || 0,
+          managed: Boolean(role.managed),
+          mentionable: Boolean(role.mentionable),
+          hoist: Boolean(role.hoist),
         }))
         .sort((a, b) => (b.position - a.position) || a.name.localeCompare(b.name));
 
@@ -290,6 +318,63 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const updated = await storage.updateEmbed(id, req.body);
     res.json(updated);
+  });
+
+  app.post(api.embeds.send.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    const embedId = parseInt(req.params.id);
+    if (isNaN(serverId) || isNaN(embedId)) {
+      return res.status(400).json({ message: "Invalid ID" });
+    }
+
+    const parsed = api.embeds.send.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const [embedRecord] = await db.select().from(embedsTable)
+      .where(and(eq(embedsTable.id, embedId), eq(embedsTable.serverId, serverId)));
+    if (!embedRecord) return res.status(404).json({ message: "Embed not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot to send embeds." });
+    }
+
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+    const channelId = parsed.data.channelId.trim();
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel || !channel.isTextBased() || channel.isThread()) {
+      return res.status(400).json({ message: "Selected channel is not a valid text channel." });
+    }
+
+    const preparedEmbed = buildDiscordEmbed(embedRecord);
+    const preparedComponents = buildActionRows({
+      components: (embedRecord.components as EmbedComponentType[] | null | undefined) || [],
+      serverId,
+      guildId: guild.id,
+      embedId: embedRecord.id,
+    });
+
+    if (!preparedEmbed && preparedComponents.length === 0) {
+      return res.status(400).json({ message: "Embed has no sendable content." });
+    }
+
+    try {
+      const sentMessage = await (channel as any).send({
+        embeds: preparedEmbed ? [preparedEmbed] : [],
+        components: preparedComponents,
+      });
+      return res.json({ messageId: sentMessage.id, channelId: sentMessage.channelId });
+    } catch (err: any) {
+      console.error("[Embeds] Failed to send embed:", err?.message || err);
+      return res.status(400).json({ message: "Failed to send embed. Verify bot permissions for this channel." });
+    }
   });
 
   app.delete(api.embeds.delete.path, async (req, res) => {
@@ -1080,6 +1165,222 @@ export async function registerRoutes(_server: Server, app: Express) {
       res.json({ locked: false, categoryId });
     }
   });
+}
+
+function parseEmbedColor(color: unknown): number | null {
+  if (typeof color === "number" && Number.isFinite(color)) return color;
+  if (typeof color !== "string") return null;
+  const normalized = color.trim().replace(/^#/, "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+  return parseInt(normalized, 16);
+}
+
+function toComponentEmoji(emoji: unknown): { name?: string; id?: string; animated?: boolean } | undefined {
+  if (typeof emoji !== "string") return undefined;
+  const raw = emoji.trim();
+  if (!raw) return undefined;
+
+  const customMatch = raw.match(/^<?(a?):([a-zA-Z0-9_]+):(\d+)>?$/);
+  if (customMatch) {
+    return {
+      id: customMatch[3],
+      name: customMatch[2],
+      animated: customMatch[1] === "a",
+    };
+  }
+
+  return { name: raw };
+}
+
+function buildDiscordEmbed(embedRecord: any): EmbedBuilder | null {
+  const embed = new EmbedBuilder();
+  let hasContent = false;
+
+  if (embedRecord.title) {
+    embed.setTitle(String(embedRecord.title));
+    hasContent = true;
+  }
+  if (embedRecord.description) {
+    embed.setDescription(String(embedRecord.description));
+    hasContent = true;
+  }
+  if (embedRecord.url) {
+    embed.setURL(String(embedRecord.url));
+    hasContent = true;
+  }
+
+  const color = parseEmbedColor(embedRecord.color);
+  if (color !== null) {
+    embed.setColor(color);
+    hasContent = true;
+  }
+
+  if (embedRecord.authorName) {
+    embed.setAuthor({
+      name: String(embedRecord.authorName),
+      url: embedRecord.authorUrl ? String(embedRecord.authorUrl) : undefined,
+      iconURL: embedRecord.authorIconUrl ? String(embedRecord.authorIconUrl) : undefined,
+    });
+    hasContent = true;
+  }
+
+  if (embedRecord.footerText) {
+    embed.setFooter({
+      text: String(embedRecord.footerText),
+      iconURL: embedRecord.footerIconUrl ? String(embedRecord.footerIconUrl) : undefined,
+    });
+    hasContent = true;
+  }
+
+  if (embedRecord.imageUrl) {
+    embed.setImage(String(embedRecord.imageUrl));
+    hasContent = true;
+  }
+  if (embedRecord.thumbnailUrl) {
+    embed.setThumbnail(String(embedRecord.thumbnailUrl));
+    hasContent = true;
+  }
+
+  if (Array.isArray(embedRecord.fields)) {
+    const fields = embedRecord.fields
+      .filter((field: any) => field && typeof field.name === "string" && typeof field.value === "string")
+      .slice(0, 25)
+      .map((field: any) => ({
+        name: field.name,
+        value: field.value,
+        inline: Boolean(field.inline),
+      }));
+    if (fields.length > 0) {
+      embed.addFields(fields);
+      hasContent = true;
+    }
+  }
+
+  if (embedRecord.timestamp) {
+    embed.setTimestamp(new Date());
+    hasContent = true;
+  }
+
+  return hasContent ? embed : null;
+}
+
+function mapButtonStyle(style?: number): ButtonStyle {
+  if (style === 2) return ButtonStyle.Secondary;
+  if (style === 3) return ButtonStyle.Success;
+  if (style === 4) return ButtonStyle.Danger;
+  return ButtonStyle.Primary;
+}
+
+function buildActionRows(input: {
+  components: EmbedComponentType[];
+  serverId: number;
+  guildId: string;
+  embedId: number;
+}) {
+  const rows: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];
+  let buttonBuffer: ButtonBuilder[] = [];
+
+  const flushButtons = () => {
+    if (buttonBuffer.length === 0 || rows.length >= 5) return;
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...buttonBuffer));
+    buttonBuffer = [];
+  };
+
+  const buildToken = (action: InteractiveActionConfig) => {
+    const token = encodeEmbedActionToken({
+      serverId: input.serverId,
+      guildId: input.guildId,
+      embedId: input.embedId,
+      action,
+    });
+    return token ? `${EMBED_ACTION_TOKEN_PREFIX}${token}` : null;
+  };
+
+  for (let componentIndex = 0; componentIndex < input.components.length; componentIndex++) {
+    if (rows.length >= 5) break;
+    const component = input.components[componentIndex];
+
+    if (!component || (component.type !== 2 && component.type !== 3)) {
+      flushButtons();
+      continue;
+    }
+
+    if (component.type === 2) {
+      const action = component.action;
+      const isLink = component.style === 5 || action?.type === "open_url";
+      const button = new ButtonBuilder();
+
+      const label = (component.label || "Action").slice(0, 80);
+      button.setLabel(label);
+      if (component.disabled) button.setDisabled(true);
+
+      const emojiData = toComponentEmoji(component.emoji);
+      if (emojiData) button.setEmoji(emojiData);
+
+      if (isLink) {
+        const url = String(action?.url || component.url || "").trim();
+        if (!url) continue;
+        button.setStyle(ButtonStyle.Link).setURL(url);
+      } else {
+        if (!action) continue;
+        const customId = buildToken(action);
+        if (!customId) continue;
+        button.setCustomId(customId).setStyle(mapButtonStyle(component.style));
+      }
+
+      buttonBuffer.push(button);
+      if (buttonBuffer.length >= 5) {
+        flushButtons();
+      }
+      continue;
+    }
+
+    if (component.type === 3) {
+      flushButtons();
+      if (rows.length >= 5) break;
+
+      const options = Array.isArray(component.options) ? component.options : [];
+      const preparedOptions = options.flatMap((option): Array<{
+        label: string;
+        value: string;
+        description?: string;
+        emoji?: { name?: string; id?: string; animated?: boolean };
+      }> => {
+        const opt = option as EmbedComponentOption;
+        const action = opt.action || component.action;
+        if (!action) return [];
+        const tokenValue = buildToken(action);
+        if (!tokenValue) return [];
+
+        return [{
+          label: String(opt.label || "Option").slice(0, 100),
+          value: tokenValue,
+          description: opt.description ? String(opt.description).slice(0, 100) : undefined,
+          emoji: toComponentEmoji(opt.emoji),
+        }];
+      });
+
+      if (preparedOptions.length === 0) continue;
+
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(
+          (component.customId && component.customId.length <= 100)
+            ? component.customId
+            : `axm_${input.embedId}_${componentIndex}`
+        )
+        .setPlaceholder(String(component.placeholder || component.label || "Select an option").slice(0, 150))
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(preparedOptions.slice(0, 25));
+
+      if (component.disabled) menu.setDisabled(true);
+
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
+    }
+  }
+
+  flushButtons();
+  return rows.slice(0, 5);
 }
 
 function generateMockInsights(serverId: number) {

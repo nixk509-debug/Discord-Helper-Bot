@@ -8,10 +8,11 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { usePolls, useCreatePoll, useUpdatePoll, useDeletePoll } from "@/hooks/use-bot";
+import { usePolls, useCreatePoll, useUpdatePoll, useDeletePoll, useDiscordContext } from "@/hooks/use-bot";
 import { BarChart3, Plus, Trash2, Edit, Loader2, X, CheckCircle, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Poll, PollOption } from "@shared/schema";
+import { DiscordEntityPicker, type DiscordEntityOption } from "@/components/discord/entity-pickers";
 
 interface PollsTabProps {
   serverId: number;
@@ -23,12 +24,14 @@ function PollFormDialog({
   onSave,
   initial,
   isSaving,
+  channelOptions,
 }: {
   open: boolean;
   onClose: () => void;
   onSave: (data: any) => void;
   initial?: Partial<Poll>;
   isSaving: boolean;
+  channelOptions: DiscordEntityOption[];
 }) {
   const [question, setQuestion] = useState(initial?.question ?? "");
   const [channelId, setChannelId] = useState(initial?.channelId ?? "");
@@ -83,8 +86,15 @@ function PollFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Channel ID</Label>
-            <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Channel to post poll" data-testid="input-poll-channel" />
+            <DiscordEntityPicker
+              label="Channel ID"
+              value={channelId}
+              onChange={setChannelId}
+              options={channelOptions}
+              placeholder="Select poll channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-poll-channel"
+            />
           </div>
 
           <div className="space-y-2">
@@ -163,6 +173,15 @@ export function PollsTab({ serverId }: PollsTabProps) {
   const createPoll = useCreatePoll(serverId);
   const updatePoll = useUpdatePoll(serverId);
   const deletePoll = useDeletePoll(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPoll, setEditingPoll] = useState<Poll | null>(null);
@@ -312,6 +331,7 @@ export function PollsTab({ serverId }: PollsTabProps) {
         onSave={handleSave}
         initial={editingPoll ?? undefined}
         isSaving={createPoll.isPending || updatePoll.isPending}
+        channelOptions={textChannelOptions}
       />
     </div>
   );

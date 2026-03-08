@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useLeveling, useUpsertLeveling } from "@/hooks/use-bot";
+import { useDiscordContext, useLeveling, useUpsertLeveling } from "@/hooks/use-bot";
 import type { LevelingConfigType } from "@shared/schema";
 import {
   TrendingUp,
@@ -27,6 +27,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface LevelingTabProps {
   serverId: number;
@@ -65,6 +66,21 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
   const { toast } = useToast();
   const { data: config, isLoading } = useLeveling(serverId);
   const upsertLeveling = useUpsertLeveling(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
+
+  const roleOptions = (discordContext?.roles || []).map((role) => ({
+    id: role.id,
+    label: role.name,
+    description: role.id,
+  }));
 
   const [enabled, setEnabled] = useState(false);
   const [xpPerMessage, setXpPerMessage] = useState(15);
@@ -84,9 +100,6 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
   const [newMultRoleId, setNewMultRoleId] = useState("");
   const [newMultRoleName, setNewMultRoleName] = useState("");
   const [newMultValue, setNewMultValue] = useState("1.5");
-
-  const [newIgnoredChannel, setNewIgnoredChannel] = useState("");
-  const [newIgnoredRole, setNewIgnoredRole] = useState("");
 
   useEffect(() => {
     if (config) {
@@ -166,28 +179,6 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
 
   const removeMultiplier = (roleId: string) => {
     setXpMultipliers((prev) => prev.filter((m) => m.roleId !== roleId));
-  };
-
-  const addIgnoredChannel = () => {
-    if (!newIgnoredChannel.trim()) return;
-    if (ignoredChannels.includes(newIgnoredChannel.trim())) return;
-    setIgnoredChannels((prev) => [...prev, newIgnoredChannel.trim()]);
-    setNewIgnoredChannel("");
-  };
-
-  const removeIgnoredChannel = (ch: string) => {
-    setIgnoredChannels((prev) => prev.filter((c) => c !== ch));
-  };
-
-  const addIgnoredRole = () => {
-    if (!newIgnoredRole.trim()) return;
-    if (ignoredRoles.includes(newIgnoredRole.trim())) return;
-    setIgnoredRoles((prev) => [...prev, newIgnoredRole.trim()]);
-    setNewIgnoredRole("");
-  };
-
-  const removeIgnoredRole = (r: string) => {
-    setIgnoredRoles((prev) => prev.filter((role) => role !== r));
   };
 
   const previewMessage = levelUpMessage
@@ -313,12 +304,13 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
                   <Hash className="w-4 h-4 text-muted-foreground" />
                   Level-Up Channel ID
                 </Label>
-                <Input
-                  id="levelup-channel"
-                  placeholder="Leave empty for current channel"
+                <DiscordEntityPicker
                   value={levelUpChannelId}
-                  onChange={(e) => setLevelUpChannelId(e.target.value)}
-                  data-testid="input-levelup-channel"
+                  onChange={setLevelUpChannelId}
+                  options={textChannelOptions}
+                  placeholder="Leave empty for current channel"
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix="input-levelup-channel"
                 />
                 <p className="text-xs text-muted-foreground">Channel to send level-up messages. Leave blank to use the channel where the user leveled up.</p>
               </div>
@@ -421,13 +413,19 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
                     data-testid="input-reward-level"
                   />
                 </div>
-                <div className="space-y-1.5 flex-1 min-w-[120px]">
-                  <Label className="text-xs">Role ID</Label>
-                  <Input
-                    placeholder="Role ID"
+                <div className="space-y-1.5 flex-1 min-w-[180px]">
+                  <DiscordEntityPicker
+                    label="Role ID"
                     value={newRewardRoleId}
-                    onChange={(e) => setNewRewardRoleId(e.target.value)}
-                    data-testid="input-reward-role-id"
+                    onChange={(value) => {
+                      setNewRewardRoleId(value);
+                      const selectedRole = (discordContext?.roles || []).find((role) => role.id === value);
+                      if (selectedRole) setNewRewardRoleName(selectedRole.name);
+                    }}
+                    options={roleOptions}
+                    placeholder="Select role..."
+                    manualPlaceholder="Role ID"
+                    testIdPrefix="input-reward-role-id"
                   />
                 </div>
                 <div className="space-y-1.5 flex-1 min-w-[120px]">
@@ -487,13 +485,19 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
               )}
 
               <div className="flex items-end gap-2 flex-wrap">
-                <div className="space-y-1.5 flex-1 min-w-[120px]">
-                  <Label className="text-xs">Role ID</Label>
-                  <Input
-                    placeholder="Role ID"
+                <div className="space-y-1.5 flex-1 min-w-[180px]">
+                  <DiscordEntityPicker
+                    label="Role ID"
                     value={newMultRoleId}
-                    onChange={(e) => setNewMultRoleId(e.target.value)}
-                    data-testid="input-mult-role-id"
+                    onChange={(value) => {
+                      setNewMultRoleId(value);
+                      const selectedRole = (discordContext?.roles || []).find((role) => role.id === value);
+                      if (selectedRole) setNewMultRoleName(selectedRole.name);
+                    }}
+                    options={roleOptions}
+                    placeholder="Select role..."
+                    manualPlaceholder="Role ID"
+                    testIdPrefix="input-mult-role-id"
                   />
                 </div>
                 <div className="space-y-1.5 flex-1 min-w-[120px]">
@@ -544,28 +548,14 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
                   <Hash className="w-4 h-4 text-muted-foreground" />
                   Ignored Channels
                 </Label>
-                <div className="flex flex-wrap gap-2">
-                  {ignoredChannels.map((ch) => (
-                    <Badge key={ch} variant="secondary" className="gap-1" data-testid={`badge-ignored-channel-${ch}`}>
-                      #{ch}
-                      <button onClick={() => removeIgnoredChannel(ch)} className="ml-1" data-testid={`button-remove-ignored-channel-${ch}`}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Channel ID"
-                    value={newIgnoredChannel}
-                    onChange={(e) => setNewIgnoredChannel(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addIgnoredChannel()}
-                    data-testid="input-ignored-channel"
-                  />
-                  <Button variant="outline" onClick={addIgnoredChannel} data-testid="button-add-ignored-channel">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
+                <DiscordEntityListPicker
+                  values={ignoredChannels}
+                  onChange={setIgnoredChannels}
+                  options={textChannelOptions}
+                  placeholder="Add ignored channel..."
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix="ignored-channels"
+                />
               </div>
 
               <div className="space-y-3">
@@ -573,28 +563,14 @@ export function LevelingTab({ serverId }: LevelingTabProps) {
                   <Users className="w-4 h-4 text-muted-foreground" />
                   Ignored Roles
                 </Label>
-                <div className="flex flex-wrap gap-2">
-                  {ignoredRoles.map((r) => (
-                    <Badge key={r} variant="secondary" className="gap-1" data-testid={`badge-ignored-role-${r}`}>
-                      @{r}
-                      <button onClick={() => removeIgnoredRole(r)} className="ml-1" data-testid={`button-remove-ignored-role-${r}`}>
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Role ID"
-                    value={newIgnoredRole}
-                    onChange={(e) => setNewIgnoredRole(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addIgnoredRole()}
-                    data-testid="input-ignored-role"
-                  />
-                  <Button variant="outline" onClick={addIgnoredRole} data-testid="button-add-ignored-role">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
+                <DiscordEntityListPicker
+                  values={ignoredRoles}
+                  onChange={setIgnoredRoles}
+                  options={roleOptions}
+                  placeholder="Add ignored role..."
+                  manualPlaceholder="Role ID"
+                  testIdPrefix="ignored-roles"
+                />
               </div>
             </CardContent>
           </Card>

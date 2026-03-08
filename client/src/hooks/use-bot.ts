@@ -56,6 +56,12 @@ export interface DiscordContextChannel {
   name: string;
   type: string;
   parentId: string | null;
+  position?: number;
+  isTextBased?: boolean;
+  isVoiceBased?: boolean;
+  isCategory?: boolean;
+  isThread?: boolean;
+  nsfw?: boolean;
 }
 
 export interface DiscordContextRole {
@@ -63,6 +69,9 @@ export interface DiscordContextRole {
   name: string;
   color: number;
   position: number;
+  managed?: boolean;
+  mentionable?: boolean;
+  hoist?: boolean;
 }
 
 export interface DiscordContextResponse {
@@ -224,6 +233,29 @@ export function useDeleteEmbed(serverId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
       qc.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
+    },
+  });
+}
+
+export function useSendEmbed(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, channelId }: { id: number; channelId: string }) => {
+      const url = buildUrl(api.embeds.send.path, { serverId, id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to send embed");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
     },
   });
 }

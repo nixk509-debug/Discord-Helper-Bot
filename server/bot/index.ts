@@ -1,4 +1,18 @@
-import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder, EmbedBuilder, type Interaction, type Message, type ChatInputCommandInteraction } from "discord.js";
+import {
+  Client,
+  GatewayIntentBits,
+  Events,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  PermissionsBitField,
+  type Interaction,
+  type Message,
+  type ChatInputCommandInteraction,
+  type ButtonInteraction,
+  type StringSelectMenuInteraction,
+} from "discord.js";
 import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -9,6 +23,7 @@ import { lockCommand, handleLockCommand } from "./commands/lock";
 import { codeCommand, handleCodeCommand } from "./commands/code";
 import { auditCommand, handleAuditCommand } from "./commands/audit";
 import { syncCommand, handleSyncCommand } from "./commands/sync";
+import { decodeEmbedActionToken } from "./embed-action-token";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
@@ -53,7 +68,7 @@ export function getBotStatus() {
 export async function startBot() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    console.log("[Bot] DISCORD_BOT_TOKEN not set — bot will not start. Dashboard still works.");
+    console.log("[Bot] DISCORD_BOT_TOKEN not set - bot will not start. Dashboard still works.");
     return;
   }
 
@@ -104,6 +119,10 @@ export async function startBot() {
   });
 
   client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      await handleEmbedActionInteraction(interaction);
+      return;
+    }
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
@@ -253,7 +272,7 @@ async function handlePremiumCommand(interaction: any) {
   const dashUrl = `${getPublicBaseUrl()}/premium`;
   if (isOwner) {
     return interaction.reply({
-      content: "You have **Owner Premium** — all features are unlocked!",
+      content: "You have **Owner Premium** - all features are unlocked!",
       ephemeral: true,
     });
   }
@@ -268,7 +287,7 @@ async function handleHelpCommand(interaction: any) {
   const dashUrl = getPublicBaseUrl();
   await interaction.reply({
     content: [
-      "**Archivist** — Your all-in-one Discord server manager",
+      "**Archivist** - Your all-in-one Discord server manager",
       "",
       "**Core Commands:**",
       "`/setup`, `/premium`, `/help`, `/set`, `/lock`, `/sync`, `/audit`, `/code`",
@@ -387,6 +406,202 @@ async function handleCustomCommand(message: Message) {
     }
 
     break;
+  }
+}
+
+async function handleEmbedActionInteraction(interaction: ButtonInteraction | StringSelectMenuInteraction) {
+  const tokenSource = interaction.isButton() ? interaction.customId : interaction.values[0];
+  if (!tokenSource) return;
+
+  const decoded = decodeEmbedActionToken(tokenSource);
+  if (!decoded) return;
+
+  if (!interaction.inCachedGuild()) {
+    await replyEmbedAction(interaction, "This action can only be used in a server.", "ephemeral");
+    return;
+  }
+
+  if (decoded.guildId && decoded.guildId !== interaction.guildId) {
+    await replyEmbedAction(interaction, "This action does not belong to this server.", "ephemeral");
+    return;
+  }
+
+  const [server] = await db.select().from(servers).where(eq(servers.id, decoded.serverId));
+  if (!server || server.discordId !== interaction.guildId) {
+    await replyEmbedAction(interaction, "This action is no longer valid.", "ephemeral");
+    return;
+  }
+
+  const action = decoded.action;
+  const replyMode = action.replyMode || "ephemeral";
+
+  try {
+    if (action.type === "role_add" || action.type === "role_remove" || action.type === "role_toggle") {
+      await executeRoleAction(interaction, action, replyMode);
+      return;
+    }
+
+    if (action.type === "run_command") {
+      await executeCommandAction(interaction, decoded.serverId, action, replyMode);
+      return;
+    }
+
+    if (action.type === "open_url" && action.url) {
+      await replyEmbedAction(interaction, `Open: ${action.url}`, replyMode);
+      return;
+    }
+
+    await replyEmbedAction(interaction, "Unsupported action.", "ephemeral");
+  } catch (err: any) {
+    console.error("[Bot] Interactive action failed:", err?.message || err);
+    await replyEmbedAction(interaction, "Action failed to execute.", "ephemeral");
+  }
+}
+
+async function executeRoleAction(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  action: { type: "role_add" | "role_remove" | "role_toggle"; roleId?: string },
+  replyMode: "ephemeral" | "channel"
+) {
+  const roleId = normalizeId(action.roleId || "");
+  if (!roleId) {
+    await replyEmbedAction(interaction, "Role action is misconfigured.", "ephemeral");
+    return;
+  }
+
+  const guild = interaction.guild!;
+  const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+  const role = await guild.roles.fetch(roleId).catch(() => null);
+  const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+
+  if (!member || !role || !me) {
+    await replyEmbedAction(interaction, "Could not load member or role.", "ephemeral");
+    return;
+  }
+
+  if (!me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+    await replyEmbedAction(interaction, "I need Manage Roles permission to do that.", "ephemeral");
+    return;
+  }
+
+  if (role.position >= me.roles.highest.position) {
+    await replyEmbedAction(interaction, "I cannot manage that role due to role hierarchy.", "ephemeral");
+    return;
+  }
+
+  const hasRole = member.roles.cache.has(role.id);
+  if (action.type === "role_add") {
+    if (hasRole) {
+      await replyEmbedAction(interaction, `You already have **${role.name}**.`, replyMode);
+      return;
+    }
+    await member.roles.add(role.id);
+    await replyEmbedAction(interaction, `Added **${role.name}**.`, replyMode);
+    return;
+  }
+
+  if (action.type === "role_remove") {
+    if (!hasRole) {
+      await replyEmbedAction(interaction, `You do not have **${role.name}**.`, replyMode);
+      return;
+    }
+    await member.roles.remove(role.id);
+    await replyEmbedAction(interaction, `Removed **${role.name}**.`, replyMode);
+    return;
+  }
+
+  if (hasRole) {
+    await member.roles.remove(role.id);
+    await replyEmbedAction(interaction, `Removed **${role.name}**.`, replyMode);
+  } else {
+    await member.roles.add(role.id);
+    await replyEmbedAction(interaction, `Added **${role.name}**.`, replyMode);
+  }
+}
+
+async function executeCommandAction(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  serverId: number,
+  action: { commandName?: string; commandArgs?: string },
+  replyMode: "ephemeral" | "channel"
+) {
+  const commandName = String(action.commandName || "").trim().toLowerCase();
+  if (!commandName) {
+    await replyEmbedAction(interaction, "Command action is misconfigured.", "ephemeral");
+    return;
+  }
+
+  const commands = await db.select().from(customCommands).where(eq(customCommands.serverId, serverId));
+  const command = commands.find((entry) => (entry.name || "").toLowerCase() === commandName);
+  if (!command || !command.enabled) {
+    await replyEmbedAction(interaction, `Command \`!${commandName}\` is unavailable.`, "ephemeral");
+    return;
+  }
+
+  const blockedChannels = normalizeIdList(command.blockedChannels as string[] | null | undefined);
+  const allowedChannels = normalizeIdList(command.allowedChannels as string[] | null | undefined);
+  if (blockedChannels.includes(interaction.channelId)) {
+    await replyEmbedAction(interaction, "That command is blocked in this channel.", "ephemeral");
+    return;
+  }
+  if (allowedChannels.length > 0 && !allowedChannels.includes(interaction.channelId)) {
+    await replyEmbedAction(interaction, "That command is not allowed in this channel.", "ephemeral");
+    return;
+  }
+
+  const guildMember: any = interaction.member as any;
+  const memberRoleIds: string[] = guildMember?.roles?.cache?.map((role: any) => role.id) || [];
+  const blockedRoles = normalizeIdList(command.blockedRoles as string[] | null | undefined);
+  const requiredRoles = normalizeIdList(command.requiredRoles as string[] | null | undefined);
+  if (blockedRoles.some((roleId) => memberRoleIds.includes(roleId))) {
+    await replyEmbedAction(interaction, "You do not have permission to run that command.", "ephemeral");
+    return;
+  }
+  if (requiredRoles.length > 0 && !requiredRoles.some((roleId) => memberRoleIds.includes(roleId))) {
+    await replyEmbedAction(interaction, "You are missing required roles for this command.", "ephemeral");
+    return;
+  }
+
+  const responseTemplate = pickCommandResponseTemplate(command.response, command.responseVariations as string[] | null | undefined);
+  const responseText = resolveInteractionVariables(responseTemplate, interaction, action.commandArgs || "");
+
+  let delivered = false;
+  if ((command.responseType || "text").toLowerCase() !== "embed") {
+    const content = responseText.trim();
+    if (content) {
+      if (command.dmResponse) {
+        await interaction.user.send({ content });
+        await replyEmbedAction(interaction, "Sent the command response via DM.", "ephemeral");
+      } else {
+        await replyEmbedAction(interaction, content, replyMode);
+      }
+      delivered = true;
+    }
+  }
+
+  if (!delivered) {
+    await replyEmbedAction(interaction, `Executed \`!${command.name}\`.`, replyMode);
+  }
+
+  await db
+    .update(customCommands)
+    .set({
+      usageCount: (command.usageCount || 0) + 1,
+      lastUsedAt: new Date(),
+    })
+    .where(eq(customCommands.id, command.id));
+}
+
+async function replyEmbedAction(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  content: string,
+  replyMode: "ephemeral" | "channel"
+) {
+  const payload = { content, ephemeral: replyMode !== "channel" };
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp(payload).catch(() => {});
+  } else {
+    await interaction.reply(payload).catch(() => {});
   }
 }
 
@@ -530,6 +745,37 @@ function resolveVariables(text: string, message: Message): string {
     .replace(/\{channel\.mention\}/gi, message.channel.toString())
     .replace(/\{channel\.name\}|\{channel\}/gi, channelName)
     .replace(/\{channel\.id\}/gi, message.channel.id)
+    .replace(/\{random:([^}]+)\}/gi, (_match, options) => {
+      const items = String(options)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (items.length === 0) return "";
+      return items[Math.floor(Math.random() * items.length)] || "";
+    });
+}
+
+function resolveInteractionVariables(
+  text: string,
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  argsText: string
+): string {
+  const channelName = (interaction.channel as any)?.name || "channel";
+  const args = argsText.split(/\s+/).filter(Boolean);
+
+  return text
+    .replace(/\{user\.mention\}/gi, interaction.user.toString())
+    .replace(/\{user\.name\}|\{username\}/gi, interaction.user.username)
+    .replace(/\{user\}/gi, interaction.user.username)
+    .replace(/\{user\.id\}/gi, interaction.user.id)
+    .replace(/\{server\.name\}|\{server\}/gi, interaction.guild?.name || "")
+    .replace(/\{server\.id\}/gi, interaction.guild?.id || "")
+    .replace(/\{server\.membercount\}|\{membercount\}/gi, String(interaction.guild?.memberCount || 0))
+    .replace(/\{channel\.mention\}/gi, interaction.channel ? `<#${interaction.channelId}>` : "")
+    .replace(/\{channel\.name\}|\{channel\}/gi, channelName)
+    .replace(/\{channel\.id\}/gi, interaction.channelId)
+    .replace(/\{args\}/gi, argsText)
+    .replace(/\{args\.(\d+)\}/gi, (_match, index) => args[Number(index)] || "")
     .replace(/\{random:([^}]+)\}/gi, (_match, options) => {
       const items = String(options)
         .split(",")

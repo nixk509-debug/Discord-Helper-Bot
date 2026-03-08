@@ -1,5 +1,5 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { ServerSettingsLayout } from "@/components/layout/server-settings-layout";
+import { MODULE_CATEGORIES, ServerSettingsLayout } from "@/components/layout/server-settings-layout";
 import { useServer, useUpdateSettings, useBotStatus } from "@/hooks/use-bot";
 import { useRoute } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Save, Construction, Server, Users, Calendar, Copy, Check } from "lucide-react";
 import { EmbedBuilderTab } from "@/components/embed-builder/embed-builder-tab";
@@ -51,11 +51,36 @@ export default function ServerSettings() {
   const serverId = parseInt(params?.id || "0");
   const { toast } = useToast();
   const [activeModule, setActiveModule] = useState("general");
+  const validModules = useMemo(
+    () => new Set(MODULE_CATEGORIES.flatMap((category) => category.modules.map((module) => module.id))),
+    []
+  );
   useWebSocket(serverId);
 
   const { data: server, isLoading } = useServer(serverId);
   const updateSettings = useUpdateSettings(serverId);
   const { data: botStatus } = useBotStatus();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const requestedModule = new URLSearchParams(window.location.search).get("module");
+    if (requestedModule && validModules.has(requestedModule) && requestedModule !== activeModule) {
+      setActiveModule(requestedModule);
+    }
+  }, [activeModule, serverId, validModules]);
+
+  const handleModuleChange = (moduleId: string) => {
+    setActiveModule(moduleId);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (moduleId === "general") {
+      url.searchParams.delete("module");
+    } else {
+      url.searchParams.set("module", moduleId);
+    }
+    const query = url.searchParams.toString();
+    window.history.replaceState({}, "", `${url.pathname}${query ? `?${query}` : ""}`);
+  };
 
   if (isLoading || !server) {
     return (
@@ -176,7 +201,7 @@ export default function ServerSettings() {
 
       <ServerSettingsLayout
         activeModule={activeModule}
-        onModuleChange={setActiveModule}
+        onModuleChange={handleModuleChange}
         moduleStatuses={moduleStatuses}
         serverId={serverId}
       >

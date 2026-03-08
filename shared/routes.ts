@@ -27,6 +27,37 @@ const botStatusSchema = z.object({
   guildCount: z.number(),
 });
 
+const discordContextSchema = z.object({
+  guildId: z.string(),
+  guildName: z.string(),
+  memberCount: z.number(),
+  channels: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    parentId: z.string().nullable(),
+    position: z.number().optional(),
+    isTextBased: z.boolean().optional(),
+    isVoiceBased: z.boolean().optional(),
+    isCategory: z.boolean().optional(),
+    isThread: z.boolean().optional(),
+    nsfw: z.boolean().optional(),
+  })),
+  roles: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    color: z.number(),
+    position: z.number(),
+    managed: z.boolean().optional(),
+    mentionable: z.boolean().optional(),
+    hoist: z.boolean().optional(),
+  })),
+});
+
+const sendEmbedSchema = z.object({
+  channelId: z.string().min(1),
+});
+
 export const api = {
   stats: {
     get: { method: 'GET' as const, path: '/api/stats' as const, responses: { 200: dashboardStatsSchema } },
@@ -37,7 +68,7 @@ export const api = {
   servers: {
     list: { method: 'GET' as const, path: '/api/servers' as const, responses: { 200: z.array(z.custom<ServerResponse>()) } },
     get: { method: 'GET' as const, path: '/api/servers/:id' as const, responses: { 200: z.custom<ServerResponse>(), 404: errorSchemas.notFound } },
-    discordContext: { method: 'GET' as const, path: '/api/servers/:serverId/discord-context' as const, responses: { 200: z.any(), 404: errorSchemas.notFound } },
+    discordContext: { method: 'GET' as const, path: '/api/servers/:serverId/discord-context' as const, responses: { 200: discordContextSchema, 404: errorSchemas.notFound } },
   },
   settings: {
     update: { method: 'PATCH' as const, path: '/api/servers/:serverId/settings' as const, input: insertSettingsSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
@@ -52,6 +83,16 @@ export const api = {
     list: { method: 'GET' as const, path: '/api/servers/:serverId/embeds' as const, responses: { 200: z.array(z.custom<Embed>()) } },
     create: { method: 'POST' as const, path: '/api/servers/:serverId/embeds' as const, input: insertEmbedSchema, responses: { 201: z.custom<Embed>(), 400: errorSchemas.validation } },
     update: { method: 'PATCH' as const, path: '/api/embeds/:id' as const, input: insertEmbedSchema.partial(), responses: { 200: z.custom<Embed>(), 400: errorSchemas.validation } },
+    send: {
+      method: 'POST' as const,
+      path: '/api/servers/:serverId/embeds/:id/send' as const,
+      input: sendEmbedSchema,
+      responses: {
+        200: z.object({ messageId: z.string(), channelId: z.string() }),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
     delete: { method: 'DELETE' as const, path: '/api/embeds/:id' as const, responses: { 204: z.void(), 404: errorSchemas.notFound } },
   },
   channelSettings: {
@@ -126,4 +167,6 @@ export type CreateCommandInput = z.infer<typeof api.commands.create.input>;
 export type UpdateCommandInput = z.infer<typeof api.commands.update.input>;
 export type CreateEmbedInput = z.infer<typeof api.embeds.create.input>;
 export type UpdateEmbedInput = z.infer<typeof api.embeds.update.input>;
+export type SendEmbedInput = z.infer<typeof api.embeds.send.input>;
+export type DiscordContext = z.infer<typeof discordContextSchema>;
 

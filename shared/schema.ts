@@ -819,6 +819,17 @@ export interface CommandAction {
   amount?: number;
 }
 
+export type InteractiveReplyMode = "ephemeral" | "channel";
+
+export interface InteractiveActionConfig {
+  type: "role_add" | "role_remove" | "role_toggle" | "open_url" | "run_command";
+  roleId?: string;
+  url?: string;
+  commandName?: string;
+  commandArgs?: string;
+  replyMode?: InteractiveReplyMode;
+}
+
 // --- AUTOMATION FLOW TYPES ---
 export interface AutomationNode {
   id: string;
@@ -852,8 +863,8 @@ export interface InteractiveComponent {
   emoji?: string;
   url?: string;
   placeholder?: string;
-  options?: { label: string; value: string; description?: string; emoji?: string }[];
-  action?: CommandAction;
+  options?: { label: string; value: string; description?: string; emoji?: string; action?: InteractiveActionConfig }[];
+  action?: InteractiveActionConfig;
   rowIndex?: number;
 }
 
@@ -949,6 +960,7 @@ export interface EmbedComponentType {
   emoji?: string;
   disabled?: boolean;
   content?: string;
+  placeholder?: string;
   description?: string;
   spoiler?: boolean;
   spacing?: "small" | "large";
@@ -957,13 +969,22 @@ export interface EmbedComponentType {
   items?: EmbedMediaItem[];
   accessory?: EmbedComponentType;
   components?: EmbedComponentType[];
-  options?: { label: string; value: string; description?: string; emoji?: string }[];
+  options?: EmbedComponentOption[];
+  action?: InteractiveActionConfig;
 }
 
 export interface EmbedMediaItem {
   url: string;
   description?: string;
   spoiler?: boolean;
+}
+
+export interface EmbedComponentOption {
+  label: string;
+  value: string;
+  description?: string;
+  emoji?: string;
+  action?: InteractiveActionConfig;
 }
 
 export const COMPONENT_TYPES = {

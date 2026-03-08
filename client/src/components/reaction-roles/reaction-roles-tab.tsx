@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useReactionRoles, useCreateReactionRole, useDeleteReactionRole } from "@/hooks/use-bot";
-import { Smile, Plus, Trash2, Hash, Users, Eye, Loader2 } from "lucide-react";
+import { useReactionRoles, useCreateReactionRole, useDeleteReactionRole, useDiscordContext } from "@/hooks/use-bot";
+import { Smile, Plus, Trash2, Hash, Eye, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface ReactionRolesTabProps {
   serverId: number;
@@ -21,18 +22,24 @@ const MODE_LABELS: Record<string, string> = {
   unique: "Unique (one per group)",
 };
 
-const MODE_DESCRIPTIONS: Record<string, string> = {
-  toggle: "Clicking adds or removes the role",
-  add_only: "Clicking only adds the role",
-  remove_only: "Clicking only removes the role",
-  unique: "Only one role per group allowed",
-};
-
 export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
   const { toast } = useToast();
   const { data: reactionRoles, isLoading } = useReactionRoles(serverId);
   const createRole = useCreateReactionRole(serverId);
   const deleteRole = useDeleteReactionRole(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({ id: channel.id, label: `#${channel.name}`, description: channel.id }));
+
+  const roleOptions = (discordContext?.roles || []).map((role) => ({
+    id: role.id,
+    label: role.name,
+    description: role.id,
+  }));
+
+  const channelLabelById = new Map(textChannelOptions.map((option) => [option.id, option.label]));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [channelId, setChannelId] = useState("");
@@ -55,7 +62,7 @@ export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
 
   const handleCreate = () => {
     if (!channelId || !emoji || !roleId || !roleName) {
-      toast({ title: "Missing fields", description: "Channel ID, emoji, role ID and role name are required.", variant: "destructive" });
+      toast({ title: "Missing fields", description: "Channel, emoji, role, and role name are required.", variant: "destructive" });
       return;
     }
     createRole.mutate(
@@ -115,10 +122,15 @@ export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
             </DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Channel ID *</label>
-                  <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789" className="bg-background" data-testid="input-rr-channel-id" />
-                </div>
+                <DiscordEntityPicker
+                  label="Channel *"
+                  value={channelId}
+                  onChange={setChannelId}
+                  options={textChannelOptions}
+                  placeholder="Select channel..."
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix="input-rr-channel-id"
+                />
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Message ID</label>
                   <Input value={messageId} onChange={(e) => setMessageId(e.target.value)} placeholder="Optional" className="bg-background" data-testid="input-rr-message-id" />
@@ -127,7 +139,7 @@ export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Emoji *</label>
-                  <Input value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="e.g. :star: or custom ID" className="bg-background" data-testid="input-rr-emoji" />
+                  <Input value={emoji} onChange={(e) => setEmoji(e.target.value)} placeholder="e.g. :star: or <:name:id>" className="bg-background" data-testid="input-rr-emoji" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Mode</label>
@@ -145,10 +157,19 @@ export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Role ID *</label>
-                  <Input value={roleId} onChange={(e) => setRoleId(e.target.value)} placeholder="123456789" className="bg-background" data-testid="input-rr-role-id" />
-                </div>
+                <DiscordEntityPicker
+                  label="Role *"
+                  value={roleId}
+                  onChange={(value) => {
+                    setRoleId(value);
+                    const selectedRole = (discordContext?.roles || []).find((role) => role.id === value);
+                    if (selectedRole) setRoleName(selectedRole.name);
+                  }}
+                  options={roleOptions}
+                  placeholder="Select role..."
+                  manualPlaceholder="Role ID"
+                  testIdPrefix="input-rr-role-id"
+                />
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Role Name *</label>
                   <Input value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Member" className="bg-background" data-testid="input-rr-role-name" />
@@ -194,7 +215,7 @@ export function ReactionRolesTab({ serverId }: ReactionRolesTabProps) {
                     <Hash className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
-                    <CardTitle className="text-base font-display">Channel: {first.channelId}</CardTitle>
+                    <CardTitle className="text-base font-display">Channel: {channelLabelById.get(first.channelId) || first.channelId}</CardTitle>
                     {first.messageId && (
                       <CardDescription className="text-xs">Message: {first.messageId}</CardDescription>
                     )}

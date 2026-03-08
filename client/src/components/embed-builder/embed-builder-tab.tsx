@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useCreateEmbed, useUpdateEmbed, useDeleteEmbed } from "@/hooks/use-bot";
+import { useCreateEmbed, useUpdateEmbed, useDeleteEmbed, useDiscordContext, useSendEmbed } from "@/hooks/use-bot";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,11 +13,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Trash2, Save, Layout, Eye, Edit3, Copy, ChevronDown, ChevronUp,
   MousePointer, Type, Minus, Image, FileText, Box, Heading, Columns,
-  ArrowUp, ArrowDown, Code, Upload, Download, BookTemplate, X, Zap
+  ArrowUp, ArrowDown, Code, Upload, Download, BookTemplate, X, Zap, Send, Loader2
 } from "lucide-react";
 import { EmbedPreview, type EmbedField, type EmbedComponent } from "./embed-preview";
 import { COMPONENT_TYPES } from "@shared/schema";
-import type { Embed } from "@shared/schema";
+import type { Embed, InteractiveActionConfig, InteractiveReplyMode } from "@shared/schema";
+import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface EmbedFormState {
   name: string;
@@ -239,14 +240,49 @@ const TEMPLATES: Record<string, { name: string; form: Partial<EmbedFormState> }>
   },
 };
 
+const BUTTON_ACTION_OPTIONS: Array<{ value: InteractiveActionConfig["type"]; label: string }> = [
+  { value: "role_add", label: "Add Role" },
+  { value: "role_remove", label: "Remove Role" },
+  { value: "role_toggle", label: "Toggle Role" },
+  { value: "run_command", label: "Run Command" },
+  { value: "open_url", label: "Open URL" },
+];
+
+const SELECT_ACTION_OPTIONS: Array<{ value: InteractiveActionConfig["type"]; label: string }> = [
+  { value: "role_add", label: "Add Role" },
+  { value: "role_remove", label: "Remove Role" },
+  { value: "role_toggle", label: "Toggle Role" },
+  { value: "run_command", label: "Run Command" },
+  { value: "open_url", label: "Open URL" },
+];
+
+const ACTION_REPLY_MODE_OPTIONS: Array<{ value: InteractiveReplyMode; label: string }> = [
+  { value: "ephemeral", label: "Ephemeral Reply" },
+  { value: "channel", label: "Channel Reply" },
+];
+
+function defaultActionFor(type: InteractiveActionConfig["type"]): InteractiveActionConfig {
+  if (type === "open_url") {
+    return { type: "open_url", url: "", replyMode: "channel" };
+  }
+  if (type === "run_command") {
+    return { type: "run_command", commandName: "", commandArgs: "", replyMode: "ephemeral" };
+  }
+  return { type, roleId: "", replyMode: "ephemeral" };
+}
+
 function createDefaultComponent(type: number): EmbedComponent {
   switch (type) {
     case 1:
       return { type: 1, content: "Header Text" };
     case COMPONENT_TYPES.BUTTON:
-      return { type: 2, label: "Button", style: 1, customId: `btn_${Date.now()}` };
+      return { type: 2, label: "Button", style: 1, action: defaultActionFor("run_command") };
     case COMPONENT_TYPES.SELECT_MENU:
-      return { type: 3, label: "Select an option", customId: `select_${Date.now()}`, options: [{ label: "Option 1", value: "opt1" }] };
+      return {
+        type: 3,
+        placeholder: "Select an option",
+        options: [{ label: "Option 1", value: "opt1", action: defaultActionFor("run_command") }],
+      };
     case COMPONENT_TYPES.THUMBNAIL:
       return { type: 7, url: "", description: "" };
     case COMPONENT_TYPES.SECTION:
@@ -347,6 +383,9 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const [editorTab, setEditorTab] = useState<"visual" | "json" | "preview">("visual");
   const [liveJson, setLiveJson] = useState(() => JSON.stringify(formToJson(DEFAULT_FORM), null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [showSendDialog, setShowSendDialog] = useState(false);
+  const [sendTargetId, setSendTargetId] = useState<number | null>(null);
+  const [sendChannelId, setSendChannelId] = useState("");
   const jsonUpdatingFromForm = useRef(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     basic: true,
@@ -360,6 +399,16 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
   const createEmbed = useCreateEmbed(serverId);
   const updateEmbed = useUpdateEmbed(serverId);
   const deleteEmbed = useDeleteEmbed(serverId);
+  const sendEmbed = useSendEmbed(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -449,43 +498,88 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     setSelectedComponentIndex(null);
   };
 
-  const saveEmbed = () => {
+  const buildEmbedPayload = () => ({
+    name: form.name,
+    title: form.title || null,
+    description: form.description || null,
+    url: form.url || null,
+    color: form.color || null,
+    timestamp: form.timestamp,
+    footerText: form.footerText || null,
+    footerIconUrl: form.footerIconUrl || null,
+    imageUrl: form.imageUrl || null,
+    thumbnailUrl: form.thumbnailUrl || null,
+    authorName: form.authorName || null,
+    authorUrl: form.authorUrl || null,
+    authorIconUrl: form.authorIconUrl || null,
+    fields: form.fields,
+    components: form.components,
+  });
+
+  const persistCurrentEmbed = async (): Promise<number | null> => {
     if (!form.name.trim()) {
       toast({ title: "Name required", description: "Give your embed a name to save it.", variant: "destructive" });
+      return null;
+    }
+
+    const payload = buildEmbedPayload();
+
+    try {
+      if (editingId) {
+        await updateEmbed.mutateAsync({ id: editingId, data: payload });
+        return editingId;
+      }
+
+      const created = await createEmbed.mutateAsync(payload as any);
+      setEditingId(created.id);
+      return created.id;
+    } catch (err: any) {
+      toast({ title: "Save failed", description: err?.message || "Unable to save embed.", variant: "destructive" });
+      return null;
+    }
+  };
+
+  const saveEmbed = async () => {
+    const wasEditing = editingId !== null;
+    const savedId = await persistCurrentEmbed();
+    if (!savedId) return;
+
+    toast({
+      title: wasEditing ? "Embed updated" : "Embed created",
+      description: `"${form.name}" saved successfully.`,
+    });
+    setShowBuilder(false);
+  };
+
+  const openSendDialogForEmbed = (embedId: number | null) => {
+    setSendTargetId(embedId);
+    setSendChannelId("");
+    setShowSendDialog(true);
+  };
+
+  const handleSendEmbed = async () => {
+    if (!sendChannelId.trim()) {
+      toast({ title: "Channel required", description: "Pick a destination channel first.", variant: "destructive" });
       return;
     }
 
-    const payload = {
-      name: form.name,
-      title: form.title || null,
-      description: form.description || null,
-      url: form.url || null,
-      color: form.color || null,
-      timestamp: form.timestamp,
-      footerText: form.footerText || null,
-      footerIconUrl: form.footerIconUrl || null,
-      imageUrl: form.imageUrl || null,
-      thumbnailUrl: form.thumbnailUrl || null,
-      authorName: form.authorName || null,
-      authorUrl: form.authorUrl || null,
-      authorIconUrl: form.authorIconUrl || null,
-      fields: form.fields,
-      components: form.components,
-    };
+    let targetId = sendTargetId;
+    if (!targetId) {
+      targetId = await persistCurrentEmbed();
+      if (!targetId) return;
+      toast({ title: "Embed saved", description: "Saved current changes before sending." });
+      setSendTargetId(targetId);
+    }
 
-    if (editingId) {
-      updateEmbed.mutate({ id: editingId, data: payload }, {
-        onSuccess: () => {
-          toast({ title: "Embed updated", description: `"${form.name}" saved successfully.` });
-          setShowBuilder(false);
-        },
-      });
-    } else {
-      createEmbed.mutate(payload as any, {
-        onSuccess: () => {
-          toast({ title: "Embed created", description: `"${form.name}" created successfully.` });
-          setShowBuilder(false);
-        },
+    try {
+      await sendEmbed.mutateAsync({ id: targetId, channelId: sendChannelId.trim() });
+      toast({ title: "Embed sent", description: "Your embed was sent to the selected channel." });
+      setShowSendDialog(false);
+    } catch (err: any) {
+      toast({
+        title: "Send failed",
+        description: err?.message || "Unable to send embed. Verify bot access to that channel.",
+        variant: "destructive",
       });
     }
   };
@@ -577,14 +671,44 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
     const comp = form.components[compIndex];
     const opts = comp.options || [];
     updateComponent(compIndex, {
-      options: [...opts, { label: `Option ${opts.length + 1}`, value: `opt${opts.length + 1}` }],
+      options: [
+        ...opts,
+        {
+          label: `Option ${opts.length + 1}`,
+          value: `opt${opts.length + 1}`,
+          action: defaultActionFor("run_command"),
+        },
+      ],
     });
   };
 
-  const updateSelectOption = (compIndex: number, optIndex: number, key: string, value: string) => {
+  const updateSelectOption = (
+    compIndex: number,
+    optIndex: number,
+    key: "label" | "value" | "description" | "emoji",
+    value: string
+  ) => {
     const comp = form.components[compIndex];
     const opts = [...(comp.options || [])];
     opts[optIndex] = { ...opts[optIndex], [key]: value };
+    updateComponent(compIndex, { options: opts });
+  };
+
+  const updateSelectOptionAction = (
+    compIndex: number,
+    optIndex: number,
+    actionUpdates: Partial<InteractiveActionConfig>
+  ) => {
+    const comp = form.components[compIndex];
+    const opts = [...(comp.options || [])];
+    const existing = opts[optIndex]?.action || defaultActionFor("run_command");
+    opts[optIndex] = {
+      ...opts[optIndex],
+      action: {
+        ...existing,
+        ...actionUpdates,
+      },
+    };
     updateComponent(compIndex, { options: opts });
   };
 
@@ -865,84 +989,418 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
           </div>
         )}
 
-        {comp.type === 2 && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">Label</Label>
-                <Input value={comp.label || ""} onChange={(e) => onUpdate({ label: e.target.value })} placeholder="Click me" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-label-${index}`} />
+        {comp.type === 2 && (() => {
+          const currentAction: InteractiveActionConfig =
+            comp.action
+            || (comp.style === 5
+              ? { type: "open_url", url: comp.url || "", replyMode: "channel" }
+              : defaultActionFor("run_command"));
+          const actionType = currentAction.type;
+
+          const updateButtonAction = (updates: Partial<InteractiveActionConfig>) => {
+            const nextAction = { ...currentAction, ...updates } as InteractiveActionConfig;
+            const nextStyle =
+              nextAction.type === "open_url"
+                ? 5
+                : comp.style === 5
+                  ? 1
+                  : (comp.style || 1);
+            onUpdate({
+              action: nextAction,
+              style: nextStyle,
+              url: nextAction.type === "open_url" ? nextAction.url || "" : comp.url,
+            });
+          };
+
+          return (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Label</Label>
+                  <Input value={comp.label || ""} onChange={(e) => onUpdate({ label: e.target.value })} placeholder="Click me" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-label-${index}`} />
+                </div>
+                <div>
+                  <Label className="text-xs">Style</Label>
+                  <Select
+                    value={String(actionType === "open_url" ? 5 : (comp.style || 1))}
+                    onValueChange={(v) => {
+                      const styleValue = parseInt(v);
+                      if (styleValue === 5) {
+                        updateButtonAction({ type: "open_url" });
+                        return;
+                      }
+                      onUpdate({ style: styleValue });
+                    }}
+                  >
+                    <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-style-${index}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Primary</SelectItem>
+                      <SelectItem value="2">Secondary</SelectItem>
+                      <SelectItem value="3">Success</SelectItem>
+                      <SelectItem value="4">Danger</SelectItem>
+                      <SelectItem value="5">Link</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label className="text-xs">Style</Label>
-                <Select value={String(comp.style || 1)} onValueChange={(v) => onUpdate({ style: parseInt(v) })}>
-                  <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-style-${index}`}>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Emoji</Label>
+                  <Input value={comp.emoji || ""} onChange={(e) => onUpdate({ emoji: e.target.value })} placeholder="icon" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-emoji-${index}`} />
+                </div>
+                <div className="flex items-end pb-1">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={comp.disabled || false} onCheckedChange={(v) => onUpdate({ disabled: v })} className="scale-75" data-testid={`button-disabled-${index}`} />
+                    <Label className="text-xs text-muted-foreground">Disabled</Label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-white/10 bg-background/20 p-3 space-y-2">
+                <Label className="text-xs text-muted-foreground">Button Action</Label>
+                <Select
+                  value={actionType}
+                  onValueChange={(value) => {
+                    const type = value as InteractiveActionConfig["type"];
+                    const nextAction = {
+                      ...defaultActionFor(type),
+                      ...currentAction,
+                      type,
+                    } as InteractiveActionConfig;
+
+                    if (type !== "open_url") {
+                      delete nextAction.url;
+                    }
+                    if (type === "open_url") {
+                      onUpdate({
+                        action: nextAction,
+                        style: 5,
+                        url: nextAction.url || comp.url || "",
+                      });
+                    } else {
+                      onUpdate({
+                        action: nextAction,
+                        style: comp.style === 5 ? 1 : (comp.style || 1),
+                      });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs" data-testid={`button-action-type-${index}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">Primary</SelectItem>
-                    <SelectItem value="2">Secondary</SelectItem>
-                    <SelectItem value="3">Success</SelectItem>
-                    <SelectItem value="4">Danger</SelectItem>
-                    <SelectItem value="5">Link</SelectItem>
+                    {BUTTON_ACTION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">{comp.style === 5 ? "URL" : "Custom ID"}</Label>
-                <Input
-                  value={comp.style === 5 ? comp.url || "" : comp.customId || ""}
-                  onChange={(e) => comp.style === 5 ? onUpdate({ url: e.target.value }) : onUpdate({ customId: e.target.value })}
-                  placeholder={comp.style === 5 ? "https://..." : "custom_id"}
-                  className="bg-background/50 border-white/10 h-8 text-xs mt-1"
-                  data-testid={`button-id-${index}`}
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Emoji</Label>
-                <Input value={comp.emoji || ""} onChange={(e) => onUpdate({ emoji: e.target.value })} placeholder="icon" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-emoji-${index}`} />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={comp.disabled || false} onCheckedChange={(v) => onUpdate({ disabled: v })} className="scale-75" data-testid={`button-disabled-${index}`} />
-              <Label className="text-xs text-muted-foreground">Disabled</Label>
-            </div>
-          </>
-        )}
 
-        {comp.type === 3 && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-xs">Placeholder</Label>
-                <Input value={comp.label || ""} onChange={(e) => onUpdate({ label: e.target.value })} placeholder="Select an option..." className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-placeholder-${index}`} />
-              </div>
-              <div>
-                <Label className="text-xs">Custom ID</Label>
-                <Input value={comp.customId || ""} onChange={(e) => onUpdate({ customId: e.target.value })} placeholder="select_id" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-id-${index}`} />
-              </div>
-            </div>
-            <div className="space-y-2 mt-2">
-              <Label className="text-xs text-muted-foreground">Options</Label>
-              {(comp.options || []).map((opt, oi) => (
-                <div key={oi} className="flex gap-2 items-start">
-                  <div className="flex-1 grid grid-cols-3 gap-1">
-                    <Input value={opt.label} onChange={(e) => updateSelectOption(index, oi, "label", e.target.value)} placeholder="Label" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-label-${index}-${oi}`} />
-                    <Input value={opt.value} onChange={(e) => updateSelectOption(index, oi, "value", e.target.value)} placeholder="Value" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-value-${index}-${oi}`} />
-                    <Input value={opt.description || ""} onChange={(e) => updateSelectOption(index, oi, "description", e.target.value)} placeholder="Description" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-desc-${index}-${oi}`} />
+                {(actionType === "role_add" || actionType === "role_remove" || actionType === "role_toggle") && (
+                  <DiscordEntityPicker
+                    value={currentAction.roleId || ""}
+                    onChange={(value) => updateButtonAction({ roleId: value })}
+                    options={(discordContext?.roles || []).map((role) => ({ id: role.id, label: role.name, description: role.id }))}
+                    placeholder="Select role..."
+                    manualPlaceholder="Role ID"
+                    testIdPrefix={`button-action-role-${index}`}
+                  />
+                )}
+
+                {actionType === "open_url" && (
+                  <div>
+                    <Label className="text-xs">URL</Label>
+                    <Input
+                      value={currentAction.url || comp.url || ""}
+                      onChange={(e) => updateButtonAction({ url: e.target.value })}
+                      placeholder="https://..."
+                      className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                      data-testid={`button-action-url-${index}`}
+                    />
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => removeSelectOption(index, oi)} className="h-7 w-7 text-destructive shrink-0" data-testid={`remove-select-opt-${index}-${oi}`}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+                )}
+
+                {actionType === "run_command" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Command Name</Label>
+                      <Input
+                        value={currentAction.commandName || ""}
+                        onChange={(e) => updateButtonAction({ commandName: e.target.value })}
+                        placeholder="command-name"
+                        className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                        data-testid={`button-action-command-${index}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Command Args (optional)</Label>
+                      <Input
+                        value={currentAction.commandArgs || ""}
+                        onChange={(e) => updateButtonAction({ commandArgs: e.target.value })}
+                        placeholder="arg1 arg2"
+                        className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                        data-testid={`button-action-args-${index}`}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {actionType !== "open_url" && (
+                  <div>
+                    <Label className="text-xs">Reply Mode</Label>
+                    <Select
+                      value={currentAction.replyMode || "ephemeral"}
+                      onValueChange={(value) => updateButtonAction({ replyMode: value as InteractiveReplyMode })}
+                    >
+                      <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`button-action-reply-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACTION_REPLY_MODE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
+
+        {comp.type === 3 && (() => {
+          const defaultSelectAction = comp.action || defaultActionFor("run_command");
+
+          const updateSelectAction = (updates: Partial<InteractiveActionConfig>) => {
+            onUpdate({
+              action: {
+                ...defaultSelectAction,
+                ...updates,
+              },
+            });
+          };
+
+          return (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Placeholder</Label>
+                  <Input
+                    value={comp.placeholder || comp.label || ""}
+                    onChange={(e) => onUpdate({ placeholder: e.target.value, label: e.target.value })}
+                    placeholder="Select an option..."
+                    className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                    data-testid={`select-placeholder-${index}`}
+                  />
                 </div>
-              ))}
-              <Button variant="outline" size="sm" onClick={() => addSelectOption(index)} className="w-full border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-select-opt-${index}`}>
-                <Plus className="w-3 h-3" /> Add Option
-              </Button>
-            </div>
-          </>
-        )}
+                <div>
+                  <Label className="text-xs">Custom ID</Label>
+                  <Input value={comp.customId || ""} onChange={(e) => onUpdate({ customId: e.target.value })} placeholder="select_id" className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-id-${index}`} />
+                </div>
+              </div>
+
+              <div className="rounded-md border border-white/10 bg-background/20 p-3 space-y-2">
+                <Label className="text-xs text-muted-foreground">Default Select Action</Label>
+                <Select
+                  value={defaultSelectAction.type}
+                  onValueChange={(value) => {
+                    const type = value as InteractiveActionConfig["type"];
+                    updateSelectAction({ ...defaultActionFor(type), type });
+                  }}
+                >
+                  <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs" data-testid={`select-action-type-${index}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SELECT_ACTION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {(defaultSelectAction.type === "role_add" || defaultSelectAction.type === "role_remove" || defaultSelectAction.type === "role_toggle") && (
+                  <DiscordEntityPicker
+                    value={defaultSelectAction.roleId || ""}
+                    onChange={(value) => updateSelectAction({ roleId: value })}
+                    options={(discordContext?.roles || []).map((role) => ({ id: role.id, label: role.name, description: role.id }))}
+                    placeholder="Select role..."
+                    manualPlaceholder="Role ID"
+                    testIdPrefix={`select-action-role-${index}`}
+                  />
+                )}
+
+                {defaultSelectAction.type === "run_command" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Command Name</Label>
+                      <Input
+                        value={defaultSelectAction.commandName || ""}
+                        onChange={(e) => updateSelectAction({ commandName: e.target.value })}
+                        placeholder="command-name"
+                        className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                        data-testid={`select-action-command-${index}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Command Args (optional)</Label>
+                      <Input
+                        value={defaultSelectAction.commandArgs || ""}
+                        onChange={(e) => updateSelectAction({ commandArgs: e.target.value })}
+                        placeholder="arg1 arg2"
+                        className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                        data-testid={`select-action-args-${index}`}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {defaultSelectAction.type === "open_url" && (
+                  <div>
+                    <Label className="text-xs">URL</Label>
+                    <Input
+                      value={defaultSelectAction.url || ""}
+                      onChange={(e) => updateSelectAction({ url: e.target.value })}
+                      placeholder="https://..."
+                      className="bg-background/50 border-white/10 h-8 text-xs mt-1"
+                      data-testid={`select-action-url-${index}`}
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-xs">Reply Mode</Label>
+                  <Select
+                    value={defaultSelectAction.replyMode || "ephemeral"}
+                    onValueChange={(value) => updateSelectAction({ replyMode: value as InteractiveReplyMode })}
+                  >
+                    <SelectTrigger className="bg-background/50 border-white/10 h-8 text-xs mt-1" data-testid={`select-action-reply-${index}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTION_REPLY_MODE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2 mt-2">
+                <Label className="text-xs text-muted-foreground">Options</Label>
+                {(comp.options || []).map((opt, oi) => {
+                  const optionAction = opt.action || defaultSelectAction;
+                  return (
+                    <div key={oi} className="rounded-md border border-white/10 bg-background/20 p-2 space-y-2">
+                      <div className="flex gap-2 items-start">
+                        <div className="flex-1 grid grid-cols-3 gap-1">
+                          <Input value={opt.label} onChange={(e) => updateSelectOption(index, oi, "label", e.target.value)} placeholder="Label" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-label-${index}-${oi}`} />
+                          <Input value={opt.value} onChange={(e) => updateSelectOption(index, oi, "value", e.target.value)} placeholder="Value" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-value-${index}-${oi}`} />
+                          <Input value={opt.description || ""} onChange={(e) => updateSelectOption(index, oi, "description", e.target.value)} placeholder="Description" className="bg-background/50 border-white/10 h-7 text-xs" data-testid={`select-opt-desc-${index}-${oi}`} />
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={() => removeSelectOption(index, oi)} className="h-7 w-7 text-destructive shrink-0" data-testid={`remove-select-opt-${index}-${oi}`}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Option Action</Label>
+                          <Select
+                            value={optionAction.type}
+                            onValueChange={(value) => {
+                              const type = value as InteractiveActionConfig["type"];
+                              updateSelectOptionAction(index, oi, { ...defaultActionFor(type), type });
+                            }}
+                          >
+                            <SelectTrigger className="bg-background/50 border-white/10 h-7 text-xs mt-1" data-testid={`select-opt-action-type-${index}-${oi}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SELECT_ACTION_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs">Reply Mode</Label>
+                          <Select
+                            value={optionAction.replyMode || "ephemeral"}
+                            onValueChange={(value) => updateSelectOptionAction(index, oi, { replyMode: value as InteractiveReplyMode })}
+                          >
+                            <SelectTrigger className="bg-background/50 border-white/10 h-7 text-xs mt-1" data-testid={`select-opt-action-reply-${index}-${oi}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ACTION_REPLY_MODE_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      {(optionAction.type === "role_add" || optionAction.type === "role_remove" || optionAction.type === "role_toggle") && (
+                        <DiscordEntityPicker
+                          value={optionAction.roleId || ""}
+                          onChange={(value) => updateSelectOptionAction(index, oi, { roleId: value })}
+                          options={(discordContext?.roles || []).map((role) => ({ id: role.id, label: role.name, description: role.id }))}
+                          placeholder="Select role..."
+                          manualPlaceholder="Role ID"
+                          testIdPrefix={`select-opt-action-role-${index}-${oi}`}
+                        />
+                      )}
+
+                      {optionAction.type === "run_command" && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">Command Name</Label>
+                            <Input
+                              value={optionAction.commandName || ""}
+                              onChange={(e) => updateSelectOptionAction(index, oi, { commandName: e.target.value })}
+                              placeholder="command-name"
+                              className="bg-background/50 border-white/10 h-7 text-xs mt-1"
+                              data-testid={`select-opt-action-command-${index}-${oi}`}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Command Args</Label>
+                            <Input
+                              value={optionAction.commandArgs || ""}
+                              onChange={(e) => updateSelectOptionAction(index, oi, { commandArgs: e.target.value })}
+                              placeholder="arg1 arg2"
+                              className="bg-background/50 border-white/10 h-7 text-xs mt-1"
+                              data-testid={`select-opt-action-args-${index}-${oi}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {optionAction.type === "open_url" && (
+                        <div>
+                          <Label className="text-xs">URL</Label>
+                          <Input
+                            value={optionAction.url || ""}
+                            onChange={(e) => updateSelectOptionAction(index, oi, { url: e.target.value })}
+                            placeholder="https://..."
+                            className="bg-background/50 border-white/10 h-7 text-xs mt-1"
+                            data-testid={`select-opt-action-url-${index}-${oi}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <Button variant="outline" size="sm" onClick={() => addSelectOption(index)} className="w-full border-dashed border-white/10 text-muted-foreground text-xs h-7 gap-1" data-testid={`add-select-opt-${index}`}>
+                  <Plus className="w-3 h-3" /> Add Option
+                </Button>
+              </div>
+            </>
+          );
+        })()}
       </div>
     );
   };
@@ -961,7 +1419,17 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
             <Button variant="outline" size="sm" onClick={handleJsonExport} className="gap-1" data-testid="button-json-export">
               <Download className="w-3 h-3" /> Export JSON
             </Button>
-            <Button onClick={saveEmbed} disabled={createEmbed.isPending || updateEmbed.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="save-embed">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openSendDialogForEmbed(editingId)}
+              disabled={sendEmbed.isPending}
+              className="gap-1"
+              data-testid="button-send-embed"
+            >
+              <Send className="w-3 h-3" /> Send Embed
+            </Button>
+            <Button onClick={() => { void saveEmbed(); }} disabled={createEmbed.isPending || updateEmbed.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground box-glow gap-2" data-testid="save-embed">
               <Save className="w-4 h-4" />
               {createEmbed.isPending || updateEmbed.isPending ? "Saving..." : editingId ? "Update Embed" : "Save Embed"}
             </Button>
@@ -1130,7 +1598,7 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <Label className="text-sm font-medium">Discord Embed JSON</Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">Edit either side — both sync in real time</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Edit either side - both sync in real time</p>
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => { navigator.clipboard.writeText(liveJson); toast({ title: "Copied", description: "JSON copied to clipboard." }); }} data-testid="button-copy-live-json">
@@ -1222,6 +1690,47 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
           </DialogContent>
         </Dialog>
 
+        <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-display">Send Embed</DialogTitle>
+              <DialogDescription>Choose a destination channel and dispatch this embed from the bot.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <DiscordEntityPicker
+                label="Destination Channel"
+                value={sendChannelId}
+                onChange={setSendChannelId}
+                options={textChannelOptions}
+                placeholder="Select text channel..."
+                manualPlaceholder="Channel ID"
+                testIdPrefix="send-embed-channel"
+              />
+              <p className="text-xs text-muted-foreground">
+                If this embed has unsaved changes, Archivist saves it first before sending.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowSendDialog(false)} data-testid="button-send-embed-cancel">
+                Cancel
+              </Button>
+              <Button onClick={() => { void handleSendEmbed(); }} disabled={sendEmbed.isPending} className="gap-2" data-testid="button-send-embed-confirm">
+                {sendEmbed.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Now
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={showJsonDialog} onOpenChange={setShowJsonDialog}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -1296,6 +1805,9 @@ export function EmbedBuilderTab({ serverId, embeds, toast }: { serverId: number;
                     <CardTitle className="text-sm truncate">{embed.name}</CardTitle>
                   </div>
                   <div className="flex gap-1 invisible group-hover:visible">
+                    <Button variant="ghost" size="icon" onClick={() => openSendDialogForEmbed(embed.id)} className="h-7 w-7" data-testid={`send-embed-${embed.id}`}>
+                      <Send className="w-3 h-3" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => duplicateEmbed(embed)} className="h-7 w-7" data-testid={`duplicate-embed-${embed.id}`}>
                       <Copy className="w-3 h-3" />
                     </Button>

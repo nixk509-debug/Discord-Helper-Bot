@@ -44,6 +44,7 @@ import {
   useUpsertPunishment,
   useDeletePunishment,
   useUpdateSettings,
+  useDiscordContext,
 } from "@/hooks/use-bot";
 import type { Warning, PunishmentConfigType, ServerSettings } from "@shared/schema";
 import {
@@ -64,6 +65,7 @@ import {
   Ban,
   MessageSquareWarning,
 } from "lucide-react";
+import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface ModerationTabProps {
   serverId: number;
@@ -113,6 +115,20 @@ export function ModerationTab({ serverId, settings }: ModerationTabProps) {
   const upsertPunishment = useUpsertPunishment(serverId);
   const deletePunishment = useDeletePunishment(serverId);
   const updateSettings = useUpdateSettings(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const roleOptions = (discordContext?.roles || []).map((role) => ({
+    id: role.id,
+    label: role.name,
+    description: role.id,
+  }));
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
 
   const allWarnings: Warning[] = warningsData || [];
   const punishments: PunishmentConfigType[] = punishmentsData || [];
@@ -619,28 +635,32 @@ export function ModerationTab({ serverId, settings }: ModerationTabProps) {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium flex items-center gap-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 mb-1">
                 <Hash className="w-3.5 h-3.5 text-muted-foreground" />
                 Mute Role ID
               </label>
-              <Input
-                placeholder="Role ID for muted users"
+              <DiscordEntityPicker
                 value={muteRoleId}
-                onChange={(e) => setMuteRoleId(e.target.value)}
-                data-testid="input-mute-role-id"
+                onChange={setMuteRoleId}
+                options={roleOptions}
+                placeholder="Select mute role..."
+                manualPlaceholder="Role ID"
+                testIdPrefix="input-mute-role-id"
               />
               <p className="text-xs text-muted-foreground">The role assigned to muted users</p>
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium flex items-center gap-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 mb-1">
                 <Hash className="w-3.5 h-3.5 text-muted-foreground" />
                 Mod Log Channel ID
               </label>
-              <Input
-                placeholder="Channel ID for mod logs"
+              <DiscordEntityPicker
                 value={modLogChannelId}
-                onChange={(e) => setModLogChannelId(e.target.value)}
-                data-testid="input-mod-log-channel-id"
+                onChange={setModLogChannelId}
+                options={textChannelOptions}
+                placeholder="Select mod-log channel..."
+                manualPlaceholder="Channel ID"
+                testIdPrefix="input-mod-log-channel-id"
               />
               <p className="text-xs text-muted-foreground">Channel where moderation actions are logged</p>
             </div>

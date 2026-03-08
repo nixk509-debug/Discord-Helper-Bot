@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useGiveaways, useCreateGiveaway, useUpdateGiveaway, useDeleteGiveaway } from "@/hooks/use-bot";
+import { useGiveaways, useCreateGiveaway, useUpdateGiveaway, useDeleteGiveaway, useDiscordContext } from "@/hooks/use-bot";
 import { Gift, Plus, Trash2, Edit, Loader2, RotateCcw, Users, Trophy } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Giveaway } from "@shared/schema";
+import { DiscordEntityPicker, type DiscordEntityOption } from "@/components/discord/entity-pickers";
 
 interface GiveawaysTabProps {
   serverId: number;
@@ -22,12 +23,16 @@ function GiveawayFormDialog({
   onSave,
   initial,
   isSaving,
+  channelOptions,
+  roleOptions,
 }: {
   open: boolean;
   onClose: () => void;
   onSave: (data: any) => void;
   initial?: Partial<Giveaway>;
   isSaving: boolean;
+  channelOptions: DiscordEntityOption[];
+  roleOptions: DiscordEntityOption[];
 }) {
   const [prize, setPrize] = useState(initial?.prize ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -86,8 +91,15 @@ function GiveawayFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Channel ID</Label>
-            <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="Channel to post giveaway" data-testid="input-giveaway-channel" />
+            <DiscordEntityPicker
+              label="Channel ID"
+              value={channelId}
+              onChange={setChannelId}
+              options={channelOptions}
+              placeholder="Select giveaway channel..."
+              manualPlaceholder="Channel ID"
+              testIdPrefix="input-giveaway-channel"
+            />
           </div>
 
           <div className="space-y-2">
@@ -147,12 +159,14 @@ function GiveawayFormDialog({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Required Role ID</Label>
-                <Input
+                <DiscordEntityPicker
+                  label="Required Role ID"
                   value={requiredRoleId}
-                  onChange={(e) => setRequiredRoleId(e.target.value)}
-                  placeholder="Role ID"
-                  data-testid="input-giveaway-required-role"
+                  onChange={setRequiredRoleId}
+                  options={roleOptions}
+                  placeholder="Select role..."
+                  manualPlaceholder="Role ID"
+                  testIdPrefix="input-giveaway-required-role"
                 />
               </div>
               <div className="space-y-1">
@@ -191,6 +205,13 @@ export function GiveawaysTab({ serverId }: GiveawaysTabProps) {
   const createGiveaway = useCreateGiveaway(serverId);
   const updateGiveaway = useUpdateGiveaway(serverId);
   const deleteGiveaway = useDeleteGiveaway(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const channelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({ id: channel.id, label: `#${channel.name}`, description: channel.id }));
+  const roleOptions = (discordContext?.roles || [])
+    .map((role) => ({ id: role.id, label: role.name, description: role.id }));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingGiveaway, setEditingGiveaway] = useState<Giveaway | null>(null);
@@ -358,6 +379,8 @@ export function GiveawaysTab({ serverId }: GiveawaysTabProps) {
         onSave={handleSave}
         initial={editingGiveaway ?? undefined}
         isSaving={createGiveaway.isPending || updateGiveaway.isPending}
+        channelOptions={channelOptions}
+        roleOptions={roleOptions}
       />
     </div>
   );

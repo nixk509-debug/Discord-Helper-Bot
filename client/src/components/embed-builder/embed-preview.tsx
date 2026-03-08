@@ -172,7 +172,7 @@ function ComponentRenderer({ component, depth = 0 }: { component: EmbedComponent
       return (
         <div className="w-full max-w-[400px]">
           <div className="bg-[#1E1F22] text-[#949BA4] rounded px-3 py-2 text-sm flex items-center justify-between cursor-pointer hover:bg-[#2B2D31] border border-[#3F4147]">
-            <span>{component.options?.[0]?.label || component.label || "Select an option..."}</span>
+            <span>{component.placeholder || component.options?.[0]?.label || component.label || "Select an option..."}</span>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>

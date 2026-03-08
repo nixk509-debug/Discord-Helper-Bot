@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -40,6 +40,7 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { SymbolInsertMenu } from "@/components/symbols/symbol-insert-menu";
 
 interface Member {
   userId: string;
@@ -90,6 +91,7 @@ function MemberProfileSheet({
   const { toast } = useToast();
   const [newNote, setNewNote] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: profile, isLoading } = useQuery<MemberProfile>({
     queryKey: ["/api/servers", serverId, "members", member?.userId],
@@ -167,7 +169,7 @@ function MemberProfileSheet({
                       <Coins className="w-3 h-3" /> Balance
                     </p>
                     <p className="text-xl font-display font-bold">
-                      {profile?.economy ? profile.economy.balance.toLocaleString() : "—"}
+                      {profile?.economy ? profile.economy.balance.toLocaleString() : "-"}
                     </p>
                   </div>
                 </div>
@@ -205,8 +207,19 @@ function MemberProfileSheet({
 
               <TabsContent value="notes" className="p-6 space-y-4 mt-0">
                 <div className="space-y-2">
-                  <Label>Add Note</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>Add Note</Label>
+                    <SymbolInsertMenu
+                      value={newNote}
+                      onChange={setNewNote}
+                      targetRef={noteInputRef}
+                      recentKey="archivist.members.note.symbols"
+                      buttonLabel="Symbols/Borders"
+                      testIdPrefix="member-note-symbols"
+                    />
+                  </div>
                   <Textarea
+                    ref={noteInputRef}
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
                     placeholder="Write a mod note about this member..."
@@ -283,7 +296,7 @@ function MemberProfileSheet({
                         <Coins className="w-3.5 h-3.5 text-primary" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium">{t.type} — {t.amount > 0 ? "+" : ""}{t.amount.toLocaleString()} coins</p>
+                        <p className="text-sm font-medium">{t.type} - {t.amount > 0 ? "+" : ""}{t.amount.toLocaleString()} coins</p>
                         {t.description && <p className="text-xs text-muted-foreground">{t.description}</p>}
                         <p className="text-xs text-muted-foreground">{new Date(t.createdAt).toLocaleString()}</p>
                       </div>
@@ -315,6 +328,7 @@ export default function MembersPage() {
   const [bulkAction, setBulkAction] = useState("");
   const [bulkReason, setBulkReason] = useState("");
   const [filterWarnings, setFilterWarnings] = useState(false);
+  const bulkReasonRef = useRef<HTMLInputElement>(null);
 
   const limit = 50;
 
@@ -436,13 +450,24 @@ export default function MembersPage() {
                   </SelectContent>
                 </Select>
                 {bulkAction === "addWarning" && (
-                  <Input
-                    placeholder="Reason..."
-                    value={bulkReason}
-                    onChange={(e) => setBulkReason(e.target.value)}
-                    className="bg-background w-48"
-                    data-testid="input-bulk-reason"
-                  />
+                  <>
+                    <Input
+                      ref={bulkReasonRef}
+                      placeholder="Reason..."
+                      value={bulkReason}
+                      onChange={(e) => setBulkReason(e.target.value)}
+                      className="bg-background w-48"
+                      data-testid="input-bulk-reason"
+                    />
+                    <SymbolInsertMenu
+                      value={bulkReason}
+                      onChange={setBulkReason}
+                      targetRef={bulkReasonRef}
+                      recentKey="archivist.members.bulk.symbols"
+                      buttonLabel="Symbols"
+                      testIdPrefix="bulk-reason-symbols"
+                    />
+                  </>
                 )}
                 <Button size="sm" onClick={() => bulkMutation.mutate()} disabled={!bulkAction || bulkMutation.isPending} data-testid="button-apply-bulk">
                   Apply
@@ -532,7 +557,7 @@ export default function MembersPage() {
                                 {member.warningCount}
                               </Badge>
                             ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
+                              <span className="text-sm text-muted-foreground">-</span>
                             )}
                           </td>
                           <td
@@ -545,7 +570,7 @@ export default function MembersPage() {
                                 {member.noteCount}
                               </div>
                             ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
+                              <span className="text-sm text-muted-foreground">-</span>
                             )}
                           </td>
                           <td
@@ -558,7 +583,7 @@ export default function MembersPage() {
                                 {member.economyBalance.toLocaleString()}
                               </div>
                             ) : (
-                              <span className="text-sm text-muted-foreground">—</span>
+                              <span className="text-sm text-muted-foreground">-</span>
                             )}
                           </td>
                           <td className="px-4 py-3">

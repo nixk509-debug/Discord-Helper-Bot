@@ -8,10 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useScheduledMessages, useCreateScheduledMessage, useUpdateScheduledMessage, useDeleteScheduledMessage } from "@/hooks/use-bot";
+import { useScheduledMessages, useCreateScheduledMessage, useUpdateScheduledMessage, useDeleteScheduledMessage, useDiscordContext } from "@/hooks/use-bot";
 import { Clock, Plus, Trash2, Save, Loader2, Hash, Calendar, Play, Pause, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
+import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
 
 interface ScheduledMessagesTabProps {
   serverId: number;
@@ -51,6 +52,15 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
   const createMsg = useCreateScheduledMessage(serverId);
   const updateMsg = useUpdateScheduledMessage(serverId);
   const deleteMsg = useDeleteScheduledMessage(serverId);
+  const { data: discordContext } = useDiscordContext(serverId);
+
+  const textChannelOptions = (discordContext?.channels || [])
+    .filter((channel) => channel.isTextBased && !channel.isThread && !channel.isCategory)
+    .map((channel) => ({
+      id: channel.id,
+      label: `#${channel.name}`,
+      description: channel.id,
+    }));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -182,8 +192,15 @@ export function ScheduledMessagesTab({ serverId }: ScheduledMessagesTabProps) {
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Channel ID *</label>
-                <Input value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="123456789012345678" className="bg-background" data-testid="input-sched-channel" />
+                <DiscordEntityPicker
+                  label="Channel ID *"
+                  value={channelId}
+                  onChange={setChannelId}
+                  options={textChannelOptions}
+                  placeholder="Select destination channel..."
+                  manualPlaceholder="Channel ID"
+                  testIdPrefix="input-sched-channel"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Message Content *</label>

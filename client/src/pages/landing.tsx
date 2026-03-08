@@ -65,7 +65,7 @@ function TypingCounter({ target, suffix = "" }: { target: number; suffix?: strin
   return (
     <span className={`stats-monospace relative ${isDone ? 'animate-pulse' : ''}`}>
       {formatted}{suffix}
-      {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">▮</span>}
+      {!isDone && <span className="inline-block w-[0.6em] h-[1em] bg-primary ml-1 animate-pulse">|</span>}
     </span>
   );
 }
@@ -83,14 +83,35 @@ const COMPARE_FEATURES = [
 const HOW_IT_WORKS = [
   { step: "01", icon: UserPlus, title: "Add the Bot", desc: "Invite Archivist to your Discord server with one click. No complicated setup." },
   { step: "02", icon: Layout, title: "Configure Modules", desc: "Use the dashboard to enable and configure 15+ modules. Each one is deeply customizable." },
-  { step: "03", icon: TrendingUp, title: "Watch It Thrive", desc: "Your server runs on automation. Focus on your community — let Archivist handle the rest." },
+  { step: "03", icon: TrendingUp, title: "Watch It Thrive", desc: "Your server runs on automation. Focus on your community - let Archivist handle the rest." },
+];
+
+const PILLARS = [
+  {
+    id: "automation",
+    icon: Workflow,
+    title: "Visual Automation Engine",
+    desc: "Build trigger-action flows for moderation, onboarding, and external webhooks without code.",
+  },
+  {
+    id: "crm",
+    icon: Users,
+    title: "Member Intelligence CRM",
+    desc: "Run member ops with notes, warnings, activity context, and bulk actions from one profile workspace.",
+  },
+  {
+    id: "studio",
+    icon: Terminal,
+    title: "Command + Embed Studio",
+    desc: "Ship custom commands and interactive embeds with action routing, templates, and live previews.",
+  },
 ];
 
 const FEATURES = [
   {
     icon: Workflow,
     title: "Visual Automation Builder",
-    desc: "Node-based flow editor — drag, connect, and automate. Like Zapier for Discord, built into your dashboard.",
+    desc: "Node-based flow editor - drag, connect, and automate. Like Zapier for Discord, built into your dashboard.",
     highlight: true,
     details: "Build complex automation flows without writing a single line of code. Chain triggers like message reactions, member joins, or time schedules to actions like sending embeds, assigning roles, calling webhooks, or updating persistent variables.",
     examples: ["Auto-assign roles when a member reaches level 10", "Send a DM when someone joins a specific channel", "Post a webhook notification to your external service on keyword match"],
@@ -98,9 +119,9 @@ const FEATURES = [
   {
     icon: Coins,
     title: "Full Server Economy",
-    desc: "Complete virtual economy with role shop, gambling, daily rewards, and leaderboards. What only economy bots had — now built in.",
+    desc: "Complete virtual economy with role shop, gambling, daily rewards, and leaderboards. What only economy bots had - now built in.",
     highlight: true,
-    details: "Run a full virtual currency system inside your server. Members earn currency through activity, daily claims, and admin grants — then spend it in the role shop or try their luck with built-in gambling commands.",
+    details: "Run a full virtual currency system inside your server. Members earn currency through activity, daily claims, and admin grants - then spend it in the role shop or try their luck with built-in gambling commands.",
     examples: ["Role shop: unlock exclusive roles for earned currency", "Daily rewards: members claim a daily currency bonus", "Leaderboard: see who's richest in your server"],
   },
   {
@@ -108,23 +129,23 @@ const FEATURES = [
     title: "Member Intelligence CRM",
     desc: "Per-member profiles, mod notes, activity timeline, and bulk operations. Real member management for serious servers.",
     highlight: true,
-    details: "Every member gets a profile page with their join date, warning history, mod notes, activity score, and role history. Filter and bulk-operate on members — perfect for large community servers.",
+    details: "Every member gets a profile page with their join date, warning history, mod notes, activity score, and role history. Filter and bulk-operate on members - perfect for large community servers.",
     examples: ["Add private mod notes visible only to moderators", "View a member's full activity timeline", "Bulk-assign or remove roles based on activity filters"],
   },
   {
     icon: Globe,
     title: "HTTP Request Actions",
-    desc: "Make real API calls from custom commands — weather, crypto, Minecraft status, any REST endpoint. No other bot does this.",
+    desc: "Make real API calls from custom commands - weather, crypto, Minecraft status, any REST endpoint. No other bot does this.",
     highlight: true,
-    details: "Custom commands can make live HTTP GET requests and inject the response into the bot's reply. Connect to any public API — no coding required. Just paste the URL and pick the data field you want.",
-    examples: ["!weather London — fetches live weather from an open API", "!mcstatus play.myserver.com — shows Minecraft server status", "!price ETH — pulls live crypto price from CoinGecko"],
+    details: "Custom commands can make live HTTP GET requests and inject the response into the bot's reply. Connect to any public API - no coding required. Just paste the URL and pick the data field you want.",
+    examples: ["!weather London - fetches live weather from an open API", "!mcstatus play.myserver.com - shows Minecraft server status", "!price ETH - pulls live crypto price from CoinGecko"],
   },
   {
     icon: Shield,
     title: "Advanced Automod",
     desc: "Six configurable filters, raid protection, whitelists, and automatic action escalation to keep your server safe.",
     highlight: false,
-    details: "Six independent automod filters — spam, links, caps, emoji spam, mass mentions, and Discord invite links. Configure per-channel overrides, time-based rules, and automatic escalation from warn → mute → kick → ban.",
+    details: "Six independent automod filters - spam, links, caps, emoji spam, mass mentions, and Discord invite links. Configure per-channel overrides, time-based rules, and automatic escalation from warn -> mute -> kick -> ban.",
     examples: ["Raid protection: lock the server when join rate spikes", "Auto-mute members who hit 3 spam violations", "Whitelist specific roles from automod checks"],
   },
   {
@@ -138,7 +159,7 @@ const FEATURES = [
   {
     icon: BarChart,
     title: "Activity Heatmap",
-    desc: "7×24 hour grid showing your server's peak activity times. Plus command analytics, growth charts, and engagement scores.",
+    desc: "7x24 hour grid showing your server's peak activity times. Plus command analytics, growth charts, and engagement scores.",
     highlight: false,
     details: "Understand when your community is most active. The activity heatmap shows message density across all 7 days and 24 hours. Combine with the growth chart and command analytics to make data-driven decisions.",
     examples: ["Plan announcements during peak activity windows", "Track member growth over time", "See which custom commands get used most"],
@@ -148,7 +169,7 @@ const FEATURES = [
     title: "Interactive Embed Builder",
     desc: "Full Discord Components v2 builder with buttons, select menus, JSON sync, and template library.",
     highlight: false,
-    details: "Build rich Discord embeds visually — add buttons, select menus, and full styling with the Components v2 editor. Import/export raw JSON, save reusable templates, and preview exactly how it looks before sending.",
+    details: "Build rich Discord embeds visually - add buttons, select menus, and full styling with the Components v2 editor. Import/export raw JSON, save reusable templates, and preview exactly how it looks before sending.",
     examples: ["Create a verification panel with a button click", "Build a role selection menu with dropdown", "Save embed templates to reuse across servers"],
   },
   {
@@ -172,7 +193,7 @@ const FEATURES = [
     title: "Starboard",
     desc: "Highlight the best messages in a dedicated channel when they receive enough star reactions.",
     highlight: false,
-    details: "Set a star reaction threshold and target channel. Messages that get enough ⭐ reactions are automatically reposted in your starboard channel with full formatting and a link back to the original.",
+    details: "Set a star reaction threshold and target channel. Messages that get enough * reactions are automatically reposted in your starboard channel with full formatting and a link back to the original.",
     examples: ["Highlight great memes in #best-of", "Set different thresholds for different channels", "Ignore specific channels from starboard tracking"],
   },
   {
@@ -196,15 +217,15 @@ const FEATURES = [
     title: "Channel Settings",
     desc: "Per-channel configuration for slowmode, content restrictions, automod overrides, and lockdown.",
     highlight: false,
-    details: "Override global settings per channel — different slowmode values, specific automod rules, content restrictions, and lockdown controls. Grant moderators granular control without touching server-wide settings.",
+    details: "Override global settings per channel - different slowmode values, specific automod rules, content restrictions, and lockdown controls. Grant moderators granular control without touching server-wide settings.",
     examples: ["#general: slowmode enabled, links blocked", "#staff: automod whitelisted completely", "#announcements: read-only lockdown toggle"],
   },
   {
     icon: MessageSquare,
     title: "Warnings System",
-    desc: "Track warnings per user with automatic punishment escalation — mute, kick, or ban at configurable thresholds.",
+    desc: "Track warnings per user with automatic punishment escalation - mute, kick, or ban at configurable thresholds.",
     highlight: false,
-    details: "Issue warnings to members with reasons that are logged and displayed in their profile. Configure automatic punishment escalation: 3 warns → mute, 5 warns → kick, 7 warns → ban. Mods can also review and clear warnings.",
+    details: "Issue warnings to members with reasons that are logged and displayed in their profile. Configure automatic punishment escalation: 3 warns -> mute, 5 warns -> kick, 7 warns -> ban. Mods can also review and clear warnings.",
     examples: ["3 warns triggers a 24h mute automatically", "Warning history visible in member profile", "Bulk clear warnings for a member after appeal"],
   },
   {
@@ -212,7 +233,7 @@ const FEATURES = [
     title: "Persistent Variables",
     desc: "Store server and user variables across commands. Build stateful bots that remember context between interactions.",
     highlight: false,
-    details: "Create and update key-value variables tied to a server or user. Use them in custom command responses to build stateful interactions — track game scores, trivia answers, or custom counters that persist across sessions.",
+    details: "Create and update key-value variables tied to a server or user. Use them in custom command responses to build stateful interactions - track game scores, trivia answers, or custom counters that persist across sessions.",
     examples: ["Track a user's trivia score across sessions", "Store a server-wide event countdown variable", "Increment a custom command usage counter"],
   },
 ];
@@ -364,11 +385,19 @@ export default function Landing() {
             </motion.h1>
 
             <motion.p variants={itemVariants} className="text-lg md:text-xl text-muted-foreground max-w-xl mb-4 leading-relaxed">
-              The last Discord bot you'll ever need — built around <span className="text-foreground font-semibold">YOUR server's logic</span>
+              The last Discord bot you'll ever need - built around <span className="text-foreground font-semibold">YOUR server's logic</span>
             </motion.p>
 
+            <motion.div variants={itemVariants} className="flex flex-wrap gap-2 mb-4">
+              {PILLARS.map((pillar) => (
+                <span key={pillar.id} className="inline-flex items-center px-2.5 py-1 rounded-full bg-primary/10 border border-primary/25 text-xs text-primary font-medium">
+                  {pillar.title}
+                </span>
+              ))}
+            </motion.div>
+
             <motion.div variants={itemVariants} className="flex flex-wrap gap-2 mb-8">
-              {["✗ MEE6 — no flow builder", "✗ Carl-bot — no HTTP actions", "✗ Dyno — no economy"].map((pill) => (
+              {["MEE6: no flow builder", "Carl-bot: no HTTP actions", "Dyno: no built-in economy"].map((pill) => (
                 <span key={pill} className="inline-flex items-center px-2.5 py-1 rounded-full bg-destructive/10 border border-destructive/20 text-xs text-destructive/90 font-medium line-through decoration-destructive/50">
                   {pill}
                 </span>
@@ -452,6 +481,29 @@ export default function Landing() {
         </div>
       </section>
 
+      <section className="pb-20 px-4 max-w-7xl mx-auto w-full">
+        <div className="text-center mb-10">
+          <h2 className="text-3xl md:text-4xl font-display font-bold mb-3">The 3 Core Pillars</h2>
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            Archivist is built around three retention systems: automation, member operations, and command/embed production.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {PILLARS.map((pillar) => (
+            <div key={pillar.id} className="feature-card rounded-2xl p-5 text-left">
+              <div className="w-10 h-10 rounded-xl bg-primary/15 text-primary flex items-center justify-center mb-3">
+                <pillar.icon className="w-5 h-5" />
+              </div>
+              <h3 className="font-display font-bold text-lg mb-2">{pillar.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{pillar.desc}</p>
+              <div className="mt-4 text-xs text-primary font-semibold uppercase tracking-wider">
+                Core Retention Pillar
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <main id="features" className="flex-1 flex flex-col items-center px-4 pb-24 relative z-10 max-w-7xl mx-auto w-full">
         <div className="w-full mb-24">
           <div className="text-center mb-12">
@@ -459,7 +511,7 @@ export default function Landing() {
               Features No One Else Has
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              15+ modules to manage, moderate, and engage your community — click any card to learn more.
+              15+ modules to manage, moderate, and engage your community - click any card to learn more.
             </p>
           </div>
 
@@ -501,7 +553,7 @@ export default function Landing() {
         <div id="compare" className="w-full mb-24">
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl font-display font-bold mb-3">How We Stack Up</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto text-sm">Features that exist exclusively in Archivist — not available in any mainstream Discord bot.</p>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm">Features that exist exclusively in Archivist - not available in any mainstream Discord bot.</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden">
             <table className="w-full text-sm">
@@ -589,7 +641,7 @@ export default function Landing() {
                 <span className="font-display font-bold text-lg text-glow">Archivist</span>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-sm">
-                The most powerful Discord bot dashboard — visual automation, economy, member CRM, and 15+ configurable modules.
+                The most powerful Discord bot dashboard - visual automation, economy, member CRM, and 15+ configurable modules.
               </p>
             </div>
             <div>
@@ -620,7 +672,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="border-t border-white/5 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Archivist. Built for serious Discord communities.</p>
+            <p className="text-xs text-muted-foreground">(c) {new Date().getFullYear()} Archivist. Built for serious Discord communities.</p>
             <div className="flex items-center gap-4">
               <button onClick={handleInvite} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
                 <SiDiscord className="w-3.5 h-3.5" /> Add Bot
