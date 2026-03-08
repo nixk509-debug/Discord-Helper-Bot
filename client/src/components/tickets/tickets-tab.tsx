@@ -79,7 +79,7 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
   const [panelEmbedColor, setPanelEmbedColor] = useState("#5865F2");
 
   const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
   };
 
   const bindPanelSurface = (panel: any) => {
@@ -87,9 +87,9 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
       {
         scope: "server",
         kind: "surface",
-        name: `${panel.title} Surface`,
+        name: `${panel.title} Panel`,
         moduleBinding: "ticket_panel",
-        document: createStudioDocumentDraft("ticket_panel", `${panel.title} Surface`),
+        document: createStudioDocumentDraft("ticket_panel", `${panel.title} Panel`),
       },
       {
         onSuccess: (created: any) => {
@@ -113,7 +113,7 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
 
   const publishPanelSurface = (panel: any) => {
     if (!panel.studioDocumentId) {
-      toast({ title: "No panel surface", description: "Create a Studio surface for this panel first.", variant: "destructive" });
+      toast({ title: "No panel linked", description: "Create a Studio panel for this launcher first.", variant: "destructive" });
       return;
     }
     publishStudio.mutate(
@@ -127,7 +127,7 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
       {
         onSuccess: (result: any) => {
           updateTicketPanel.mutate({ id: panel.id, data: { publicationId: result.publicationId } });
-          toast({ title: "Panel published", description: `Ticket surface sent to ${panel.channelId}.` });
+          toast({ title: "Panel published", description: `Ticket panel sent to ${panel.channelId}.` });
         },
         onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
       }
@@ -427,14 +427,14 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
                   </div>
 
                   <StudioSurfaceCard
-                    title="Ticket Panel Surface"
+                    title="Ticket Panel"
                     description="This launcher now runs through Design Studio with modal intake, routed ticket creation, and reusable support layouts."
                     documentId={panel.studioDocumentId}
                     publication={(studioPublications as any[]).find((entry) => entry.id === panel.publicationId || entry.documentId === panel.studioDocumentId) || null}
                     onCreate={() => bindPanelSurface(panel)}
                     onOpen={() => panel.studioDocumentId && openStudio(panel.studioDocumentId)}
                     onPublish={() => publishPanelSurface(panel)}
-                    actionLabel="Create Panel Surface"
+                    actionLabel="Create Panel"
                   />
                 </CardContent>
               </Card>

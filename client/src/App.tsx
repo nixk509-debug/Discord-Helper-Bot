@@ -11,6 +11,7 @@ import Premium from "@/pages/premium";
 import DashboardOverview from "@/pages/dashboard/index";
 import ServerSettings from "@/pages/dashboard/server";
 import MembersPage from "@/pages/dashboard/members";
+import StudioPage from "@/pages/dashboard/studio";
 import Marketplace from "@/pages/marketplace";
 import Preferences from "@/pages/dashboard/preferences";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/premium" component={Premium} />
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardOverview} />} />
+      <Route path="/dashboard/servers/:id/studio" component={() => <ProtectedRoute component={StudioPage} />} />
       <Route path="/dashboard/servers/:id" component={() => <ProtectedRoute component={ServerSettings} />} />
       <Route path="/dashboard/servers/:id/members" component={() => <ProtectedRoute component={MembersPage} />} />
       <Route path="/dashboard/preferences" component={() => <ProtectedRoute component={Preferences} />} />

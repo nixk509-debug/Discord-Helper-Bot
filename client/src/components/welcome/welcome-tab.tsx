@@ -114,11 +114,11 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const [newRoleType, setNewRoleType] = useState("join");
 
   const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
   };
 
   const createSurface = (binding: "welcome" | "welcome_dm" | "leave", field: "welcomeStudioDocumentId" | "welcomeDmStudioDocumentId" | "leaveStudioDocumentId") => {
-    const name = binding === "welcome" ? "Welcome Surface" : binding === "welcome_dm" ? "Welcome DM Surface" : "Leave Surface";
+    const name = binding === "welcome" ? "Welcome Message" : binding === "welcome_dm" ? "Welcome DM Message" : "Leave Message";
     createStudioDocument.mutate(
       {
         scope: "server",
@@ -143,7 +143,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
 
   const publishSurface = (documentId: number | null | undefined, channelIdValue: string, label: string) => {
     if (!documentId) {
-      toast({ title: "No surface bound", description: `Create a ${label.toLowerCase()} surface first.`, variant: "destructive" });
+      toast({ title: "No message bound", description: `Create a ${label.toLowerCase()} first.`, variant: "destructive" });
       return;
     }
     if (!channelIdValue) {
@@ -159,7 +159,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
         },
       },
       {
-        onSuccess: () => toast({ title: "Surface published", description: `${label} sent to ${channelIdValue}.` }),
+        onSuccess: () => toast({ title: "Message published", description: `${label} sent to ${channelIdValue}.` }),
         onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
       }
     );
@@ -248,31 +248,31 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <StudioSurfaceCard
-          title="Welcome Surface"
+          title="Welcome Message"
           description="Use Design Studio for the shared welcome/orientation message. It will auto-send on member join when welcome messages are enabled."
           documentId={settings?.welcomeStudioDocumentId}
           publication={welcomePublication}
           onCreate={() => createSurface("welcome", "welcomeStudioDocumentId")}
           onOpen={() => settings?.welcomeStudioDocumentId && openStudio(settings.welcomeStudioDocumentId)}
-          onPublish={() => publishSurface(settings?.welcomeStudioDocumentId, welcomeChannelId, "Welcome surface")}
+          onPublish={() => publishSurface(settings?.welcomeStudioDocumentId, welcomeChannelId, "Welcome message")}
         />
         <StudioSurfaceCard
-          title="Welcome DM Surface"
+          title="Welcome DM Message"
           description="Design the DM onboarding flow with views, modals, and reusable blocks. It auto-sends when welcome DMs are enabled."
           documentId={settings?.welcomeDmStudioDocumentId}
           publication={welcomeDmPublication}
           onCreate={() => createSurface("welcome_dm", "welcomeDmStudioDocumentId")}
           onOpen={() => settings?.welcomeDmStudioDocumentId && openStudio(settings.welcomeDmStudioDocumentId)}
-          actionLabel="Create DM Surface"
+          actionLabel="Create DM Message"
         />
         <StudioSurfaceCard
-          title="Leave Surface"
+          title="Leave Message"
           description="Use Studio for leave notices, archive instructions, or offboarding copy. It auto-sends on member leave when leave messages are enabled."
           documentId={settings?.leaveStudioDocumentId}
           publication={leavePublication}
           onCreate={() => createSurface("leave", "leaveStudioDocumentId")}
           onOpen={() => settings?.leaveStudioDocumentId && openStudio(settings.leaveStudioDocumentId)}
-          onPublish={() => publishSurface(settings?.leaveStudioDocumentId, leaveChannelId, "Leave surface")}
+          onPublish={() => publishSurface(settings?.leaveStudioDocumentId, leaveChannelId, "Leave message")}
         />
       </div>
 

@@ -18,9 +18,9 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
   const title = name || defaultSurfaceName(binding);
   const descriptionByBinding: Record<string, string> = {
     verify: "Explain the verification requirements and define what happens when members continue.",
-    welcome: "Create an onboarding surface for new members.",
+    welcome: "Create an onboarding message for new members.",
     welcome_dm: "Create a DM onboarding message for new members.",
-    leave: "Create a departure or archive surface.",
+    leave: "Create a leave or archive message.",
     tickets: "Build ticket launchers, routing menus, and intake flows.",
     ticket_panel: "Build a ticket panel with a launcher, modal intake, and follow-up routing.",
   };
@@ -31,7 +31,7 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
     version: 2,
     meta: {
       name: title,
-      category: binding || "surface",
+      category: binding || "panel",
       entryViewId,
     },
     views: {
@@ -42,7 +42,7 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
         embeds: [
           {
             title,
-            description: descriptionByBinding[binding || ""] || "Author a reusable Discord interaction surface.",
+            description: descriptionByBinding[binding || ""] || "Author a reusable Discord panel or message.",
             color: "#B11226",
           },
         ],
@@ -163,35 +163,32 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
 export function defaultSurfaceName(binding?: StudioModuleBinding | null) {
   switch (binding) {
     case "verify":
-      return "Verification Surface";
+      return "Verification Panel";
     case "welcome":
-      return "Welcome Surface";
+      return "Welcome Message";
     case "welcome_dm":
-      return "Welcome DM Surface";
+      return "Welcome DM Message";
     case "leave":
-      return "Leave Surface";
+      return "Leave Message";
     case "tickets":
-      return "Ticket Flow Surface";
+      return "Ticket Flow";
     case "ticket_panel":
-      return "Ticket Panel Surface";
+      return "Ticket Panel";
     default:
-      return "Untitled Surface";
+      return "Untitled Panel";
   }
 }
 
 export const STUDIO_MOBILE_SECTIONS = [
-  { id: "build", label: "Build" },
-  { id: "tree", label: "Tree" },
+  { id: "message", label: "Message" },
+  { id: "components", label: "Components" },
   { id: "actions", label: "Actions" },
-  { id: "modals", label: "Modals" },
+  { id: "design", label: "Design" },
   { id: "publish", label: "Publish" },
 ] as const;
 
 export const STUDIO_BUILD_SECTIONS = [
-  { id: "overview", label: "Overview" },
-  { id: "content", label: "Content" },
+  { id: "overview", label: "Setup" },
+  { id: "content", label: "Text" },
   { id: "embeds", label: "Embeds" },
-  { id: "design", label: "Design" },
-  { id: "templates", label: "Templates" },
-  { id: "assets", label: "Assets" },
 ] as const;

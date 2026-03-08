@@ -43,7 +43,7 @@ import { useWebSocket } from "@/hooks/use-websocket";
 import { useDiscordContext } from "@/hooks/use-bot";
 import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
 import { DiscordChannelListPicker, DiscordChannelPicker } from "@/components/discord/channel-picker";
-import { DesignStudioTab } from "@/components/design-studio/design-studio-tab";
+import { DesignStudioLaunchCard } from "@/components/design-studio/design-studio-launch-card";
 
 export default function ServerSettings() {
   const [, params] = useRoute("/dashboard/servers/:id");
@@ -124,7 +124,7 @@ export default function ServerSettings() {
       case "general":
         return <GeneralSettingsTab serverId={serverId} server={currentServer} settings={currentServer.settings} updateSettings={updateSettings} toast={toast} />;
       case "design-studio":
-        return <DesignStudioTab serverId={serverId} toast={toast} />;
+        return <DesignStudioLaunchCard serverId={serverId} />;
       case "channels":
         return <ChannelsTab serverId={serverId} />;
       case "automod":

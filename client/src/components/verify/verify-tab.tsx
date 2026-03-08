@@ -33,7 +33,7 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
   const verifyPublication = (studioPublications as any[]).find((entry) => entry.id === settings?.verifyPublicationId) || null;
 
   const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
   };
 
   const handleCreateSurface = () => {
@@ -41,9 +41,9 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
       {
         scope: "server",
         kind: "surface",
-        name: "Verification Surface",
+        name: "Verification Panel",
         moduleBinding: "verify",
-        document: createStudioDocumentDraft("verify", "Verification Surface"),
+        document: createStudioDocumentDraft("verify", "Verification Panel"),
       },
       {
         onSuccess: (created: any) => {
@@ -64,7 +64,7 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
 
   const handlePublishSurface = () => {
     if (!settings?.verifyStudioDocumentId) {
-      toast({ title: "No surface bound", description: "Create or bind a verification surface first.", variant: "destructive" });
+      toast({ title: "No panel bound", description: "Create or bind a verification panel first.", variant: "destructive" });
       return;
     }
     if (!channelId) {
@@ -82,7 +82,7 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
       {
         onSuccess: (result: any) => {
           updateSettings.mutate({ verifyPublicationId: result.publicationId });
-          toast({ title: "Surface published", description: `Verification panel sent to ${channelId}.` });
+          toast({ title: "Panel published", description: `Verification panel sent to ${channelId}.` });
         },
         onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
       }
@@ -308,21 +308,21 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
           <div className="flex items-start gap-3 p-3 rounded-md bg-primary/5 border border-primary/20">
             <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             <p className="text-sm text-muted-foreground">
-              Save the verification policy here, then publish the bound verification surface below. The old manual `/post-verify` flow is no longer the primary path.
+              Save the verification policy here, then publish the bound verification panel below. The old manual `/post-verify` flow is no longer the primary path.
             </p>
           </div>
         </CardContent>
       </Card>
 
       <StudioSurfaceCard
-        title="Verification Surface"
-        description="Design Studio now owns the verification panel. Publish the surface instead of relying on a hardcoded mini-builder."
+        title="Verification Panel"
+        description="Design Studio now owns the verification panel. Publish the panel instead of relying on a hardcoded mini-builder."
         documentId={settings?.verifyStudioDocumentId}
         publication={verifyPublication}
         onCreate={handleCreateSurface}
         onOpen={() => settings?.verifyStudioDocumentId && openStudio(settings.verifyStudioDocumentId)}
         onPublish={handlePublishSurface}
-        actionLabel="Create Surface"
+        actionLabel="Create Panel"
       />
 
       <div className="flex justify-end">

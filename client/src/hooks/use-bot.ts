@@ -95,7 +95,7 @@ export interface DiscordContextResponse {
   emojis: DiscordContextEmoji[];
 }
 
-export function useDiscordContext(serverId: number) {
+export function useDiscordContext(serverId: number, options?: { enabled?: boolean }) {
   return useQuery<DiscordContextResponse>({
     queryKey: [api.servers.discordContext.path, serverId],
     queryFn: async () => {
@@ -107,7 +107,7 @@ export function useDiscordContext(serverId: number) {
       }
       return await res.json();
     },
-    enabled: !!serverId,
+    enabled: !!serverId && (options?.enabled ?? true),
     staleTime: 60_000,
   });
 }
@@ -251,7 +251,7 @@ export function useDeleteEmbed(serverId: number) {
 }
 
 // --- STUDIO ---
-export function useStudioDocuments(serverId: number) {
+export function useStudioDocuments(serverId: number, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [api.servers.studioDocuments.list.path, serverId],
     queryFn: async () => {
@@ -260,7 +260,7 @@ export function useStudioDocuments(serverId: number) {
       if (!res.ok) throw new Error("Failed to fetch Studio documents");
       return await res.json();
     },
-    enabled: !!serverId,
+    enabled: !!serverId && (options?.enabled ?? true),
   });
 }
 
@@ -311,7 +311,7 @@ export function useUpdateStudioDocument(serverId: number) {
   });
 }
 
-export function useStudioPublications(serverId: number) {
+export function useStudioPublications(serverId: number, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [api.servers.studioPublications.list.path, serverId],
     queryFn: async () => {
@@ -320,7 +320,7 @@ export function useStudioPublications(serverId: number) {
       if (!res.ok) throw new Error("Failed to fetch Studio publications");
       return await res.json();
     },
-    enabled: !!serverId,
+    enabled: !!serverId && (options?.enabled ?? true),
   });
 }
 
@@ -745,7 +745,7 @@ export function useUpsertStarboard(serverId: number) {
 }
 
 // --- TICKETS ---
-export function useTicketConfig(serverId: number) {
+export function useTicketConfig(serverId: number, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [api.tickets.getConfig.path, serverId],
     queryFn: async () => {
@@ -753,7 +753,7 @@ export function useTicketConfig(serverId: number) {
       const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
-    enabled: !!serverId,
+    enabled: !!serverId && (options?.enabled ?? true),
   });
 }
 
@@ -773,7 +773,7 @@ export function useUpsertTicketConfig(serverId: number) {
   });
 }
 
-export function useTicketPanels(serverId: number) {
+export function useTicketPanels(serverId: number, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [api.tickets.listPanels.path, serverId],
     queryFn: async () => {
@@ -781,7 +781,7 @@ export function useTicketPanels(serverId: number) {
       const res = await fetch(buildApiUrl(url), { credentials: "include" });
       if (!res.ok) throw new Error("Failed"); return await res.json();
     },
-    enabled: !!serverId,
+    enabled: !!serverId && (options?.enabled ?? true),
   });
 }
 

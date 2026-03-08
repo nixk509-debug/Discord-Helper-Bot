@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
 import {
   ArrowDown,
   ArrowUp,
@@ -155,7 +154,7 @@ function cloneDocument<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function normalizeDocumentDraft(document: any, fallbackName = "Untitled Surface"): StudioDocument {
+function normalizeDocumentDraft(document: any, fallbackName = "Untitled Panel"): StudioDocument {
   if (!document || typeof document !== "object") {
     return createStudioDocumentDraft(undefined, fallbackName);
   }
@@ -165,7 +164,7 @@ function normalizeDocumentDraft(document: any, fallbackName = "Untitled Surface"
       version: 2,
       meta: {
         name: String(document.meta?.name || fallbackName),
-        category: document.meta?.category ? String(document.meta.category) : "surface",
+        category: document.meta?.category ? String(document.meta.category) : "panel",
         entryViewId: String(document.meta.entryViewId),
         themePackId: document.meta?.themePackId ? String(document.meta.themePackId) : undefined,
       },
@@ -198,6 +197,29 @@ function ensureDesign(document: StudioDocument) {
   document.design.styleBlocks ||= [];
   document.design.themePacks ||= [];
   return document.design;
+}
+
+function getDocumentKindLabel(kind?: string) {
+  return kind === "template" ? "Template" : "Panel";
+}
+
+function getBindingLabel(binding?: string | null) {
+  switch (binding) {
+    case "verify":
+      return "Verification";
+    case "welcome":
+      return "Welcome";
+    case "welcome_dm":
+      return "Welcome DM";
+    case "leave":
+      return "Leave";
+    case "tickets":
+      return "Tickets";
+    case "ticket_panel":
+      return "Ticket Panel";
+    default:
+      return binding || "";
+  }
 }
 
 function getView(document: StudioDocument, viewId?: string) {
@@ -552,12 +574,9 @@ function NodeTreeItem({
 export function DesignStudioTab({ serverId }: { serverId: number; toast?: any }) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
 
   const studioDocumentsQuery = useStudioDocuments(serverId);
   const studioPublicationsQuery = useStudioPublications(serverId);
-  const ticketConfigQuery = useTicketConfig(serverId);
-  const ticketPanelsQuery = useTicketPanels(serverId);
   const createDocumentMutation = useCreateStudioDocument(serverId);
   const updateDocumentMutation = useUpdateStudioDocument(serverId);
   const publishMutation = usePublishStudio(serverId);
@@ -565,15 +584,12 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const rollbackPublicationMutation = useRollbackStudioPublication(serverId);
   const archivePublicationMutation = useArchiveStudioPublication(serverId);
   const updatePublicationStatusMutation = useUpdateStudioPublicationStatus(serverId);
-  const discordContextQuery = useDiscordContext(serverId);
 
   const documents = ((studioDocumentsQuery.data || []) as StudioDocumentRecord[]).map((record) => ({
     ...record,
     document: normalizeDocumentDraft(record.document, record.name),
   }));
   const publications = (studioPublicationsQuery.data || []) as PublicationWithMeta[];
-  const ticketConfig = ticketConfigQuery.data as any;
-  const ticketPanels = (ticketPanelsQuery.data || []) as any[];
 
   const [currentDocumentId, setCurrentDocumentId] = useState<number | null>(null);
   const [draft, setDraft] = useState<StudioDocument | null>(null);
@@ -582,7 +598,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [selectedModalId, setSelectedModalId] = useState<string | null>(null);
-  const [activeMobileSection, setActiveMobileSection] = useState<MobileSectionId>("build");
+  const [activeMobileSection, setActiveMobileSection] = useState<MobileSectionId>("message");
   const [activeBuildSection, setActiveBuildSection] = useState<BuildSectionId>("overview");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -597,10 +613,27 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [lastDiagnostics, setLastDiagnostics] = useState<StudioDiagnostic[]>([]);
   const loadedDocumentIdRef = useRef<number | null>(null);
 
+  const shouldLoadDiscordContext =
+    activeMobileSection !== "message" ||
+    Boolean(selectedNodeId) ||
+    Boolean(selectedActionId) ||
+    previewOpen;
+
   const currentRecord = useMemo(
     () => documents.find((record) => record.id === currentDocumentId) || null,
     [documents, currentDocumentId],
   );
+  const hasTicketWork = useMemo(() => {
+    if (currentRecord?.moduleBinding === "tickets" || currentRecord?.moduleBinding === "ticket_panel") {
+      return true;
+    }
+    return draft ? Object.values(draft.actions).some((action) => action.type === "ticket_create") : false;
+  }, [currentRecord?.moduleBinding, draft]);
+  const discordContextQuery = useDiscordContext(serverId, { enabled: shouldLoadDiscordContext });
+  const ticketConfigQuery = useTicketConfig(serverId, { enabled: hasTicketWork });
+  const ticketPanelsQuery = useTicketPanels(serverId, { enabled: hasTicketWork });
+  const ticketConfig = ticketConfigQuery.data as any;
+  const ticketPanels = (ticketPanelsQuery.data || []) as any[];
   const boundTicketPanel = useMemo(
     () => ticketPanels.find((panel) => panel.studioDocumentId === currentDocumentId) || null,
     [ticketPanels, currentDocumentId],
@@ -702,7 +735,6 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     if (dirty && !window.confirm("Discard unsaved changes and switch documents?")) return;
     setCurrentDocumentId(documentId);
     const url = new URL(window.location.href);
-    url.searchParams.set("module", "design-studio");
     url.searchParams.set("documentId", String(documentId));
     window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
   };
@@ -747,7 +779,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
           setDirty(false);
           loadedDocumentIdRef.current = created.id;
-          toast({ title: "Surface created", description: `${created.name} is ready in Studio.` });
+          toast({ title: kind === "template" ? "Template created" : "Panel created", description: `${created.name} is ready in Studio.` });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
       },
@@ -766,7 +798,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
-          toast({ title: asTemplate ? "Template saved" : "Surface duplicated", description: created.name });
+          toast({ title: asTemplate ? "Template saved" : "Panel duplicated", description: created.name });
           setCurrentDocumentId(created.id);
           setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
           setDirty(false);
@@ -1098,7 +1130,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const archivePublication = (publicationId: number) => {
     archivePublicationMutation.mutate(publicationId, {
       onSuccess: () => {
-        toast({ title: "Publication archived", description: "The live surface is now archived." });
+        toast({ title: "Publication archived", description: "The live panel is now archived." });
         studioPublicationsQuery.refetch();
       },
       onError: (error: any) => toast({ title: "Archive failed", description: error.message, variant: "destructive" }),
@@ -1171,14 +1203,14 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     });
     setSelectedModalId(modal.id);
     setSelectedActionId(submitAction.id);
-    setActiveMobileSection("modals");
+    setActiveMobileSection("actions");
     if (isMobile) setInspectorOpen(true);
   };
 
   const importFromJson = () => {
     try {
       const parsed = JSON.parse(importText);
-      const normalized = normalizeDocumentDraft(parsed, draft?.meta.name || "Imported Surface");
+      const normalized = normalizeDocumentDraft(parsed, draft?.meta.name || "Imported Panel");
       setDraft(normalized);
       setDirty(true);
       setSelectedViewId(normalized.meta.entryViewId);
@@ -1207,8 +1239,8 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Surface Identity</CardTitle>
-          <CardDescription>Name the document, choose the entry view, and jump into shared server surfaces.</CardDescription>
+          <CardTitle className="font-display text-base">Panel Setup</CardTitle>
+          <CardDescription>Name the panel or message, choose the starting screen, and jump into shared server panels.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
@@ -1240,7 +1272,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
               >
                 <div className="mb-2 flex items-center gap-2 text-white">
                   <Sparkles className="h-4 w-4 text-primary" />
-                  <span className="font-medium">{surface.title}</span>
+                  <span className="font-medium">{surface.title} Panel</span>
                 </div>
                 <p className="text-sm text-muted-foreground">{surface.detail}</p>
               </button>
@@ -1456,12 +1488,12 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Templates and JSON</CardTitle>
-          <CardDescription>Duplicate surfaces into templates, export JSON, and load another Studio payload into the current draft.</CardDescription>
+          <CardDescription>Duplicate panels into templates, export JSON, and load another Studio payload into the current draft.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => duplicateCurrent(true)} className="gap-2"><Copy className="h-4 w-4" />Save As Template</Button>
-            <Button variant="outline" onClick={() => duplicateCurrent(false)} className="gap-2"><FilePlus2 className="h-4 w-4" />Duplicate Surface</Button>
+            <Button variant="outline" onClick={() => duplicateCurrent(false)} className="gap-2"><FilePlus2 className="h-4 w-4" />Duplicate Panel</Button>
             <Button variant="outline" onClick={exportJson}>Export JSON</Button>
           </div>
           <div className="space-y-2">
@@ -1475,7 +1507,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Saved Documents</CardTitle>
-          <CardDescription>Switch between surfaces and templates without leaving Studio.</CardDescription>
+          <CardDescription>Switch between panels, messages, and templates without leaving Studio.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {documents.map((record) => (
@@ -1483,7 +1515,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
               <Library className="h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-white">{record.name}</p>
-                <p className="text-xs text-muted-foreground">{record.kind} {record.moduleBinding ? `- ${record.moduleBinding}` : ""}</p>
+                <p className="text-xs text-muted-foreground">{getDocumentKindLabel(record.kind)} {record.moduleBinding ? `- ${getBindingLabel(record.moduleBinding)}` : ""}</p>
               </div>
               <Badge variant="outline">#{record.id}</Badge>
             </button>
@@ -1535,12 +1567,6 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         return renderContentSection();
       case "embeds":
         return renderEmbedsSection();
-      case "design":
-        return renderDesignSection();
-      case "templates":
-        return renderTemplatesSection();
-      case "assets":
-        return renderAssetsSection();
       case "overview":
       default:
         return renderOverviewSection();
@@ -1550,7 +1576,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const renderTreeSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
-        <CardTitle className="font-display text-base">Component Tree</CardTitle>
+        <CardTitle className="font-display text-base">Components</CardTitle>
         <CardDescription>Add, reorder, duplicate, and inspect the view hierarchy.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1581,44 +1607,47 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   );
 
   const renderActionsSection = () => (
-    <Card className="glass-card border-white/10 bg-background/40">
-      <CardHeader>
-        <CardTitle className="font-display text-base">Action Registry</CardTitle>
-        <CardDescription>Buttons, menus, and modal submits all resolve through these action definitions.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {ACTION_TYPE_OPTIONS.map((option) => (
-            <Button key={option.type} variant="outline" className="h-auto justify-start py-3" onClick={() => addAction(option.type)}>
-              <div className="text-left">
-                <div className="text-sm font-medium text-white">{option.label}</div>
-                <div className="text-xs text-muted-foreground">{option.detail}</div>
-              </div>
-            </Button>
-          ))}
-        </div>
-        <Separator className="bg-white/10" />
-        <div className="space-y-2">
-          {draft && Object.values(draft.actions).length === 0 ? <p className="text-sm text-muted-foreground">No actions yet.</p> : null}
-          {draft ? Object.values(draft.actions).map((action) => (
-            <button key={action.id} type="button" onClick={() => { setSelectedActionId(action.id); if (isMobile) setInspectorOpen(true); }} className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedActionId === action.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}>
-              <MousePointer2 className="h-4 w-4 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{action.label || action.type}</p>
-                <p className="truncate text-xs text-muted-foreground">{actionSummary(action, draft)}</p>
-              </div>
-              <Badge variant="outline">{action.type}</Badge>
-            </button>
-          )) : null}
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <Card className="glass-card border-white/10 bg-background/40">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Actions</CardTitle>
+          <CardDescription>Buttons, menus, and modal submits all resolve through these action definitions.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {ACTION_TYPE_OPTIONS.map((option) => (
+              <Button key={option.type} variant="outline" className="h-auto justify-start py-3" onClick={() => addAction(option.type)}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">{option.label}</div>
+                  <div className="text-xs text-muted-foreground">{option.detail}</div>
+                </div>
+              </Button>
+            ))}
+          </div>
+          <Separator className="bg-white/10" />
+          <div className="space-y-2">
+            {draft && Object.values(draft.actions).length === 0 ? <p className="text-sm text-muted-foreground">No actions yet.</p> : null}
+            {draft ? Object.values(draft.actions).map((action) => (
+              <button key={action.id} type="button" onClick={() => { setSelectedActionId(action.id); if (isMobile) setInspectorOpen(true); }} className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedActionId === action.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}>
+                <MousePointer2 className="h-4 w-4 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">{action.label || action.type}</p>
+                  <p className="truncate text-xs text-muted-foreground">{actionSummary(action, draft)}</p>
+                </div>
+                <Badge variant="outline">{action.type}</Badge>
+              </button>
+            )) : null}
+          </div>
+        </CardContent>
+      </Card>
+      {renderModalsSection()}
+    </div>
   );
 
   const renderModalsSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
-        <CardTitle className="font-display text-base">Modals</CardTitle>
+        <CardTitle className="font-display text-base">Modal Builder</CardTitle>
         <CardDescription>Build modal forms and wire them to button or menu actions.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1648,7 +1677,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Publish and Lifecycle</CardTitle>
-          <CardDescription>Publish new messages, update existing ones, clone surfaces, and manage live publications.</CardDescription>
+          <CardDescription>Publish new messages, update existing ones, clone panels, and manage live publications.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
@@ -1707,17 +1736,25 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </div>
   );
 
+  const renderDesignWorkspace = () => (
+    <div className="space-y-4">
+      {renderDesignSection()}
+      {renderTemplatesSection()}
+      {renderAssetsSection()}
+    </div>
+  );
+
   const renderActiveWorkspace = () => {
     switch (activeMobileSection) {
-      case "tree":
+      case "components":
         return renderTreeSection();
       case "actions":
         return renderActionsSection();
-      case "modals":
-        return renderModalsSection();
+      case "design":
+        return renderDesignWorkspace();
       case "publish":
         return renderPublishSection();
-      case "build":
+      case "message":
       default:
         return renderBuildSection();
     }
@@ -1963,10 +2000,10 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
             <CardTitle className="font-display text-xl">Design Studio</CardTitle>
-            <CardDescription>Build shared Discord interaction surfaces for verification, onboarding, support, and reusable message flows.</CardDescription>
+            <CardDescription>Build reusable panels, messages, actions, and publish flows for your server.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
-            <Button onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Surface</Button>
+            <Button onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Panel</Button>
             <Button variant="outline" onClick={() => createDocument(undefined, "template")} className="gap-2"><Copy className="h-4 w-4" />New Template</Button>
           </CardContent>
         </Card>
@@ -1979,17 +2016,17 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{currentRecord?.kind || "surface"}</Badge>
-            {currentRecord?.moduleBinding ? <Badge variant="outline">{currentRecord.moduleBinding}</Badge> : null}
+            <Badge variant="outline">{getDocumentKindLabel(currentRecord?.kind)}</Badge>
+            {currentRecord?.moduleBinding ? <Badge variant="outline">{getBindingLabel(currentRecord.moduleBinding)}</Badge> : null}
             <Badge variant={dirty ? "default" : "outline"}>{dirty ? "Unsaved" : "Saved"}</Badge>
           </div>
           <div>
             <h2 className="text-2xl font-display font-bold text-white">{draft.meta.name}</h2>
-            <p className="text-sm text-muted-foreground">Documents: {documents.length} - Live publications: {publications.filter((entry) => entry.active).length} - Interaction rows: {interactionRows.length}</p>
+            <p className="text-sm text-muted-foreground">Saved items: {documents.length} - Live messages: {publications.filter((entry) => entry.active).length} - Interactions: {interactionRows.length}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Surface</Button>
+          <Button variant="outline" onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Panel</Button>
           <Button variant="outline" onClick={() => setPreviewOpen(true)} className="gap-2 lg:hidden"><Eye className="h-4 w-4" />Preview</Button>
           <Button variant="outline" onClick={exportJson}>Export JSON</Button>
           <Button onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2"><Save className="h-4 w-4" />{updateDocumentMutation.isPending ? "Saving..." : "Save"}</Button>
@@ -1998,7 +2035,19 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </Card>
   );
 
-  const buildSubnav = activeMobileSection === "build" ? (
+  const primarySectionNav = (
+    <div className="overflow-x-auto pb-1">
+      <div className="flex min-w-max gap-2">
+        {STUDIO_MOBILE_SECTIONS.map((section) => (
+          <Button key={section.id} variant={activeMobileSection === section.id ? "default" : "outline"} size="sm" onClick={() => setActiveMobileSection(section.id)}>
+            {section.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const buildSubnav = activeMobileSection === "message" ? (
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
         {STUDIO_BUILD_SECTIONS.map((section) => (
@@ -2016,20 +2065,11 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
 
   if (isMobile) {
     return (
-      <div className="space-y-4 pb-24">
+      <div className="space-y-4 pb-8">
         {topBar}
+        {primarySectionNav}
         {buildSubnav}
         {renderActiveWorkspace()}
-        {inspectorBody}
-        <div className="sticky bottom-0 z-20 -mx-4 border-t border-white/10 bg-background/95 px-3 py-3 backdrop-blur">
-          <div className="grid grid-cols-5 gap-2">
-            {STUDIO_MOBILE_SECTIONS.map((section) => (
-              <Button key={section.id} variant={activeMobileSection === section.id ? "default" : "outline"} className="h-auto flex-col gap-1 py-2 text-[11px]" onClick={() => setActiveMobileSection(section.id)}>
-                {section.label}
-              </Button>
-            ))}
-          </div>
-        </div>
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
           <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
@@ -2062,6 +2102,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   return (
     <div className="space-y-6">
       {topBar}
+      {primarySectionNav}
       <div className="grid min-h-[70vh] gap-6 xl:grid-cols-[280px,minmax(0,1fr),380px]">
         <div className="space-y-4">
           <Card className="glass-card sticky top-4 border-white/10 bg-background/40">
@@ -2079,7 +2120,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                         <Library className="h-4 w-4 text-primary" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-white">{record.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">{record.kind}</p>
+                          <p className="truncate text-xs text-muted-foreground">{getDocumentKindLabel(record.kind)}</p>
                         </div>
                       </button>
                     ))}
