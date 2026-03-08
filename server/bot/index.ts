@@ -12,6 +12,7 @@ import {
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
+  type Guild,
 } from "discord.js";
 import { db } from "../db";
 import { servers, serverSettings, customCommands } from "@shared/schema";
@@ -120,29 +121,12 @@ export async function startBot() {
       }
     }, 15_000);
     await registerSlashCommands(c);
+    await syncGuildRegistry(c);
   });
 
   client.on(Events.GuildCreate, async (guild) => {
     console.log(`[Bot] Joined server: ${guild.name} (${guild.id})`);
-    try {
-      const existing = await db.select().from(servers).where(eq(servers.discordId, guild.id));
-      if (existing.length === 0) {
-        const [server] = await db
-          .insert(servers)
-          .values({
-            discordId: guild.id,
-            name: guild.name,
-            iconUrl: guild.iconURL(),
-            memberCount: guild.memberCount,
-            ownerId: guild.ownerId,
-          })
-          .returning();
-        await db.insert(serverSettings).values({ serverId: server.id } as any);
-        console.log(`[Bot] Auto-setup complete for ${guild.name}`);
-      }
-    } catch (err) {
-      console.error(`[Bot] Failed to auto-setup ${guild.name}:`, err);
-    }
+    await ensureGuildRegistered(guild);
 
     if (shouldRegisterGuildCommands()) {
       try {
@@ -191,6 +175,63 @@ export async function startBot() {
     botClient = client;
   } catch (err) {
     console.error("[Bot] Failed to login:", err);
+  }
+}
+
+async function ensureGuildRegistered(guild: Guild) {
+  try {
+    const existing = await db.select().from(servers).where(eq(servers.discordId, guild.id));
+    if (existing.length === 0) {
+      const [created] = await db
+        .insert(servers)
+        .values({
+          discordId: guild.id,
+          name: guild.name,
+          iconUrl: guild.iconURL(),
+          memberCount: guild.memberCount,
+          ownerId: guild.ownerId || "unknown",
+        })
+        .returning();
+
+      await db.insert(serverSettings).values({ serverId: created.id } as any);
+      console.log(`[Bot] Auto-setup complete for ${guild.name}`);
+      return;
+    }
+
+    const server = existing[0];
+    await db
+      .update(servers)
+      .set({
+        name: guild.name,
+        iconUrl: guild.iconURL(),
+        memberCount: guild.memberCount,
+        ownerId: guild.ownerId || server.ownerId || "unknown",
+      })
+      .where(eq(servers.id, server.id));
+
+    const existingSettings = await db.select().from(serverSettings).where(eq(serverSettings.serverId, server.id));
+    if (existingSettings.length === 0) {
+      await db.insert(serverSettings).values({ serverId: server.id } as any);
+      console.log(`[Bot] Repaired missing settings row for ${guild.name}`);
+    }
+  } catch (err) {
+    console.error(`[Bot] Failed to register guild ${guild.name} (${guild.id}):`, err);
+  }
+}
+
+async function syncGuildRegistry(client: Client<true>) {
+  try {
+    await client.guilds.fetch();
+    const guilds = Array.from(client.guilds.cache.values());
+    if (guilds.length === 0) {
+      console.log("[Bot] Guild registry sync skipped: bot is not in any guilds.");
+      return;
+    }
+
+    await Promise.allSettled(guilds.map((guild) => ensureGuildRegistered(guild)));
+    console.log(`[Bot] Guild registry sync complete (${guilds.length} guilds).`);
+  } catch (err) {
+    console.error("[Bot] Guild registry sync failed:", err);
   }
 }
 
