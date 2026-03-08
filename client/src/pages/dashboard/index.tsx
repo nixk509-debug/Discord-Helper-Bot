@@ -118,7 +118,7 @@ export default function DashboardOverview() {
             </div>
             <div className="relative z-10 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className="gap-1.5 border-white/10 text-xs stats-monospace" asChild>
-                <a href="/api/invite-url" target="_blank" rel="noopener noreferrer" data-testid="button-add-to-server">
+                <a href="/api/invite-url?redirect=1" target="_blank" rel="noopener noreferrer" data-testid="button-add-to-server">
                   <ExternalLink className="w-3.5 h-3.5" /> ADD_TO_SERVER
                 </a>
               </Button>
@@ -175,6 +175,12 @@ export default function DashboardOverview() {
             </div>
           ) : (
             servers?.map((server: any, i: number) => {
+              const serverId = server?.id;
+              if (serverId == null) return null;
+
+              const serverName = typeof server?.name === "string" && server.name.trim().length > 0
+                ? server.name
+                : `Server ${serverId}`;
               const moduleDots = [
                 { label: "Automod", active: !!server.settings?.automodEnabled, icon: Shield },
                 { label: "Commands", active: (server.customCommands?.length || 0) > 0, icon: Terminal },
@@ -184,16 +190,23 @@ export default function DashboardOverview() {
                 { label: "Tickets", active: !!server.settings?.ticketsEnabled, icon: Ticket },
               ];
 
-              const initials = server.name.split(" ").map((w: string) => w[0]).join("").substring(0, 2).toUpperCase();
+              const initials = serverName
+                .split(" ")
+                .map((w: string) => w[0])
+                .filter(Boolean)
+                .join("")
+                .substring(0, 2)
+                .toUpperCase();
+              const memberCount = Number.isFinite(Number(server?.memberCount)) ? Number(server.memberCount) : 0;
 
               return (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.07 }}
-                  key={server.id}
+                  key={serverId}
                   className="feature-card rounded-2xl p-5 flex flex-col justify-between group cursor-pointer hover:shadow-[0_0_30px_-5px_rgba(177,18,38,0.3)] hover:-translate-y-0.5"
-                  data-testid={`card-server-${server.id}`}
+                  data-testid={`card-server-${serverId}`}
                 >
                   <div className="glitch-fragment" />
                   <div>
@@ -201,7 +214,7 @@ export default function DashboardOverview() {
                       {server.iconUrl ? (
                         <img
                           src={server.iconUrl}
-                          alt={server.name}
+                          alt={serverName}
                           className="w-14 h-14 rounded-2xl shadow-lg shadow-black/30 group-hover:scale-105 transition-transform duration-300"
                         />
                       ) : (
@@ -217,12 +230,12 @@ export default function DashboardOverview() {
                       </div>
                     </div>
 
-                    <h3 className="text-lg font-display font-bold truncate mb-1" data-testid={`text-server-name-${server.id}`}>
-                      {server.name}
+                    <h3 className="text-lg font-display font-bold truncate mb-1" data-testid={`text-server-name-${serverId}`}>
+                      {serverName}
                     </h3>
                     <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4 stats-monospace">
                       <Users className="w-3.5 h-3.5" />
-                      <span>{(server.memberCount || 0).toLocaleString()} MEMBERS</span>
+                      <span>{memberCount.toLocaleString()} MEMBERS</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 mb-4">
@@ -231,7 +244,7 @@ export default function DashboardOverview() {
                           <TooltipTrigger>
                             <div
                               className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${mod.active ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-white/10"}`}
-                              data-testid={`dot-module-${mod.label.toLowerCase()}-${server.id}`}
+                              data-testid={`dot-module-${mod.label.toLowerCase()}-${serverId}`}
                             />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="text-[10px] uppercase font-bold tracking-widest bg-black border-white/10">
@@ -243,13 +256,13 @@ export default function DashboardOverview() {
                   </div>
 
                   <div className="flex gap-2">
-                    <Link href={`/dashboard/servers/${server.id}`} className="flex-1">
-                      <Button size="sm" className="w-full gradient-brand text-white text-[10px] font-bold uppercase tracking-widest" data-testid={`button-configure-${server.id}`}>
+                    <Link href={`/dashboard/servers/${serverId}`} className="flex-1">
+                      <Button size="sm" className="w-full gradient-brand text-white text-[10px] font-bold uppercase tracking-widest" data-testid={`button-configure-${serverId}`}>
                         CONFIGURE
                       </Button>
                     </Link>
-                    <Link href={`/dashboard/servers/${server.id}/members`}>
-                      <Button size="sm" variant="outline" className="border-white/10 text-xs" data-testid={`button-members-${server.id}`}>
+                    <Link href={`/dashboard/servers/${serverId}/members`}>
+                      <Button size="sm" variant="outline" className="border-white/10 text-xs" data-testid={`button-members-${serverId}`}>
                         <Users className="w-3.5 h-3.5" />
                       </Button>
                     </Link>

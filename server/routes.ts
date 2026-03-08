@@ -48,12 +48,15 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   // --- INVITE URL ---
-  app.get("/api/invite-url", (_req, res) => {
+  app.get("/api/invite-url", (req, res) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
     if (!clientId) return res.status(503).json({ message: "Bot not configured" });
     const permissions = "8";
     const url = `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot%20applications.commands&permissions=${permissions}`;
-    res.json({ url });
+    if (req.query.redirect === "1" || req.query.redirect === "true") {
+      return res.redirect(url);
+    }
+    return res.json({ url });
   });
 
   // --- USER PREFERENCES ---
@@ -135,63 +138,79 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   // --- SERVERS ---
   app.get(api.servers.list.path, async (_req, res) => {
-    const allServers = await storage.getServers();
-    res.json(allServers);
+    try {
+      const allServers = await storage.getServers();
+      return res.json(allServers);
+    } catch (err: any) {
+      console.error("[Servers] Failed to list servers:", err?.message || err);
+      // Keep dashboard shell usable even if database access is temporarily degraded.
+      return res.status(200).json([]);
+    }
   });
 
   app.get(api.servers.get.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    const server = await storage.getServer(id);
-    if (!server) return res.status(404).json({ message: "Server not found" });
-    res.json(server);
+    try {
+      const server = await storage.getServer(id);
+      if (!server) return res.status(404).json({ message: "Server not found" });
+      return res.json(server);
+    } catch (err: any) {
+      console.error(`[Servers] Failed to fetch server ${id}:`, err?.message || err);
+      return res.status(503).json({ message: "Unable to load server data right now" });
+    }
   });
 
   app.get(api.servers.discordContext.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    try {
+      const serverId = parseInt(req.params.serverId);
+      if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
 
-    const server = await storage.getServer(serverId);
-    if (!server) return res.status(404).json({ message: "Server not found" });
+      const server = await storage.getServer(serverId);
+      if (!server) return res.status(404).json({ message: "Server not found" });
 
-    const client = getBotClient();
-    if (!client?.isReady()) {
-      return res.status(503).json({ message: "Bot is offline. Start the bot to load roles/channels." });
+      const client = getBotClient();
+      if (!client?.isReady()) {
+        return res.status(503).json({ message: "Bot is offline. Start the bot to load roles/channels." });
+      }
+
+      const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+      if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+      await guild.channels.fetch().catch(() => null);
+      await guild.roles.fetch().catch(() => null);
+
+      const channels = Array.from(guild.channels.cache.values())
+        .filter((channel: any) => channel && channel.isTextBased() && !channel.isThread())
+        .map((channel: any) => ({
+          id: channel.id,
+          name: channel.name,
+          type: String(channel.type),
+          parentId: channel.parentId ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const roles = Array.from(guild.roles.cache.values())
+        .filter((role: any) => role && role.id !== guild.id)
+        .map((role: any) => ({
+          id: role.id,
+          name: role.name,
+          color: role.color || 0,
+          position: role.position || 0,
+        }))
+        .sort((a, b) => (b.position - a.position) || a.name.localeCompare(b.name));
+
+      return res.json({
+        guildId: guild.id,
+        guildName: guild.name,
+        memberCount: guild.memberCount,
+        channels,
+        roles,
+      });
+    } catch (err: any) {
+      console.error("[Servers] Failed to load Discord context:", err?.message || err);
+      return res.status(503).json({ message: "Unable to load Discord channels/roles right now" });
     }
-
-    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
-
-    await guild.channels.fetch().catch(() => null);
-    await guild.roles.fetch().catch(() => null);
-
-    const channels = Array.from(guild.channels.cache.values())
-      .filter((channel: any) => channel && channel.isTextBased() && !channel.isThread())
-      .map((channel: any) => ({
-        id: channel.id,
-        name: channel.name,
-        type: String(channel.type),
-        parentId: channel.parentId ?? null,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    const roles = Array.from(guild.roles.cache.values())
-      .filter((role: any) => role && role.id !== guild.id)
-      .map((role: any) => ({
-        id: role.id,
-        name: role.name,
-        color: role.color || 0,
-        position: role.position || 0,
-      }))
-      .sort((a, b) => (b.position - a.position) || a.name.localeCompare(b.name));
-
-    res.json({
-      guildId: guild.id,
-      guildName: guild.name,
-      memberCount: guild.memberCount,
-      channels,
-      roles,
-    });
   });
   // --- SETTINGS ---
   app.patch(api.settings.update.path, async (req, res) => {

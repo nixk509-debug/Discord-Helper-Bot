@@ -72,6 +72,11 @@ export function getAvatarUrl(user: AuthUser): string {
   if (user.avatar) {
     return `https://cdn.discordapp.com/avatars/${user.discordId}/${user.avatar}.png?size=128`;
   }
-  const defaultIndex = (BigInt(user.discordId) >> BigInt(22)) % BigInt(6);
-  return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+
+  try {
+    const defaultIndex = (BigInt(user.discordId) >> BigInt(22)) % BigInt(6);
+    return `https://cdn.discordapp.com/embed/avatars/${defaultIndex}.png`;
+  } catch {
+    return "https://cdn.discordapp.com/embed/avatars/0.png";
+  }
 }
