@@ -40,10 +40,17 @@ export class DatabaseStorage {
         with: { settings: true, customCommands: true, embeds: true },
       }) as any;
     } catch (error) {
-      if (!isSchemaMismatchError(error)) throw error;
-      console.warn("[Storage] Falling back to basic server list:", error instanceof Error ? error.message : error);
-      const baseServers = await db.select().from(servers);
-      return baseServers.map(toBasicServerPayload);
+      console.warn(
+        `[Storage] Failed to load relational server list${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
+        error instanceof Error ? error.message : error,
+      );
+      try {
+        const baseServers = await db.select().from(servers);
+        return baseServers.map(toBasicServerPayload);
+      } catch (fallbackError) {
+        console.error("[Storage] Basic server fallback failed:", fallbackError instanceof Error ? fallbackError.message : fallbackError);
+        throw fallbackError;
+      }
     }
   }
 
@@ -60,10 +67,20 @@ export class DatabaseStorage {
         },
       }) as any;
     } catch (error) {
-      if (!isSchemaMismatchError(error)) throw error;
-      console.warn(`[Storage] Falling back to basic server payload for ${id}:`, error instanceof Error ? error.message : error);
-      const [baseServer] = await db.select().from(servers).where(eq(servers.id, id));
-      return baseServer ? toBasicServerPayload(baseServer) : undefined;
+      console.warn(
+        `[Storage] Failed to load relational server payload for ${id}${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
+        error instanceof Error ? error.message : error,
+      );
+      try {
+        const [baseServer] = await db.select().from(servers).where(eq(servers.id, id));
+        return baseServer ? toBasicServerPayload(baseServer) : undefined;
+      } catch (fallbackError) {
+        console.error(
+          `[Storage] Basic server fallback failed for ${id}:`,
+          fallbackError instanceof Error ? fallbackError.message : fallbackError,
+        );
+        throw fallbackError;
+      }
     }
   }
 

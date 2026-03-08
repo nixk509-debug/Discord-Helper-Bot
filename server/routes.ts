@@ -322,51 +322,44 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
-    try {
-      const allServers = await storage.getServers();
-      const totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
-      const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
-      const commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
-      const bot = getBotStatus();
-      const uptimeStr = formatDuration(bot.uptimeMs);
+    const bot = getBotStatus();
+    const uptimeStr = formatDuration(bot.uptimeMs);
 
-      return res.json({
-        totalServers: allServers.length,
-        totalMembers,
-        commandsExecuted,
-        uptime: uptimeStr,
-        botReady: bot.ready,
-        bot: {
-          ready: bot.ready,
-          processStatus: bot.ready ? "online" : "offline",
-          uptimeMs: bot.uptimeMs,
-          uptimeHuman: uptimeStr,
-          guildCount: bot.guildCount,
-          gatewayPingMs: bot.gatewayPingMs,
-          lastHeartbeatAt: bot.lastHeartbeatAt,
-          wsStatus: bot.wsStatus,
-        },
-      });
+    let allServers: any[] = [];
+    let totalMembers = 0;
+    let commandsExecuted = 0;
+
+    try {
+      allServers = await storage.getServers();
+      totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
     } catch (err: any) {
-      console.error("[Stats] Failed to build dashboard stats:", err?.message || err);
-      return res.status(200).json({
-        totalServers: 0,
-        totalMembers: 0,
-        commandsExecuted: 0,
-        uptime: "offline",
-        botReady: getBotStatus().ready,
-        bot: {
-          ready: false,
-          processStatus: "offline",
-          uptimeMs: null,
-          uptimeHuman: "offline",
-          guildCount: 0,
-          gatewayPingMs: null,
-          lastHeartbeatAt: null,
-          wsStatus: "offline",
-        },
-      });
+      console.error("[Stats] Failed to load server totals:", err?.message || err);
     }
+
+    try {
+      const usageResult = await db.execute(sql`SELECT COALESCE(SUM(usage_count), 0) AS total FROM custom_commands`);
+      commandsExecuted = Number((usageResult.rows[0] as any)?.total ?? 0);
+    } catch (err: any) {
+      console.error("[Stats] Failed to load command usage totals:", err?.message || err);
+    }
+
+    return res.json({
+      totalServers: allServers.length,
+      totalMembers,
+      commandsExecuted,
+      uptime: uptimeStr,
+      botReady: bot.ready,
+      bot: {
+        ready: bot.ready,
+        processStatus: bot.ready ? "online" : "offline",
+        uptimeMs: bot.uptimeMs,
+        uptimeHuman: uptimeStr,
+        guildCount: bot.guildCount,
+        gatewayPingMs: bot.gatewayPingMs,
+        lastHeartbeatAt: bot.lastHeartbeatAt,
+        wsStatus: bot.wsStatus,
+      },
+    });
   });
 
   // --- SERVERS ---
