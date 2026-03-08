@@ -210,6 +210,10 @@ export class DatabaseStorage {
     const [created] = await db.insert(ticketPanels).values({ ...data, serverId } as any).returning();
     return created;
   }
+  async updateTicketPanel(id: number, data: any): Promise<TicketPanel> {
+    const [updated] = await db.update(ticketPanels).set(data as any).where(eq(ticketPanels.id, id)).returning();
+    return updated;
+  }
   async deleteTicketPanel(id: number): Promise<void> {
     await db.delete(ticketPanels).where(eq(ticketPanels.id, id));
   }

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds, useDiscordContext } from "@/hooks/use-bot";
+import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds, useDiscordContext, useCreateStudioDocument, usePublishStudio, useStudioPublications } from "@/hooks/use-bot";
 import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -31,6 +31,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import type { ServerSettings, AutoRole } from "@shared/schema";
+import { useLocation } from "wouter";
+import { StudioSurfaceCard } from "@/components/design-studio/studio-surface-card";
+import { createStudioDocument as createStudioDocumentDraft } from "@/components/design-studio/studio-defaults";
 
 interface WelcomeTabProps {
   serverId: number;
@@ -72,7 +75,11 @@ function replaceVariables(text: string): string {
 
 export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const updateSettings = useUpdateSettings(serverId);
+  const createStudioDocument = useCreateStudioDocument(serverId);
+  const publishStudio = usePublishStudio(serverId);
+  const { data: studioPublications = [] } = useStudioPublications(serverId);
   const { data: autoRoles = [], isLoading: autoRolesLoading } = useAutoRoles(serverId);
   const createAutoRole = useCreateAutoRole(serverId);
   const deleteAutoRole = useDeleteAutoRole(serverId);
@@ -81,6 +88,9 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
   const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
   const roleNameById = Object.fromEntries(roleOptions.map((role) => [role.id, role.name]));
+  const welcomePublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.welcomeStudioDocumentId) || null;
+  const welcomeDmPublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.welcomeDmStudioDocumentId) || null;
+  const leavePublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.leaveStudioDocumentId) || null;
 
   const [welcomeEnabled, setWelcomeEnabled] = useState(settings?.welcomeEnabled ?? false);
   const [welcomeChannelId, setWelcomeChannelId] = useState(settings?.welcomeChannelId ?? "");
@@ -102,6 +112,58 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDelay, setNewRoleDelay] = useState(0);
   const [newRoleType, setNewRoleType] = useState("join");
+
+  const openStudio = (documentId: number) => {
+    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+  };
+
+  const createSurface = (binding: "welcome" | "welcome_dm" | "leave", field: "welcomeStudioDocumentId" | "welcomeDmStudioDocumentId" | "leaveStudioDocumentId") => {
+    const name = binding === "welcome" ? "Welcome Surface" : binding === "welcome_dm" ? "Welcome DM Surface" : "Leave Surface";
+    createStudioDocument.mutate(
+      {
+        scope: "server",
+        kind: "surface",
+        name,
+        moduleBinding: binding,
+        document: createStudioDocumentDraft(binding, name),
+      },
+      {
+        onSuccess: (created: any) => {
+          updateSettings.mutate(
+            { [field]: created.id },
+            {
+              onSuccess: () => openStudio(created.id),
+            }
+          );
+        },
+        onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const publishSurface = (documentId: number | null | undefined, channelIdValue: string, label: string) => {
+    if (!documentId) {
+      toast({ title: "No surface bound", description: `Create a ${label.toLowerCase()} surface first.`, variant: "destructive" });
+      return;
+    }
+    if (!channelIdValue) {
+      toast({ title: "No channel selected", description: `Choose a channel for ${label.toLowerCase()} publishing.`, variant: "destructive" });
+      return;
+    }
+    publishStudio.mutate(
+      {
+        documentId,
+        target: {
+          channelId: channelIdValue,
+          viewId: "entry",
+        },
+      },
+      {
+        onSuccess: () => toast({ title: "Surface published", description: `${label} sent to ${channelIdValue}.` }),
+        onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -182,6 +244,36 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
             {updateSettings.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <StudioSurfaceCard
+          title="Welcome Surface"
+          description="Use Design Studio for the shared welcome/orientation message. It will auto-send on member join when welcome messages are enabled."
+          documentId={settings?.welcomeStudioDocumentId}
+          publication={welcomePublication}
+          onCreate={() => createSurface("welcome", "welcomeStudioDocumentId")}
+          onOpen={() => settings?.welcomeStudioDocumentId && openStudio(settings.welcomeStudioDocumentId)}
+          onPublish={() => publishSurface(settings?.welcomeStudioDocumentId, welcomeChannelId, "Welcome surface")}
+        />
+        <StudioSurfaceCard
+          title="Welcome DM Surface"
+          description="Design the DM onboarding flow with views, modals, and reusable blocks. It auto-sends when welcome DMs are enabled."
+          documentId={settings?.welcomeDmStudioDocumentId}
+          publication={welcomeDmPublication}
+          onCreate={() => createSurface("welcome_dm", "welcomeDmStudioDocumentId")}
+          onOpen={() => settings?.welcomeDmStudioDocumentId && openStudio(settings.welcomeDmStudioDocumentId)}
+          actionLabel="Create DM Surface"
+        />
+        <StudioSurfaceCard
+          title="Leave Surface"
+          description="Use Studio for leave notices, archive instructions, or offboarding copy. It auto-sends on member leave when leave messages are enabled."
+          documentId={settings?.leaveStudioDocumentId}
+          publication={leavePublication}
+          onCreate={() => createSurface("leave", "leaveStudioDocumentId")}
+          onOpen={() => settings?.leaveStudioDocumentId && openStudio(settings.leaveStudioDocumentId)}
+          onPublish={() => publishSurface(settings?.leaveStudioDocumentId, leaveChannelId, "Leave surface")}
+        />
       </div>
 
       {showPreview && (

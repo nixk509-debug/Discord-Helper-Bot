@@ -11,9 +11,14 @@ import {
   categoryLockSnapshots,
   memberNotes,
   economy,
+  studioDocuments,
+  studioPublications,
+  studioPublicationSnapshots,
+  studioRuntimeEvents,
   type EmbedComponentType,
   type EmbedComponentOption,
   type InteractiveActionConfig,
+  type StudioDocument,
 } from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
@@ -32,6 +37,26 @@ import {
   StringSelectMenuBuilder,
 } from "discord.js";
 import { EMBED_ACTION_TOKEN_PREFIX, encodeEmbedActionToken } from "./bot/embed-action-token";
+import {
+  createStudioDocumentRecord,
+  createStudioPublicationRecord,
+  createStudioPublicationSnapshotRecord,
+  getCurrentStudioPublicationSnapshot,
+  getStudioDocumentById,
+  getStudioPublicationById,
+  getStudioPublicationByMessage,
+  getStudioPublicationSnapshotById,
+  listStudioDocuments,
+  listStudioPublicationSnapshots,
+  listStudioPublications,
+  listStudioRuntimeEvents,
+  normalizeStudioDocument,
+  recordStudioRuntimeEvent,
+  renderStudioDocumentView,
+  updateStudioDocumentRecord,
+  updateStudioPublicationRecord,
+} from "./studio-service";
+import { buildStudioDiscordPayload } from "./studio-discord";
 
 export async function registerRoutes(_server: Server, app: Express) {
 
@@ -40,6 +65,8 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (req.path.match(/\/codes\/redeem$/) && req.method === "POST") return next();
     return requireAuth(req as any, res, next);
   });
+
+  app.use("/api/studio", requireAuth);
 
   // --- HEALTH ---
   app.get("/health", async (_req, res) => {
@@ -127,6 +154,171 @@ export async function registerRoutes(_server: Server, app: Express) {
     }
     await storage.deleteTemplate(id);
     res.status(204).send();
+  });
+
+  // --- STUDIO ---
+  app.get(api.servers.studioDocuments.list.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const items = await listStudioDocuments(serverId, req.user!.id);
+    res.json(items);
+  });
+
+  app.post(api.servers.studioDocuments.create.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioDocuments.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const document = normalizeStudioDocument(parsed.data.document, parsed.data.name);
+    const created = await createStudioDocumentRecord({
+      serverId,
+      ownerUserId: req.user!.id,
+      scope: parsed.data.scope,
+      kind: parsed.data.kind,
+      name: parsed.data.name,
+      slug: parsed.data.slug,
+      moduleBinding: parsed.data.moduleBinding || null,
+      document,
+      isArchived: parsed.data.isArchived,
+    });
+    res.status(201).json(created);
+  });
+
+  app.patch(api.studio.documents.update.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid document ID" });
+
+    const existing = await getStudioDocumentById(id);
+    if (!existing) return res.status(404).json({ message: "Document not found" });
+
+    const parsed = api.studio.documents.update.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const updated = await updateStudioDocumentRecord(id, {
+      ...parsed.data,
+      document: parsed.data.document ? normalizeStudioDocument(parsed.data.document, existing.name) : existing.document,
+    } as any);
+    res.json(updated);
+  });
+
+  app.get(api.servers.studioPublications.list.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const publications = await listStudioPublications(serverId);
+    const events = await listStudioRuntimeEvents(serverId);
+    const eventMap = new Map<number, any[]>();
+    for (const event of events) {
+      if (!event.publicationId) continue;
+      const current = eventMap.get(event.publicationId) || [];
+      current.push(event);
+      eventMap.set(event.publicationId, current);
+    }
+    const payload = await Promise.all(publications.map(async (publication) => {
+      const snapshots = await listStudioPublicationSnapshots(publication.id);
+      const document = await getStudioDocumentById(publication.documentId);
+      return {
+        ...publication,
+        documentName: document?.name || `Document ${publication.documentId}`,
+        snapshots: snapshots.slice(0, 10),
+        recentEvents: (eventMap.get(publication.id) || []).slice(0, 5),
+      };
+    }));
+    res.json(payload);
+  });
+
+  app.post(api.servers.studioPublish.publish.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioPublish.publish.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    try {
+      const result = await publishStudioMessage({
+        serverId,
+        actorUserId: req.user!.id,
+        actorDiscordId: req.user!.discordId,
+        documentId: parsed.data.documentId,
+        documentInput: parsed.data.document,
+        target: parsed.data.target,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to publish Studio document." });
+    }
+  });
+
+  app.post(api.studio.publications.clone.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
+    const parsed = api.studio.publications.clone.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    try {
+      const result = await cloneStudioPublication({
+        publicationId: id,
+        actorUserId: req.user!.id,
+        targetChannelId: parsed.data.channelId,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to clone publication." });
+    }
+  });
+
+  app.post(api.studio.publications.rollback.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
+    const parsed = api.studio.publications.rollback.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    try {
+      const result = await rollbackStudioPublication({
+        publicationId: id,
+        snapshotId: parsed.data.snapshotId,
+        actorUserId: req.user!.id,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to rollback publication." });
+    }
+  });
+
+  app.post(api.studio.publications.archive.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
+    const publication = await getStudioPublicationById(id);
+    if (!publication) return res.status(404).json({ message: "Publication not found" });
+
+    const updated = await updateStudioPublicationRecord(id, { active: false, status: "archived" });
+    res.json(updated);
+  });
+
+  app.patch(api.studio.publications.status.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
+    const publication = await getStudioPublicationById(id);
+    if (!publication) return res.status(404).json({ message: "Publication not found" });
+
+    const parsed = api.studio.publications.status.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const updated = await updateStudioPublicationRecord(id, parsed.data);
+    res.json(updated);
   });
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
@@ -254,12 +446,24 @@ export async function registerRoutes(_server: Server, app: Express) {
         }))
         .sort((a, b) => (b.position - a.position) || a.name.localeCompare(b.name));
 
+      const emojis = Array.from(guild.emojis.cache.values())
+        .filter((emoji: any) => !!emoji)
+        .map((emoji: any) => ({
+          id: emoji.id,
+          name: emoji.name,
+          animated: Boolean(emoji.animated),
+          available: Boolean(emoji.available),
+          managed: Boolean(emoji.managed),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
       return res.json({
         guildId: guild.id,
         guildName: guild.name,
         memberCount: guild.memberCount,
         channels,
         roles,
+        emojis,
       });
     } catch (err: any) {
       console.error("[Servers] Failed to load Discord context:", err?.message || err);
@@ -464,78 +668,185 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
-
-    const server = await storage.getServer(serverId);
-    if (!server) return res.status(404).json({ message: "Server not found" });
-
-    const client = getBotClient();
-    if (!client?.isReady()) {
-      return res.status(503).json({ message: "Bot is offline. Start the bot before publishing." });
-    }
-
-    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
-
-    const channel = await guild.channels.fetch(parsed.data.channelId.trim()).catch(() => null);
-    if (!channel || !channel.isTextBased() || channel.isThread()) {
-      return res.status(400).json({ message: "Selected channel is not a valid text channel." });
-    }
-
-    const diagnostics: ComponentDiagnostic[] = [];
-    const interactiveComponents = (parsed.data.interactiveComponents || []) as EmbedComponentType[];
-    const actionRows = buildActionRows({
-      components: interactiveComponents,
-      serverId,
-      guildId: guild.id,
-      embedId: 0,
-      diagnostics,
-    });
-
-    const embeds = (parsed.data.embeds || [])
-      .map((embedPayload) => buildDiscordEmbed(embedPayload))
-      .filter((entry): entry is EmbedBuilder => Boolean(entry));
-
-    const studioBlocks = Array.isArray(parsed.data.blocks) ? parsed.data.blocks : [];
-    const previewOnlyCount = studioBlocks.filter((block: any) => {
-      const type = String(block?.type || "");
-      return type && type !== "button" && type !== "select_menu";
-    }).length;
-    if (previewOnlyCount > 0) {
-      diagnostics.push({
-        level: "info",
-        code: "PREVIEW_ONLY_BLOCKS",
-        message: `${previewOnlyCount} non-interactive studio blocks are preview-only in current runtime path.`,
-      });
-    }
-
-    const content = String(parsed.data.content || "").trim();
-    if (!content && embeds.length === 0 && actionRows.length === 0) {
-      return res.status(400).json({ message: "Nothing to publish. Add message content, embeds, or interactive components.", diagnostics });
-    }
-
-    const payload = {
-      content: content || undefined,
-      embeds,
-      components: actionRows,
-    };
-
     try {
-      if (parsed.data.messageId?.trim()) {
-        const existing = await (channel as any).messages.fetch(parsed.data.messageId.trim()).catch(() => null);
-        if (!existing) return res.status(404).json({ message: "Message not found for update." });
-        const updated = await existing.edit(payload);
-        return res.json({ messageId: updated.id, channelId: updated.channelId, updated: true, diagnostics });
-      }
+      let legacyNodeCounter = 0;
+      let legacyActionCounter = 0;
+      const nextNodeId = () => `legacy_node_${++legacyNodeCounter}`;
+      const nextActionId = () => `legacy_action_${++legacyActionCounter}`;
+      const rootNodeIds: string[] = [];
+      const nodes: Record<string, any> = {};
+      const actions: Record<string, any> = {};
 
-      const sent = await (channel as any).send(payload);
-      return res.json({ messageId: sent.id, channelId: sent.channelId, updated: false, diagnostics });
-    } catch (err: any) {
-      console.error("[DesignStudio] Publish failed:", err?.message || err, {
+      const componentTypeMap: Record<string, string> = {
+        "1": "action_row",
+        "2": "button",
+        "3": "string_select",
+        "9": "section",
+        "10": "text_display",
+        "11": "file",
+        "12": "media_gallery",
+        "14": "divider",
+        "17": "container",
+        action_row: "action_row",
+        button: "button",
+        select_menu: "string_select",
+        string_select: "string_select",
+        text_display: "text_display",
+        container: "container",
+        section: "section",
+        divider: "divider",
+        media_gallery: "media_gallery",
+        file: "file",
+      };
+
+      const ensureLegacyAction = (inputAction: any, fallback: any) => {
+        const raw = inputAction || fallback;
+        if (!raw) return undefined;
+        const id = String(raw.id || nextActionId());
+        actions[id] = {
+          id,
+          type: raw.type || "reply_message",
+          label: raw.label || raw.commandName || raw.url || "Legacy Action",
+          roleId: raw.roleId,
+          url: raw.url,
+          commandName: raw.commandName,
+          commandArgs: raw.commandArgs,
+          replyMode: raw.replyMode || "ephemeral",
+          channelId: raw.channelId,
+          modalId: raw.modalId,
+          targetViewId: raw.targetViewId,
+          fallbackViewId: raw.fallbackViewId,
+          response: raw.response || {
+            mode: "inline",
+            inline: {
+              content: raw.content || "Action received.",
+              embeds: [],
+            },
+          },
+          allowedRoleIds: Array.isArray(raw.allowedRoleIds) ? raw.allowedRoleIds : [],
+          blockedRoleIds: Array.isArray(raw.blockedRoleIds) ? raw.blockedRoleIds : [],
+          disabled: Boolean(raw.disabled),
+          hiddenByGate: Boolean(raw.hiddenByGate),
+        };
+        return id;
+      };
+
+      const appendLegacyNode = (source: any, parentId?: string) => {
+        const id = String(source?.id || nextNodeId());
+        const nodeType = componentTypeMap[String(source?.type || "text_display")] || "text_display";
+        const node: any = {
+          id,
+          type: nodeType,
+          viewId: "entry",
+          parentId: parentId || null,
+          childIds: [],
+          props: {
+            label: source?.label,
+            text: source?.content || source?.text,
+            heading: source?.title || source?.heading,
+            description: source?.description,
+            url: source?.url,
+            style: source?.style,
+            emoji: source?.emoji,
+            placeholder: source?.placeholder,
+            options: Array.isArray(source?.options) ? source.options.map((option: any, index: number) => ({
+              label: String(option?.label || `Option ${index + 1}`),
+              value: String(option?.value || `option_${index + 1}`),
+              description: option?.description,
+              emoji: option?.emoji,
+            })) : [],
+            mode: source?.mode,
+            symbol: source?.symbol,
+            repeat: source?.repeat,
+            accentColor: source?.accentColor,
+            items: Array.isArray(source?.items) ? source.items : [],
+          },
+        };
+
+        if (nodeType === "button") {
+          const fallbackAction = (source?.style === 5 || source?.url)
+            ? { type: "open_url", url: source?.url }
+            : { type: "reply_message", response: { mode: "inline", inline: { content: "Action received.", embeds: [] } } };
+          node.actionId = ensureLegacyAction(source?.action, fallbackAction);
+        }
+
+        if (nodeType === "string_select") {
+          const optionActionIds: Record<string, string> = {};
+          const options = Array.isArray(node.props.options) ? node.props.options : [];
+          options.forEach((option: any) => {
+            const matching = Array.isArray(source?.options)
+              ? source.options.find((entry: any) => String(entry?.value || "") === String(option.value))
+              : null;
+            const actionId = ensureLegacyAction(
+              matching?.action,
+              source?.action || { type: "reply_message", response: { mode: "inline", inline: { content: `Selected ${option.label}.`, embeds: [] } } },
+            );
+            if (actionId) optionActionIds[String(option.value)] = actionId;
+          });
+          node.optionActionIds = optionActionIds;
+        }
+
+        nodes[id] = node;
+
+        if (parentId && nodes[parentId]) {
+          nodes[parentId].childIds.push(id);
+        } else {
+          rootNodeIds.push(id);
+        }
+
+        const childSources = Array.isArray(source?.components) ? source.components : [];
+        childSources.forEach((child: any) => appendLegacyNode(child, id));
+      };
+
+      [
+        ...(Array.isArray(parsed.data.blocks) ? parsed.data.blocks : []),
+        ...(Array.isArray(parsed.data.interactiveComponents) ? parsed.data.interactiveComponents : []),
+      ].forEach((source: any) => appendLegacyNode(source));
+
+      const result = await publishStudioMessage({
         serverId,
-        channelId: parsed.data.channelId,
-        diagnostics,
+        actorUserId: req.user!.id,
+        actorDiscordId: req.user!.discordId,
+        documentInput: {
+          version: 2,
+          meta: {
+            name: "Design Studio Draft",
+            category: "surface",
+            entryViewId: "entry",
+          },
+          views: {
+            entry: {
+              id: "entry",
+              name: "Entry",
+              messageContent: parsed.data.content || "",
+              embeds: parsed.data.embeds || [],
+              rootNodeIds,
+            },
+          },
+          nodes,
+          actions,
+          modals: {},
+          assets: [],
+          libraries: {
+            dividerPresetIds: [],
+            styleBlockIds: [],
+            themePackIds: [],
+          },
+          design: {
+            dividerPresets: [],
+            styleBlocks: [],
+            themePacks: [],
+          },
+        },
+        target: {
+          channelId: parsed.data.channelId,
+          messageId: parsed.data.messageId,
+          viewId: "entry",
+        },
       });
-      return res.status(400).json({ message: "Failed to publish design studio message.", diagnostics });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to publish design studio message." });
     }
   });
 
@@ -715,6 +1026,13 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     const created = await storage.createTicketPanel(serverId, req.body);
     res.status(201).json(created);
+  });
+
+  app.patch(api.tickets.updatePanel.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+    const updated = await storage.updateTicketPanel(id, req.body);
+    res.json(updated);
   });
 
   app.delete(api.tickets.deletePanel.path, async (req, res) => {
@@ -1701,6 +2019,270 @@ function buildActionRows(input: {
   }
 
   return rows.slice(0, 5);
+}
+
+function studioHttpError(statusCode: number, message: string) {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+}
+
+async function resolveStudioGuildChannel(serverId: number, channelId: string) {
+  const server = await storage.getServer(serverId);
+  if (!server) throw studioHttpError(404, "Server not found");
+
+  const client = getBotClient();
+  if (!client?.isReady()) throw studioHttpError(503, "Bot is offline. Start the bot before publishing.");
+
+  const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+  if (!guild) throw studioHttpError(404, "Bot is not in this Discord server.");
+
+  const channel = await guild.channels.fetch(channelId.trim()).catch(() => null);
+  if (!channel || !channel.isTextBased() || channel.isThread()) {
+    throw studioHttpError(400, "Selected channel is not a valid text channel.");
+  }
+
+  return { server, guild, channel };
+}
+
+async function publishStudioMessage(input: {
+  serverId: number;
+  actorUserId: number;
+  actorDiscordId?: string;
+  documentId?: number;
+  documentInput?: unknown;
+  target: {
+    channelId: string;
+    messageId?: string;
+    viewId?: string;
+  };
+}) {
+  let documentRecord = input.documentId ? await getStudioDocumentById(input.documentId) : null;
+  if (documentRecord && documentRecord.serverId !== input.serverId) {
+    throw studioHttpError(404, "Studio document not found for this server.");
+  }
+
+  let document: StudioDocument;
+  if (documentRecord) {
+    document = input.documentInput
+      ? normalizeStudioDocument(input.documentInput, documentRecord.name)
+      : normalizeStudioDocument(documentRecord.document, documentRecord.name);
+
+    if (input.documentInput) {
+      documentRecord = await updateStudioDocumentRecord(documentRecord.id, {
+        name: document.meta.name,
+        document,
+      } as any);
+    }
+  } else if (input.documentInput) {
+    document = normalizeStudioDocument(input.documentInput, "Untitled Surface");
+    documentRecord = await createStudioDocumentRecord({
+      serverId: input.serverId,
+      ownerUserId: input.actorUserId,
+      scope: "server",
+      kind: "surface",
+      name: document.meta.name,
+      slug: undefined,
+      moduleBinding: null,
+      document,
+    });
+  } else {
+    throw studioHttpError(400, "Publish requires a documentId or document payload.");
+  }
+
+  const targetChannelId = input.target.channelId.trim();
+  const { guild, channel } = await resolveStudioGuildChannel(input.serverId, targetChannelId);
+  const rendered = renderStudioDocumentView(document, input.target.viewId);
+
+  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
+    throw studioHttpError(400, "Nothing to publish. Add content, embeds, or interactive components.");
+  }
+
+  let publication = input.target.messageId?.trim()
+    ? await getStudioPublicationByMessage(input.serverId, targetChannelId, input.target.messageId.trim())
+    : null;
+
+  if (!publication) {
+    publication = await createStudioPublicationRecord({
+      serverId: input.serverId,
+      documentId: documentRecord.id,
+      channelId: targetChannelId,
+      messageId: input.target.messageId?.trim() || "pending",
+      currentViewId: rendered.viewId,
+    });
+  }
+
+  const snapshotPayload = {
+    documentId: documentRecord.id,
+    documentName: documentRecord.name,
+    documentVersion: document.version,
+    publishedViewId: rendered.viewId,
+    channelId: targetChannelId,
+    guildId: guild.id,
+    render: {
+      content: rendered.content,
+      embeds: rendered.embeds,
+      components: rendered.interactiveComponents,
+    },
+    diagnostics: rendered.diagnostics,
+    document,
+  };
+
+  const snapshotRecord = await createStudioPublicationSnapshotRecord({
+    publicationId: publication.id,
+    createdByUserId: input.actorUserId,
+    snapshot: snapshotPayload,
+  });
+
+  publication = await updateStudioPublicationRecord(publication.id, {
+    currentSnapshotId: snapshotRecord.id,
+    currentViewId: rendered.viewId,
+    status: rendered.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+  });
+
+  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id);
+
+  try {
+    let messageId = input.target.messageId?.trim();
+    if (messageId) {
+      const existing = await (channel as any).messages.fetch(messageId).catch(() => null);
+      if (!existing) throw studioHttpError(404, "Message not found for update.");
+      const updated = await existing.edit({
+        content: payload.content,
+        embeds: payload.embeds,
+        components: payload.components,
+      });
+      messageId = updated.id;
+    } else {
+      const sent = await (channel as any).send({
+        content: payload.content,
+        embeds: payload.embeds,
+        components: payload.components,
+      });
+      messageId = sent.id;
+    }
+
+    publication = await updateStudioPublicationRecord(publication.id, {
+      messageId,
+      channelId: targetChannelId,
+      currentSnapshotId: snapshotRecord.id,
+      currentViewId: rendered.viewId,
+      lastPublishedAt: new Date(),
+      active: true,
+      status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+      lastFailureAt: null,
+      lastFailureSummary: null,
+    } as any);
+
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      publicationId: publication.id,
+      documentId: documentRecord.id,
+      severity: payload.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
+      eventType: "publish",
+      summary: `Published ${documentRecord.name} to ${targetChannelId}.`,
+      details: { diagnostics: payload.diagnostics, viewId: rendered.viewId, messageId },
+    });
+
+    return {
+      publicationId: publication.id,
+      messageId,
+      channelId: targetChannelId,
+      snapshotVersion: snapshotRecord.version,
+      diagnostics: payload.diagnostics,
+    };
+  } catch (err: any) {
+    await updateStudioPublicationRecord(publication.id, {
+      status: "failed",
+      lastFailureAt: new Date(),
+      lastFailureSummary: err?.message || "Publish failed",
+    } as any);
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      publicationId: publication.id,
+      documentId: documentRecord.id,
+      severity: "error",
+      eventType: "publish_failed",
+      summary: err?.message || "Publish failed",
+      details: { diagnostics: payload.diagnostics, targetChannelId },
+    });
+    throw err;
+  }
+}
+
+async function cloneStudioPublication(input: {
+  publicationId: number;
+  actorUserId: number;
+  targetChannelId: string;
+}) {
+  const publication = await getStudioPublicationById(input.publicationId);
+  if (!publication) throw studioHttpError(404, "Publication not found");
+
+  const snapshot = await getCurrentStudioPublicationSnapshot(publication.id);
+  if (!snapshot) throw studioHttpError(404, "Publication snapshot not found");
+
+  return publishStudioMessage({
+    serverId: publication.serverId,
+    actorUserId: input.actorUserId,
+    documentId: publication.documentId,
+    documentInput: (snapshot.snapshot as any)?.document,
+    target: {
+      channelId: input.targetChannelId,
+      viewId: (snapshot.snapshot as any)?.publishedViewId,
+    },
+  });
+}
+
+async function rollbackStudioPublication(input: {
+  publicationId: number;
+  snapshotId: number;
+  actorUserId: number;
+}) {
+  const publication = await getStudioPublicationById(input.publicationId);
+  if (!publication) throw studioHttpError(404, "Publication not found");
+
+  const snapshotRecord = await getStudioPublicationSnapshotById(input.snapshotId);
+  if (!snapshotRecord || snapshotRecord.publicationId !== publication.id) {
+    throw studioHttpError(404, "Snapshot not found for this publication.");
+  }
+
+  const snapshot = snapshotRecord.snapshot as any;
+  const { channel } = await resolveStudioGuildChannel(publication.serverId, publication.channelId);
+  const payload = buildStudioDiscordPayload(snapshot, publication.id);
+  const existing = await (channel as any).messages.fetch(publication.messageId).catch(() => null);
+  if (!existing) throw studioHttpError(404, "Published message no longer exists.");
+
+  await existing.edit({
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components,
+  });
+
+  await updateStudioPublicationRecord(publication.id, {
+    currentSnapshotId: snapshotRecord.id,
+    currentViewId: snapshot.publishedViewId,
+    lastPublishedAt: new Date(),
+    active: true,
+    status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+  });
+
+  await recordStudioRuntimeEvent({
+    serverId: publication.serverId,
+    publicationId: publication.id,
+    documentId: publication.documentId,
+    severity: "info",
+    eventType: "rollback",
+    summary: `Rolled back publication ${publication.id} to snapshot ${snapshotRecord.version}.`,
+    details: { snapshotId: snapshotRecord.id },
+  });
+
+  return {
+    publicationId: publication.id,
+    messageId: publication.messageId,
+    channelId: publication.channelId,
+    snapshotVersion: snapshotRecord.version,
+    diagnostics: payload.diagnostics,
+  };
 }
 
 function generateMockInsights(serverId: number) {

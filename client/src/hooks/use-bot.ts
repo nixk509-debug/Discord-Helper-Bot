@@ -78,12 +78,21 @@ export interface DiscordContextRole {
   hoist?: boolean;
 }
 
+export interface DiscordContextEmoji {
+  id: string;
+  name: string;
+  animated?: boolean;
+  available?: boolean;
+  managed?: boolean;
+}
+
 export interface DiscordContextResponse {
   guildId: string;
   guildName: string;
   memberCount: number;
   channels: DiscordContextChannel[];
   roles: DiscordContextRole[];
+  emojis: DiscordContextEmoji[];
 }
 
 export function useDiscordContext(serverId: number) {
@@ -237,6 +246,191 @@ export function useDeleteEmbed(serverId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [api.embeds.list.path, serverId] });
       qc.invalidateQueries({ queryKey: [api.servers.get.path, serverId] });
+    },
+  });
+}
+
+// --- STUDIO ---
+export function useStudioDocuments(serverId: number) {
+  return useQuery({
+    queryKey: [api.servers.studioDocuments.list.path, serverId],
+    queryFn: async () => {
+      const url = buildUrl(api.servers.studioDocuments.list.path, { serverId });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch Studio documents");
+      return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+
+export function useCreateStudioDocument(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const url = buildUrl(api.servers.studioDocuments.create.path, { serverId });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to create Studio document");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioDocuments.list.path, serverId] });
+    },
+  });
+}
+
+export function useUpdateStudioDocument(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const url = buildUrl(api.studio.documents.update.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to update Studio document");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioDocuments.list.path, serverId] });
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
+    },
+  });
+}
+
+export function useStudioPublications(serverId: number) {
+  return useQuery({
+    queryKey: [api.servers.studioPublications.list.path, serverId],
+    queryFn: async () => {
+      const url = buildUrl(api.servers.studioPublications.list.path, { serverId });
+      const res = await fetch(buildApiUrl(url), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch Studio publications");
+      return await res.json();
+    },
+    enabled: !!serverId,
+  });
+}
+
+export function usePublishStudio(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const url = buildUrl(api.servers.studioPublish.publish.path, { serverId });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to publish Studio document");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
+      qc.invalidateQueries({ queryKey: [api.servers.studioDocuments.list.path, serverId] });
+    },
+  });
+}
+
+export function useCloneStudioPublication(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, channelId }: { id: number; channelId: string }) => {
+      const url = buildUrl(api.studio.publications.clone.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to clone publication");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
+    },
+  });
+}
+
+export function useRollbackStudioPublication(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, snapshotId }: { id: number; snapshotId: number }) => {
+      const url = buildUrl(api.studio.publications.rollback.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshotId }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to rollback publication");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
+    },
+  });
+}
+
+export function useArchiveStudioPublication(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.studio.publications.archive.path, { id });
+      const res = await fetch(buildApiUrl(url), { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to archive publication");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
+    },
+  });
+}
+
+export function useUpdateStudioPublicationStatus(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const url = buildUrl(api.studio.publications.status.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to update publication");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioPublications.list.path, serverId] });
     },
   });
 }
@@ -598,6 +792,27 @@ export function useCreateTicketPanel(serverId: number) {
       const url = buildUrl(api.tickets.createPanel.path, { serverId });
       const res = await fetch(buildApiUrl(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Failed"); }
+      return await res.json();
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: [api.tickets.listPanels.path, serverId] }); },
+  });
+}
+
+export function useUpdateTicketPanel(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const url = buildUrl(api.tickets.updatePanel.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed");
+      }
       return await res.json();
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: [api.tickets.listPanels.path, serverId] }); },

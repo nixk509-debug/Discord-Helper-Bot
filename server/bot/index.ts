@@ -6,16 +6,24 @@ import {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ChannelType,
   PermissionsBitField,
   type Interaction,
   type Message,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
+  type ModalSubmitInteraction,
   type Guild,
+  type GuildMember,
+  type PartialGuildMember,
 } from "discord.js";
 import { db } from "../db";
-import { servers, serverSettings, customCommands } from "@shared/schema";
+import { servers, serverSettings, customCommands, ticketConfig, ticketPanels } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { economyCommands, handleEconomyCommand } from "./commands/economy";
 import { funCommand, handleFunCommand } from "./commands/fun";
@@ -25,11 +33,31 @@ import { codeCommand, handleCodeCommand } from "./commands/code";
 import { auditCommand, handleAuditCommand } from "./commands/audit";
 import { syncCommand, handleSyncCommand } from "./commands/sync";
 import { decodeEmbedActionToken } from "./embed-action-token";
+import {
+  createStudioPublicationRecord,
+  getCurrentStudioPublicationSnapshot,
+  getStudioDocumentById,
+  getStudioPublicationById,
+  getStudioPublicationSnapshotById,
+  recordStudioRuntimeEvent,
+  renderStudioDocumentView,
+  updateStudioPublicationRecord,
+  createStudioPublicationSnapshotRecord,
+} from "../studio-service";
+import { buildStudioDiscordPayload } from "../studio-discord";
+import {
+  decodeStudioToken,
+  encodeStudioModalToken,
+  STUDIO_ACTION_TOKEN_PREFIX,
+} from "./studio-action-token";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
 let botHeartbeatTimer: NodeJS.Timeout | null = null;
 let botLastHeartbeatAt: Date | null = null;
+
+type StudioAutomationMember = GuildMember | PartialGuildMember;
+const TICKET_TOPIC_PREFIX = "archivist-ticket";
 
 function mapWsStatus(status: number | undefined): string {
   switch (status) {
@@ -137,8 +165,26 @@ export async function startBot() {
     }
   });
 
+  client.on(Events.GuildMemberAdd, async (member) => {
+    await handleGuildMemberAdd(member).catch((err) => {
+      console.error("[Bot] GuildMemberAdd handler failed:", err);
+    });
+  });
+
+  client.on(Events.GuildMemberRemove, async (member) => {
+    await handleGuildMemberRemove(member).catch((err) => {
+      console.error("[Bot] GuildMemberRemove handler failed:", err);
+    });
+  });
+
   client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+    if (interaction.isModalSubmit()) {
+      await handleStudioModalSubmit(interaction);
+      return;
+    }
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
+      const handledStudio = await handleStudioInteraction(interaction);
+      if (handledStudio) return;
       await handleEmbedActionInteraction(interaction);
       return;
     }
@@ -233,6 +279,585 @@ async function syncGuildRegistry(client: Client<true>) {
   } catch (err) {
     console.error("[Bot] Guild registry sync failed:", err);
   }
+}
+
+async function getServerContextForGuild(guildId: string) {
+  const [server] = await db.select().from(servers).where(eq(servers.discordId, guildId));
+  if (!server) return { server: null, settings: null };
+  const [settings] = await db.select().from(serverSettings).where(eq(serverSettings.serverId, server.id));
+  return { server, settings: settings || null };
+}
+
+async function syncServerSnapshotForGuild(guild: Guild) {
+  await db.update(servers).set({
+    name: guild.name,
+    iconUrl: guild.iconURL(),
+    memberCount: guild.memberCount,
+  }).where(eq(servers.discordId, guild.id));
+}
+
+function buildStudioVariableMap(input: {
+  member: StudioAutomationMember;
+  guild: Guild;
+  channelName?: string | null;
+  channelId?: string | null;
+}) {
+  const user = input.member.user;
+  const displayName = "displayName" in input.member && input.member.displayName
+    ? input.member.displayName
+    : user?.username || "Member";
+  const avatarUrl = user?.displayAvatarURL?.() || user?.avatarURL?.() || "";
+  const now = new Date();
+  const channelName = input.channelName || "";
+  const channelId = input.channelId || "";
+
+  return {
+    "{user}": user?.username || displayName,
+    "{user.name}": displayName,
+    "{user.id}": user?.id || "",
+    "{user.mention}": user?.id ? `<@${user.id}>` : displayName,
+    "{user.avatar}": avatarUrl,
+    "{server}": input.guild.name,
+    "{server.name}": input.guild.name,
+    "{server.id}": input.guild.id,
+    "{server.membercount}": String(input.guild.memberCount),
+    "{channel}": channelName,
+    "{channel.mention}": channelId ? `<#${channelId}>` : channelName,
+    "{date}": now.toLocaleDateString(),
+    "{time}": now.toLocaleTimeString(),
+  };
+}
+
+function interpolateStudioVariables<T>(value: T, variables: Record<string, string>): T {
+  if (typeof value === "string") {
+    let output = value;
+    for (const [token, replacement] of Object.entries(variables)) {
+      output = output.split(token).join(replacement);
+    }
+    return output as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => interpolateStudioVariables(entry, variables)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        interpolateStudioVariables(entry, variables),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
+async function sendStudioAutomationSurface(input: {
+  serverId: number;
+  documentId: number;
+  guild: Guild;
+  member: StudioAutomationMember;
+  eventType: string;
+  defaultViewId?: string | null;
+  channelId?: string | null;
+  dm?: boolean;
+}) {
+  const documentRecord = await getStudioDocumentById(input.documentId);
+  if (!documentRecord || documentRecord.serverId !== input.serverId) return;
+
+  const channel = input.dm
+    ? await input.member.user.createDM().catch(() => null)
+    : input.channelId
+      ? await input.guild.channels.fetch(input.channelId).catch(() => null)
+      : null;
+
+  if (!channel) {
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      documentId: documentRecord.id,
+      severity: "warning",
+      eventType: `${input.eventType}_skipped`,
+      summary: "Studio automation target channel could not be resolved.",
+      details: { channelId: input.channelId || null, dm: Boolean(input.dm) },
+    });
+    return;
+  }
+
+  const guildChannel: any = input.dm ? null : channel;
+  if (!input.dm && (!guildChannel?.isTextBased?.() || guildChannel?.isThread?.())) {
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      documentId: documentRecord.id,
+      severity: "warning",
+      eventType: `${input.eventType}_skipped`,
+      summary: "Studio automation target is not a text channel.",
+      details: { channelId: input.channelId },
+    });
+    return;
+  }
+
+  const variables = buildStudioVariableMap({
+    member: input.member,
+    guild: input.guild,
+    channelName: "name" in channel ? channel.name : "Direct Message",
+    channelId: channel.id,
+  });
+  const personalizedDocument = interpolateStudioVariables(documentRecord.document, variables);
+  const rendered = renderStudioDocumentView(
+    personalizedDocument,
+    input.defaultViewId || personalizedDocument.meta.entryViewId,
+  );
+
+  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
+    return;
+  }
+
+  if (rendered.interactiveComponents.length === 0) {
+    await (channel as any).send({
+      content: rendered.content || undefined,
+      embeds: buildResponseEmbeds(rendered.embeds),
+    });
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      documentId: documentRecord.id,
+      severity: rendered.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
+      eventType: input.eventType,
+      summary: `Delivered ${documentRecord.name} via Studio automation.`,
+      details: { channelId: channel.id, dm: Boolean(input.dm), diagnostics: rendered.diagnostics },
+    });
+    return;
+  }
+
+  const publication = await createStudioPublicationRecord({
+    serverId: input.serverId,
+    documentId: documentRecord.id,
+    channelId: channel.id,
+    messageId: "pending",
+    currentViewId: rendered.viewId,
+  });
+
+  const snapshotPayload = {
+    documentId: documentRecord.id,
+    documentName: documentRecord.name,
+    documentVersion: personalizedDocument.version,
+    publishedViewId: rendered.viewId,
+    channelId: channel.id,
+    guildId: input.guild.id,
+    render: {
+      content: rendered.content,
+      embeds: rendered.embeds,
+      components: rendered.interactiveComponents,
+    },
+    diagnostics: rendered.diagnostics,
+    document: personalizedDocument,
+  };
+
+  const snapshotRecord = await createStudioPublicationSnapshotRecord({
+    publicationId: publication.id,
+    snapshot: snapshotPayload,
+  });
+  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id);
+
+  try {
+    const message = await (channel as any).send({
+      content: payload.content,
+      embeds: payload.embeds,
+      components: payload.components,
+    });
+
+    await updateStudioPublicationRecord(publication.id, {
+      messageId: message.id,
+      currentSnapshotId: snapshotRecord.id,
+      currentViewId: rendered.viewId,
+      active: true,
+      status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+      lastPublishedAt: new Date(),
+      lastFailureAt: null,
+      lastFailureSummary: null,
+    } as any);
+
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      publicationId: publication.id,
+      documentId: documentRecord.id,
+      severity: payload.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
+      eventType: input.eventType,
+      summary: `Delivered ${documentRecord.name} via Studio automation.`,
+      details: { channelId: channel.id, messageId: message.id, dm: Boolean(input.dm), diagnostics: payload.diagnostics },
+    });
+  } catch (err: any) {
+    await updateStudioPublicationRecord(publication.id, {
+      currentSnapshotId: snapshotRecord.id,
+      status: "failed",
+      active: false,
+      lastFailureAt: new Date(),
+      lastFailureSummary: err?.message || "Studio automation delivery failed",
+    } as any);
+
+    await recordStudioRuntimeEvent({
+      serverId: input.serverId,
+      publicationId: publication.id,
+      documentId: documentRecord.id,
+      severity: "error",
+      eventType: `${input.eventType}_failed`,
+      summary: err?.message || "Studio automation delivery failed",
+      details: { channelId: channel.id, dm: Boolean(input.dm), diagnostics: payload.diagnostics },
+    });
+  }
+}
+
+async function handleGuildMemberAdd(member: GuildMember) {
+  await ensureGuildRegistered(member.guild);
+  await syncServerSnapshotForGuild(member.guild);
+
+  const { server, settings } = await getServerContextForGuild(member.guild.id);
+  if (!server || !settings) return;
+
+  if (settings.welcomeEnabled && settings.welcomeStudioDocumentId && settings.welcomeChannelId) {
+    await sendStudioAutomationSurface({
+      serverId: server.id,
+      documentId: settings.welcomeStudioDocumentId,
+      guild: member.guild,
+      member,
+      eventType: "welcome_surface_sent",
+      defaultViewId: "entry",
+      channelId: settings.welcomeChannelId,
+    });
+  } else if (settings.welcomeEnabled && settings.welcomeChannelId && settings.welcomeMessage) {
+    const channel = await member.guild.channels.fetch(settings.welcomeChannelId).catch(() => null);
+    if (channel && channel.isTextBased() && !channel.isThread()) {
+      const content = interpolateStudioVariables(settings.welcomeMessage, buildStudioVariableMap({
+        member,
+        guild: member.guild,
+        channelName: "name" in channel ? channel.name : "",
+        channelId: channel.id,
+      }));
+      await (channel as any).send({ content }).catch(() => {});
+    }
+  }
+
+  if (settings.welcomeDmEnabled && settings.welcomeDmStudioDocumentId) {
+    await sendStudioAutomationSurface({
+      serverId: server.id,
+      documentId: settings.welcomeDmStudioDocumentId,
+      guild: member.guild,
+      member,
+      eventType: "welcome_dm_surface_sent",
+      defaultViewId: "entry",
+      dm: true,
+    });
+  } else if (settings.welcomeDmEnabled && settings.welcomeDmMessage) {
+    const content = interpolateStudioVariables(settings.welcomeDmMessage, buildStudioVariableMap({
+      member,
+      guild: member.guild,
+      channelName: "Direct Message",
+      channelId: null,
+    }));
+    await member.user.send({ content }).catch(() => {});
+  }
+}
+
+async function handleGuildMemberRemove(member: GuildMember | PartialGuildMember) {
+  await syncServerSnapshotForGuild(member.guild);
+
+  const { server, settings } = await getServerContextForGuild(member.guild.id);
+  if (!server || !settings) return;
+
+  if (settings.leaveEnabled && settings.leaveStudioDocumentId && settings.leaveChannelId) {
+    await sendStudioAutomationSurface({
+      serverId: server.id,
+      documentId: settings.leaveStudioDocumentId,
+      guild: member.guild,
+      member,
+      eventType: "leave_surface_sent",
+      defaultViewId: "entry",
+      channelId: settings.leaveChannelId,
+    });
+    return;
+  }
+
+  if (settings.leaveEnabled && settings.leaveChannelId && settings.leaveMessage) {
+    const channel = await member.guild.channels.fetch(settings.leaveChannelId).catch(() => null);
+    if (channel && channel.isTextBased() && !channel.isThread()) {
+      const content = interpolateStudioVariables(settings.leaveMessage, buildStudioVariableMap({
+        member,
+        guild: member.guild,
+        channelName: "name" in channel ? channel.name : "",
+        channelId: channel.id,
+      }));
+      await (channel as any).send({ content }).catch(() => {});
+    }
+  }
+}
+
+function sanitizeTicketSegment(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 20);
+  return normalized || "ticket";
+}
+
+function formatTicketChannelName(input: {
+  namingScheme?: string | null;
+  ticketNumber: number;
+  username: string;
+  subject?: string;
+}) {
+  const subject = sanitizeTicketSegment(input.subject || "");
+  const username = sanitizeTicketSegment(input.username || "member");
+  const scheme = String(input.namingScheme || "ticket-{number}");
+  const rendered = scheme
+    .replace(/\{number\}/gi, String(input.ticketNumber))
+    .replace(/\{user\}/gi, username)
+    .replace(/\{subject\}/gi, subject);
+  return sanitizeTicketSegment(rendered).slice(0, 90) || `ticket-${input.ticketNumber}`;
+}
+
+function buildTicketTopicMeta(input: {
+  serverId: number;
+  userId: string;
+  panelId?: number | null;
+  publicationId: number;
+  departmentId?: string | null;
+}) {
+  return [
+    TICKET_TOPIC_PREFIX,
+    `server:${input.serverId}`,
+    `user:${input.userId}`,
+    `panel:${input.panelId || 0}`,
+    `publication:${input.publicationId}`,
+    `department:${input.departmentId || "default"}`,
+    `opened:${Date.now()}`,
+  ].join("|");
+}
+
+function countOpenTicketsForUser(guild: Guild, serverId: number, userId: string) {
+  return Array.from(guild.channels.cache.values()).filter((channel: any) => {
+    const topic = String(channel?.topic || "");
+    return Boolean(
+      topic.includes(TICKET_TOPIC_PREFIX) &&
+      topic.includes(`server:${serverId}`) &&
+      topic.includes(`user:${userId}`),
+    );
+  }).length;
+}
+
+function countAllTicketChannels(guild: Guild, serverId: number) {
+  return Array.from(guild.channels.cache.values()).filter((channel: any) => {
+    const topic = String(channel?.topic || "");
+    return Boolean(topic.includes(TICKET_TOPIC_PREFIX) && topic.includes(`server:${serverId}`));
+  }).length;
+}
+
+function buildTicketSubmissionEmbed(submission?: Record<string, string>) {
+  const entries = Object.entries(submission || {}).filter(([, value]) => String(value || "").trim().length > 0);
+  if (entries.length === 0) return null;
+  return new EmbedBuilder()
+    .setTitle("Ticket Intake")
+    .setColor(0x5865F2)
+    .addFields(
+      entries.slice(0, 25).map(([key, value]) => ({
+        name: key.slice(0, 256),
+        value: String(value).slice(0, 1024) || "-",
+        inline: false,
+      })),
+    );
+}
+
+async function resolveTicketPanelContext(serverId: number, publication: any, action: any) {
+  if (action.ticketPanelId) {
+    const [panelById] = await db.select().from(ticketPanels).where(eq(ticketPanels.id, Number(action.ticketPanelId)));
+    if (panelById && panelById.serverId === serverId) return panelById;
+  }
+
+  const [panelByDocument] = await db.select().from(ticketPanels).where(eq(ticketPanels.studioDocumentId, publication.documentId));
+  if (panelByDocument && panelByDocument.serverId === serverId) return panelByDocument;
+
+  const [panelByPublication] = await db.select().from(ticketPanels).where(eq(ticketPanels.publicationId, publication.id));
+  if (panelByPublication && panelByPublication.serverId === serverId) return panelByPublication;
+
+  return null;
+}
+
+async function executeTicketCreateAction(input: {
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
+  publication: any;
+  action: any;
+  submission?: Record<string, string>;
+  guild: Guild | null;
+}) {
+  const { interaction, publication, action, submission } = input;
+  const guild = input.guild;
+  if (!guild) {
+    await replyStudioInteraction(interaction, "Ticket creation requires a server context.", "ephemeral");
+    return;
+  }
+
+  const [config] = await db.select().from(ticketConfig).where(eq(ticketConfig.serverId, publication.serverId));
+  if (!config?.enabled) {
+    await replyStudioInteraction(interaction, "Ticket system is disabled for this server.", "ephemeral");
+    return;
+  }
+
+  await guild.channels.fetch().catch(() => null);
+  const panel = await resolveTicketPanelContext(publication.serverId, publication, action);
+  const department = Array.isArray(config.departments)
+    ? config.departments.find((entry: any) => entry?.id === action.ticketDepartmentId)
+    : null;
+
+  const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+  if (!me?.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+    await replyStudioInteraction(interaction, "I need Manage Channels permission to create tickets.", "ephemeral");
+    return;
+  }
+
+  const openTicketsForUser = countOpenTicketsForUser(guild, publication.serverId, interaction.user.id);
+  if (openTicketsForUser >= Number(config.maxTicketsPerUser || 1)) {
+    await replyStudioInteraction(
+      interaction,
+      `You already have ${openTicketsForUser} open ticket${openTicketsForUser === 1 ? "" : "s"}.`,
+      "ephemeral",
+    );
+    return;
+  }
+
+  let parentCategoryId = config.categoryChannelId || null;
+  let departmentNotifyChannelId: string | null = null;
+  if (department?.channelId) {
+    const departmentChannel = await guild.channels.fetch(department.channelId).catch(() => null);
+    if (departmentChannel?.type === ChannelType.GuildCategory) {
+      parentCategoryId = departmentChannel.id;
+    } else if (departmentChannel?.isTextBased?.() && !departmentChannel?.isThread?.()) {
+      departmentNotifyChannelId = departmentChannel.id;
+    }
+  }
+
+  const supportRoleId = department?.supportRoleId || config.supportRoleId || null;
+  const subjectSource = Object.values(submission || {}).find((value) => String(value || "").trim().length > 0);
+  const ticketNumber = countAllTicketChannels(guild, publication.serverId) + 1;
+  const channelName = formatTicketChannelName({
+    namingScheme: config.namingScheme,
+    ticketNumber,
+    username: interaction.user.username,
+    subject: typeof subjectSource === "string" ? subjectSource : "",
+  });
+
+  const permissionOverwrites: any[] = [
+    {
+      id: guild.roles.everyone.id,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+    {
+      id: interaction.user.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.AttachFiles,
+        PermissionsBitField.Flags.EmbedLinks,
+      ],
+    },
+    {
+      id: me.id,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.ManageChannels,
+        PermissionsBitField.Flags.ManageMessages,
+        PermissionsBitField.Flags.AttachFiles,
+        PermissionsBitField.Flags.EmbedLinks,
+      ],
+    },
+  ];
+
+  if (supportRoleId) {
+    permissionOverwrites.push({
+      id: supportRoleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.AttachFiles,
+        PermissionsBitField.Flags.EmbedLinks,
+      ],
+    });
+  }
+
+  const ticketChannel = await guild.channels.create({
+    name: channelName,
+    type: ChannelType.GuildText,
+    parent: parentCategoryId || undefined,
+    topic: buildTicketTopicMeta({
+      serverId: publication.serverId,
+      userId: interaction.user.id,
+      panelId: panel?.id,
+      publicationId: publication.id,
+      departmentId: department?.id,
+    }),
+    permissionOverwrites,
+    reason: `Ticket created by ${interaction.user.tag}`,
+  });
+
+  const responsePayload = await buildStudioResponsePayload(action, submission);
+  const intakeEmbed = buildTicketSubmissionEmbed(submission);
+  const supportMention = supportRoleId ? `<@&${supportRoleId}>` : "";
+  const openerMention = `<@${interaction.user.id}>`;
+
+  await (ticketChannel as any).send({
+    content: [supportMention, openerMention, responsePayload.content || `Ticket opened by ${openerMention}.`].filter(Boolean).join(" ").trim(),
+    embeds: [
+      ...buildResponseEmbeds(responsePayload.embeds || []),
+      ...(intakeEmbed ? [intakeEmbed] : []),
+    ],
+  }).catch(() => {});
+
+  const logEmbed = new EmbedBuilder()
+    .setTitle("Ticket Created")
+    .setColor(0x57F287)
+    .setDescription(`${openerMention} opened ${ticketChannel.toString()}.`)
+    .addFields(
+      { name: "Panel", value: panel?.title || "Studio", inline: true },
+      { name: "Department", value: department?.name || "Default", inline: true },
+      { name: "Channel", value: ticketChannel.toString(), inline: true },
+    )
+    .setTimestamp(new Date());
+
+  if (intakeEmbed) {
+    const fields = intakeEmbed.data.fields || [];
+    if (fields.length > 0) {
+      logEmbed.addFields(fields.slice(0, 10).map((field: any) => ({
+        name: String(field.name || "-").slice(0, 256),
+        value: String(field.value || "-").slice(0, 1024),
+        inline: false,
+      })));
+    }
+  }
+
+  const notifyChannelIds = [departmentNotifyChannelId, config.transcriptChannelId].filter(Boolean) as string[];
+  for (const notifyChannelId of Array.from(new Set(notifyChannelIds))) {
+    const notifyChannel = await guild.channels.fetch(notifyChannelId).catch(() => null);
+    if (notifyChannel?.isTextBased?.() && !notifyChannel?.isThread?.()) {
+      await (notifyChannel as any).send({ embeds: [logEmbed] }).catch(() => {});
+    }
+  }
+
+  await replyStudioInteraction(interaction, `Ticket created: ${ticketChannel.toString()}`, action.replyMode || "ephemeral");
+  await recordStudioRuntimeEvent({
+    serverId: publication.serverId,
+    publicationId: publication.id,
+    documentId: publication.documentId,
+    severity: "info",
+    eventType: "ticket_created",
+    summary: `Created ticket channel ${ticketChannel.id} for ${interaction.user.tag}.`,
+    details: {
+      ticketChannelId: ticketChannel.id,
+      panelId: panel?.id,
+      departmentId: department?.id || null,
+      openerId: interaction.user.id,
+    },
+    actionId: action.id,
+  });
 }
 
 async function registerSlashCommands(client: Client<true>) {
@@ -485,6 +1110,502 @@ async function handleCustomCommand(message: Message) {
   }
 }
 
+async function handleStudioInteraction(interaction: ButtonInteraction | StringSelectMenuInteraction) {
+  const tokenSource = interaction.isButton() ? interaction.customId : interaction.values[0];
+  if (!tokenSource || !tokenSource.startsWith(STUDIO_ACTION_TOKEN_PREFIX)) return false;
+
+  const decoded = decodeStudioToken(tokenSource);
+  if (!decoded) {
+    await replyStudioInteraction(interaction, "This Studio action is no longer valid.", "ephemeral");
+    return true;
+  }
+
+  const publication = await getStudioPublicationById(decoded.publicationId);
+  if (!publication) {
+    await replyStudioInteraction(interaction, "This Studio publication no longer exists.", "ephemeral");
+    return true;
+  }
+
+  const snapshotRecord = publication.currentSnapshotId
+    ? await getStudioPublicationSnapshotById(publication.currentSnapshotId)
+    : await getCurrentStudioPublicationSnapshot(publication.id);
+  const snapshot = snapshotRecord?.snapshot as any;
+
+  if (!snapshot?.document) {
+    await replyStudioInteraction(interaction, "Studio snapshot is unavailable.", "ephemeral");
+    return true;
+  }
+
+  if (interaction.guildId && interaction.guildId !== snapshot.guildId) {
+    await replyStudioInteraction(interaction, "This action does not belong to this server.", "ephemeral");
+    return true;
+  }
+
+  const document = snapshot.document as any;
+  const node = decoded.nodeId ? document.nodes?.[decoded.nodeId] : null;
+  let action =
+    (decoded.actionId && document.actions?.[decoded.actionId]) ||
+    (node?.actionId && document.actions?.[node.actionId]) ||
+    null;
+
+  if (!action && node?.optionActionIds && decoded.optionValue) {
+    const optionActionId = node.optionActionIds[decoded.optionValue];
+    if (optionActionId) action = document.actions?.[optionActionId];
+  }
+
+  if (!action && node?.props?.options && decoded.optionValue) {
+    const selectedOption = node.props.options.find((option: any) => String(option?.value) === decoded.optionValue);
+    const optionActionId = node.optionActionIds?.[decoded.optionValue];
+    if (selectedOption && optionActionId) {
+      action = document.actions?.[optionActionId];
+    }
+  }
+
+  if (!action) {
+    await replyStudioInteraction(interaction, "This action is no longer configured.", "ephemeral");
+    return true;
+  }
+
+  const gateFailure = await getStudioGateFailure(interaction, action, snapshot.guildId);
+  if (gateFailure) {
+    await replyStudioInteraction(interaction, gateFailure, "ephemeral");
+    return true;
+  }
+
+  try {
+    await executeStudioAction({
+      interaction,
+      publication,
+      snapshot,
+      node,
+      action,
+    });
+    await updateStudioPublicationRecord(publication.id, { lastInteractionAt: new Date() } as any);
+    await recordStudioRuntimeEvent({
+      serverId: publication.serverId,
+      publicationId: publication.id,
+      documentId: publication.documentId,
+      severity: "info",
+      eventType: "interaction",
+      summary: `Executed ${action.type} from Studio publication ${publication.id}.`,
+      details: { nodeId: node?.id, actionId: action.id || decoded.actionId || null },
+      nodeId: node?.id,
+      actionId: action.id || decoded.actionId || undefined,
+    });
+  } catch (err: any) {
+    console.error("[Bot] Studio interaction failed:", err?.message || err);
+    await updateStudioPublicationRecord(publication.id, {
+      lastFailureAt: new Date(),
+      lastFailureSummary: err?.message || "Studio interaction failed",
+    } as any);
+    await recordStudioRuntimeEvent({
+      serverId: publication.serverId,
+      publicationId: publication.id,
+      documentId: publication.documentId,
+      severity: "error",
+      eventType: "interaction_failed",
+      summary: err?.message || "Studio interaction failed",
+      details: { nodeId: node?.id, actionType: action.type },
+      nodeId: node?.id,
+      actionId: action.id || decoded.actionId || undefined,
+    });
+    await replyStudioInteraction(interaction, "Action failed to execute.", "ephemeral");
+  }
+
+  return true;
+}
+
+async function handleStudioModalSubmit(interaction: ModalSubmitInteraction) {
+  if (!interaction.customId.startsWith(STUDIO_ACTION_TOKEN_PREFIX)) return;
+
+  const decoded = decodeStudioToken(interaction.customId);
+  if (!decoded?.publicationId || !decoded.modalId) {
+    await interaction.reply({ content: "This Studio modal is no longer valid.", ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const publication = await getStudioPublicationById(decoded.publicationId);
+  if (!publication) {
+    await interaction.reply({ content: "This Studio publication no longer exists.", ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const snapshotRecord = publication.currentSnapshotId
+    ? await getStudioPublicationSnapshotById(publication.currentSnapshotId)
+    : await getCurrentStudioPublicationSnapshot(publication.id);
+  const snapshot = snapshotRecord?.snapshot as any;
+  const modal = snapshot?.document?.modals?.[decoded.modalId];
+  if (!snapshot?.document || !modal) {
+    await interaction.reply({ content: "Modal configuration could not be loaded.", ephemeral: true }).catch(() => {});
+    return;
+  }
+
+  const submission = Object.fromEntries(
+    (modal.fields || []).map((field: any) => [field.id, interaction.fields.getTextInputValue(field.id) || ""]),
+  );
+
+  let modalFailure: Error | null = null;
+  for (const actionId of modal.submitActionIds || []) {
+    const action = snapshot.document.actions?.[actionId];
+    if (!action) continue;
+    const gateFailure = await getStudioGateFailure(interaction, action, snapshot.guildId);
+    if (gateFailure) {
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.reply({ content: gateFailure, ephemeral: true }).catch(() => {});
+      }
+      return;
+    }
+    try {
+      await executeStudioAction({
+        interaction,
+        publication,
+        snapshot,
+        node: null,
+        action,
+        submission,
+      });
+    } catch (err: any) {
+      console.error("[Bot] Studio modal action failed:", err?.message || err);
+      modalFailure = err instanceof Error ? err : new Error(err?.message || "Studio modal action failed");
+    }
+  }
+
+  if (modalFailure) {
+    await updateStudioPublicationRecord(publication.id, {
+      lastFailureAt: new Date(),
+      lastFailureSummary: modalFailure.message,
+    } as any);
+    await recordStudioRuntimeEvent({
+      serverId: publication.serverId,
+      publicationId: publication.id,
+      documentId: publication.documentId,
+      severity: "error",
+      eventType: "modal_submit_failed",
+      summary: modalFailure.message,
+      details: { modalId: modal.id, fields: submission },
+      actionId: decoded.actionId,
+    });
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({ content: modalFailure.message || "The modal action failed.", ephemeral: true }).catch(() => {});
+    }
+    return;
+  }
+
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.reply({ content: "Submission received.", ephemeral: true }).catch(() => {});
+  }
+
+  await updateStudioPublicationRecord(publication.id, { lastInteractionAt: new Date() } as any);
+  await recordStudioRuntimeEvent({
+    serverId: publication.serverId,
+    publicationId: publication.id,
+    documentId: publication.documentId,
+    severity: "info",
+    eventType: "modal_submit",
+    summary: `Modal ${modal.title} submitted.`,
+    details: { modalId: modal.id, fields: submission },
+    actionId: decoded.actionId,
+  });
+}
+
+async function resolveStudioGuildForInteraction(
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  guildId?: string,
+) {
+  if (interaction.guild) return interaction.guild;
+  if (!guildId || !botClient?.isReady()) return null;
+  return botClient.guilds.cache.get(guildId) ?? await botClient.guilds.fetch(guildId).catch(() => null);
+}
+
+async function getStudioGateFailure(
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  action: any,
+  guildId?: string,
+) {
+  if (action.disabled || action.hiddenByGate) return "This action is currently disabled.";
+  const guildMember: any = interaction.member as any;
+  let roleIds: string[] = guildMember?.roles?.cache?.map((role: any) => role.id) || [];
+
+  if (roleIds.length === 0 && guildId) {
+    const guild = await resolveStudioGuildForInteraction(interaction, guildId);
+    const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+    roleIds = member?.roles?.cache?.map((role: any) => role.id) || [];
+  }
+
+  const allowedRoleIds = normalizeIdList(action.allowedRoleIds);
+  if (allowedRoleIds.length > 0 && !allowedRoleIds.some((roleId) => roleIds.includes(roleId))) {
+    return "You do not have permission to use this action.";
+  }
+
+  const blockedRoleIds = normalizeIdList(action.blockedRoleIds);
+  if (blockedRoleIds.some((roleId) => roleIds.includes(roleId))) {
+    return "You do not have permission to use this action.";
+  }
+
+  return null;
+}
+
+function interpolateStudioText(text: string | undefined, submission?: Record<string, string>) {
+  let value = String(text || "");
+  for (const [key, entry] of Object.entries(submission || {})) {
+    value = value.replace(new RegExp(`\\{${key}\\}`, "g"), entry);
+    value = value.replace(new RegExp(`\\{modal\\.${key}\\}`, "g"), entry);
+  }
+  return value;
+}
+
+async function buildStudioResponsePayload(action: any, submission?: Record<string, string>) {
+  const mode = action.response?.mode || "inline";
+  let source: any = action.response?.inline || {};
+
+  if (mode === "template" && action.response?.templateDocumentId) {
+    const templateDocument = await getStudioDocumentById(action.response.templateDocumentId);
+    if (!templateDocument) {
+      return { content: "Referenced template no longer exists.", embeds: [] };
+    }
+    const rendered = renderStudioDocumentView(
+      templateDocument.document as any,
+      action.response?.templateViewId,
+    );
+    source = {
+      content: rendered.content,
+      embeds: rendered.embeds,
+    };
+  }
+
+  return {
+    content: interpolateStudioText(source?.content, submission) || undefined,
+    embeds: (Array.isArray(source?.embeds) ? source.embeds : []).map((embed: any) => {
+      const next = { ...embed };
+      if (next.title) next.title = interpolateStudioText(next.title, submission);
+      if (next.description) next.description = interpolateStudioText(next.description, submission);
+      if (Array.isArray(next.fields)) {
+        next.fields = next.fields.map((field: any) => ({
+          ...field,
+          name: interpolateStudioText(field.name, submission),
+          value: interpolateStudioText(field.value, submission),
+        }));
+      }
+      return next;
+    }),
+  };
+}
+
+async function executeStudioAction(input: {
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
+  publication: any;
+  snapshot: any;
+  node: any;
+  action: any;
+  submission?: Record<string, string>;
+}) {
+  const { interaction, publication, snapshot, action, submission } = input;
+  const studioGuild = await resolveStudioGuildForInteraction(interaction, snapshot.guildId);
+
+  if (action.type === "role_add" || action.type === "role_remove" || action.type === "role_toggle") {
+    await executeRoleAction(interaction as any, action, action.replyMode || "ephemeral", studioGuild);
+    return;
+  }
+
+  if (action.type === "ticket_create") {
+    await executeTicketCreateAction({
+      interaction,
+      publication,
+      action,
+      submission,
+      guild: studioGuild,
+    });
+    return;
+  }
+
+  if (action.type === "run_command") {
+    await executeCommandAction(interaction as any, publication.serverId, action, action.replyMode || "ephemeral");
+    return;
+  }
+
+  if (action.type === "open_url" && action.url) {
+    await replyStudioInteraction(interaction as any, `Open: ${action.url}`, action.replyMode || "ephemeral");
+    return;
+  }
+
+  if (action.type === "open_modal") {
+    const modal = snapshot.document?.modals?.[action.modalId || action.id];
+    if (!modal) {
+      await replyStudioInteraction(interaction as any, "Modal is misconfigured.", "ephemeral");
+      return;
+    }
+    const builder = new ModalBuilder()
+      .setCustomId(encodeStudioModalToken({
+        publicationId: publication.id,
+        modalId: modal.id,
+        actionId: action.id,
+      }))
+      .setTitle(String(modal.title || "Modal").slice(0, 45));
+
+    const rows = (modal.fields || []).slice(0, 5).map((field: any) =>
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId(String(field.id))
+          .setLabel(String(field.label || "Field").slice(0, 45))
+          .setStyle(field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short)
+          .setPlaceholder(field.placeholder ? String(field.placeholder).slice(0, 100) : "")
+          .setRequired(Boolean(field.required))
+          .setMinLength(field.minLength ? Number(field.minLength) : undefined)
+          .setMaxLength(field.maxLength ? Number(field.maxLength) : undefined),
+      ),
+    );
+    builder.addComponents(...rows);
+    await (interaction as ButtonInteraction | StringSelectMenuInteraction).showModal(builder);
+    return;
+  }
+
+  if (action.type === "goto_view" || action.type === "back_view" || action.type === "cancel_view" || (action.type === "confirm" && action.targetViewId)) {
+    const targetViewId = action.targetViewId || action.fallbackViewId || snapshot.document?.meta?.entryViewId;
+    await switchStudioPublicationView(publication, snapshot, String(targetViewId), interaction as any);
+    if (action.response) {
+      const payload = await buildStudioResponsePayload(action, submission);
+      if (payload.content || (payload.embeds && payload.embeds.length > 0)) {
+        await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "reply");
+      }
+    }
+    return;
+  }
+
+  if (action.type === "follow_up_message") {
+    const payload = await buildStudioResponsePayload(action, submission);
+    await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "followUp");
+    return;
+  }
+
+  if (action.type === "reply_message" || action.type === "confirm") {
+    const payload = await buildStudioResponsePayload(action, submission);
+    await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "reply");
+    return;
+  }
+
+  if (action.type === "channel_message" || action.type === "log_action") {
+    const payload = await buildStudioResponsePayload(action, submission);
+    const channelId = String(action.channelId || "").trim();
+    if (!channelId || !studioGuild) {
+      await replyStudioInteraction(interaction as any, "Destination channel is not configured.", "ephemeral");
+      return;
+    }
+    const channel = await studioGuild.channels.fetch(channelId).catch(() => null);
+    if (!channel || !channel.isTextBased() || channel.isThread()) {
+      await replyStudioInteraction(interaction as any, "Destination channel is invalid.", "ephemeral");
+      return;
+    }
+    await (channel as any).send({
+      content: payload.content,
+      embeds: buildResponseEmbeds(payload.embeds),
+    });
+    await replyStudioInteraction(interaction as any, "Sent.", action.replyMode || "ephemeral");
+    return;
+  }
+
+  if (action.type === "dm_user") {
+    const payload = await buildStudioResponsePayload(action, submission);
+    await interaction.user.send({
+      content: payload.content,
+      embeds: buildResponseEmbeds(payload.embeds),
+    }).catch(() => {});
+    await replyStudioInteraction(interaction as any, "Sent via DM.", action.replyMode || "ephemeral");
+    return;
+  }
+
+  await replyStudioInteraction(interaction as any, "This Studio action is not supported yet.", "ephemeral");
+}
+
+async function switchStudioPublicationView(
+  publication: any,
+  snapshot: any,
+  targetViewId: string,
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+) {
+  const rendered = renderStudioDocumentView(snapshot.document, targetViewId);
+  const nextSnapshot = {
+    ...snapshot,
+    publishedViewId: rendered.viewId,
+    render: {
+      content: rendered.content,
+      embeds: rendered.embeds,
+      components: rendered.interactiveComponents,
+    },
+    diagnostics: rendered.diagnostics,
+  };
+  const snapshotRecord = await createStudioPublicationSnapshotRecord({
+    publicationId: publication.id,
+    snapshot: nextSnapshot,
+  });
+  const payload = buildStudioDiscordPayload(nextSnapshot, publication.id);
+  const message = interaction.message;
+  await message.edit({
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components,
+  });
+  await updateStudioPublicationRecord(publication.id, {
+    currentSnapshotId: snapshotRecord.id,
+    currentViewId: rendered.viewId,
+    lastInteractionAt: new Date(),
+  } as any);
+}
+
+function buildResponseEmbeds(embeds: any[]) {
+  return (embeds || []).flatMap((embed) => {
+    const builder = new EmbedBuilder();
+    let hasData = false;
+    if (embed.title) {
+      builder.setTitle(String(embed.title));
+      hasData = true;
+    }
+    if (embed.description) {
+      builder.setDescription(String(embed.description));
+      hasData = true;
+    }
+    const color = parseEmbedColor(embed.color);
+    if (color !== null) {
+      builder.setColor(color);
+      hasData = true;
+    }
+    if (Array.isArray(embed.fields) && embed.fields.length > 0) {
+      builder.addFields(embed.fields.slice(0, 25).map((field: any) => ({
+        name: String(field.name || "-"),
+        value: String(field.value || "-"),
+        inline: Boolean(field.inline),
+      })));
+      hasData = true;
+    }
+    return hasData ? [builder] : [];
+  });
+}
+
+async function sendStudioResponse(
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  payload: { content?: string; embeds?: any[] },
+  replyMode: "ephemeral" | "channel",
+  mode: "reply" | "followUp",
+) {
+  const response = {
+    content: payload.content,
+    embeds: buildResponseEmbeds(payload.embeds || []),
+    ephemeral: replyMode !== "channel",
+  };
+  if (mode === "followUp" || interaction.deferred || interaction.replied) {
+    await interaction.followUp(response).catch(() => {});
+  } else {
+    await interaction.reply(response).catch(() => {});
+  }
+}
+
+async function replyStudioInteraction(
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
+  content: string,
+  replyMode: "ephemeral" | "channel",
+) {
+  await sendStudioResponse(interaction, { content }, replyMode, "reply");
+}
+
 async function handleEmbedActionInteraction(interaction: ButtonInteraction | StringSelectMenuInteraction) {
   const tokenSource = interaction.isButton() ? interaction.customId : interaction.values[0];
   if (!tokenSource) return;
@@ -535,9 +1656,10 @@ async function handleEmbedActionInteraction(interaction: ButtonInteraction | Str
 }
 
 async function executeRoleAction(
-  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
   action: { type: "role_add" | "role_remove" | "role_toggle"; roleId?: string },
-  replyMode: "ephemeral" | "channel"
+  replyMode: "ephemeral" | "channel",
+  guildOverride?: Guild | null,
 ) {
   const roleId = normalizeId(action.roleId || "");
   if (!roleId) {
@@ -545,7 +1667,11 @@ async function executeRoleAction(
     return;
   }
 
-  const guild = interaction.guild!;
+  const guild = guildOverride || interaction.guild;
+  if (!guild) {
+    await replyEmbedAction(interaction, "This action requires a server context.", "ephemeral");
+    return;
+  }
   const member = await guild.members.fetch(interaction.user.id).catch(() => null);
   const role = await guild.roles.fetch(roleId).catch(() => null);
   const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
@@ -596,7 +1722,7 @@ async function executeRoleAction(
 }
 
 async function executeCommandAction(
-  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
   serverId: number,
   action: { commandName?: string; commandArgs?: string },
   replyMode: "ephemeral" | "channel"
@@ -669,7 +1795,7 @@ async function executeCommandAction(
 }
 
 async function replyEmbedAction(
-  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction,
   content: string,
   replyMode: "ephemeral" | "channel"
 ) {

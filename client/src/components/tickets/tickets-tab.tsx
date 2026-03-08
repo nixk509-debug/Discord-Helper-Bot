@@ -8,10 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useTicketConfig, useUpsertTicketConfig, useTicketPanels, useCreateTicketPanel, useDeleteTicketPanel, useDiscordContext } from "@/hooks/use-bot";
+import { useTicketConfig, useUpsertTicketConfig, useTicketPanels, useCreateTicketPanel, useDeleteTicketPanel, useDiscordContext, useCreateStudioDocument, usePublishStudio, useStudioPublications, useUpdateTicketPanel } from "@/hooks/use-bot";
 import { Ticket, Save, Plus, Trash2, Settings, Layout, Loader2, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DiscordEntityPicker } from "@/components/discord/entity-pickers";
+import { useLocation } from "wouter";
+import { StudioSurfaceCard } from "@/components/design-studio/studio-surface-card";
+import { createStudioDocument as createStudioDocumentDraft } from "@/components/design-studio/studio-defaults";
 
 interface TicketsTabProps {
   serverId: number;
@@ -26,11 +29,16 @@ const BUTTON_STYLES: Record<number, { label: string; color: string }> = {
 
 export function TicketsTab({ serverId }: TicketsTabProps) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const { data: config, isLoading: configLoading } = useTicketConfig(serverId);
   const upsertConfig = useUpsertTicketConfig(serverId);
   const { data: panels, isLoading: panelsLoading } = useTicketPanels(serverId);
   const createPanel = useCreateTicketPanel(serverId);
   const deletePanel = useDeleteTicketPanel(serverId);
+  const createStudioDocument = useCreateStudioDocument(serverId);
+  const publishStudio = usePublishStudio(serverId);
+  const updateTicketPanel = useUpdateTicketPanel(serverId);
+  const { data: studioPublications = [] } = useStudioPublications(serverId);
   const { data: discordContext } = useDiscordContext(serverId);
 
   const channelOptions = (discordContext?.channels || []).map((channel) => ({
@@ -69,6 +77,62 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
   const [panelButtonEmoji, setPanelButtonEmoji] = useState("ticket");
   const [panelButtonStyle, setPanelButtonStyle] = useState(1);
   const [panelEmbedColor, setPanelEmbedColor] = useState("#5865F2");
+
+  const openStudio = (documentId: number) => {
+    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+  };
+
+  const bindPanelSurface = (panel: any) => {
+    createStudioDocument.mutate(
+      {
+        scope: "server",
+        kind: "surface",
+        name: `${panel.title} Surface`,
+        moduleBinding: "ticket_panel",
+        document: createStudioDocumentDraft("ticket_panel", `${panel.title} Surface`),
+      },
+      {
+        onSuccess: (created: any) => {
+          updateTicketPanel.mutate(
+            {
+              id: panel.id,
+              data: {
+                studioDocumentId: created.id,
+                entryViewId: created.document?.meta?.entryViewId || "entry",
+              },
+            },
+            {
+              onSuccess: () => openStudio(created.id),
+            }
+          );
+        },
+        onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const publishPanelSurface = (panel: any) => {
+    if (!panel.studioDocumentId) {
+      toast({ title: "No panel surface", description: "Create a Studio surface for this panel first.", variant: "destructive" });
+      return;
+    }
+    publishStudio.mutate(
+      {
+        documentId: panel.studioDocumentId,
+        target: {
+          channelId: panel.channelId,
+          viewId: panel.entryViewId || "entry",
+        },
+      },
+      {
+        onSuccess: (result: any) => {
+          updateTicketPanel.mutate({ id: panel.id, data: { publicationId: result.publicationId } });
+          toast({ title: "Panel published", description: `Ticket surface sent to ${panel.channelId}.` });
+        },
+        onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
 
   useEffect(() => {
     if (config) {
@@ -343,22 +407,35 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
           <div className="space-y-3">
             {panels.map((panel: any) => (
               <Card key={panel.id} className="glass-card" data-testid={`card-panel-${panel.id}`}>
-                <CardContent className="flex items-center justify-between gap-4 py-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-1 h-10 rounded-full" style={{ backgroundColor: panel.embedColor || "#5865F2" }} />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate" data-testid={`text-panel-title-${panel.id}`}>{panel.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">Channel: {panel.channelId}</p>
+                <CardContent className="space-y-4 py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-1 h-10 rounded-full" style={{ backgroundColor: panel.embedColor || "#5865F2" }} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate" data-testid={`text-panel-title-${panel.id}`}>{panel.title}</p>
+                        <p className="text-xs text-muted-foreground truncate">Channel: {panel.channelId}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs">
+                        {panel.buttonLabel || "Create Ticket"}
+                      </Badge>
+                      <Button size="icon" variant="ghost" onClick={() => handleDeletePanel(panel.id)} data-testid={`button-delete-panel-${panel.id}`}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline" className="text-xs">
-                      {panel.buttonLabel || "Create Ticket"}
-                    </Badge>
-                    <Button size="icon" variant="ghost" onClick={() => handleDeletePanel(panel.id)} data-testid={`button-delete-panel-${panel.id}`}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </div>
+
+                  <StudioSurfaceCard
+                    title="Ticket Panel Surface"
+                    description="This launcher now runs through Design Studio with modal intake, routed ticket creation, and reusable support layouts."
+                    documentId={panel.studioDocumentId}
+                    publication={(studioPublications as any[]).find((entry) => entry.id === panel.publicationId || entry.documentId === panel.studioDocumentId) || null}
+                    onCreate={() => bindPanelSurface(panel)}
+                    onOpen={() => panel.studioDocumentId && openStudio(panel.studioDocumentId)}
+                    onPublish={() => publishPanelSurface(panel)}
+                    actionLabel="Create Panel Surface"
+                  />
                 </CardContent>
               </Card>
             ))}

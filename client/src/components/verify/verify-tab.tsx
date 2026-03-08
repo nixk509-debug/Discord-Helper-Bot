@@ -8,9 +8,12 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useUpdateSettings, useDiscordContext } from "@/hooks/use-bot";
+import { useUpdateSettings, useDiscordContext, useCreateStudioDocument, usePublishStudio, useStudioPublications } from "@/hooks/use-bot";
 import { ShieldCheck, Save, Loader2, Info } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLocation } from "wouter";
+import { StudioSurfaceCard } from "@/components/design-studio/studio-surface-card";
+import { createStudioDocument as createStudioDocumentDraft } from "@/components/design-studio/studio-defaults";
 
 interface VerifyTabProps {
   serverId: number;
@@ -19,10 +22,72 @@ interface VerifyTabProps {
 
 export function VerifyTab({ serverId, settings }: VerifyTabProps) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const updateSettings = useUpdateSettings(serverId);
+  const createStudioDocument = useCreateStudioDocument(serverId);
+  const publishStudio = usePublishStudio(serverId);
+  const { data: studioPublications = [] } = useStudioPublications(serverId);
   const { data: discordContext, isLoading: discordContextLoading } = useDiscordContext(serverId);
   const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
   const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
+  const verifyPublication = (studioPublications as any[]).find((entry) => entry.id === settings?.verifyPublicationId) || null;
+
+  const openStudio = (documentId: number) => {
+    navigate(`/dashboard/servers/${serverId}?module=design-studio&documentId=${documentId}`);
+  };
+
+  const handleCreateSurface = () => {
+    createStudioDocument.mutate(
+      {
+        scope: "server",
+        kind: "surface",
+        name: "Verification Surface",
+        moduleBinding: "verify",
+        document: createStudioDocumentDraft("verify", "Verification Surface"),
+      },
+      {
+        onSuccess: (created: any) => {
+          updateSettings.mutate(
+            {
+              verifyStudioDocumentId: created.id,
+              verifyEntryViewId: created.document?.meta?.entryViewId || "entry",
+            },
+            {
+              onSuccess: () => openStudio(created.id),
+            },
+          );
+        },
+        onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handlePublishSurface = () => {
+    if (!settings?.verifyStudioDocumentId) {
+      toast({ title: "No surface bound", description: "Create or bind a verification surface first.", variant: "destructive" });
+      return;
+    }
+    if (!channelId) {
+      toast({ title: "No channel selected", description: "Choose a verification channel before publishing.", variant: "destructive" });
+      return;
+    }
+    publishStudio.mutate(
+      {
+        documentId: settings.verifyStudioDocumentId,
+        target: {
+          channelId,
+          viewId: settings?.verifyEntryViewId || "entry",
+        },
+      },
+      {
+        onSuccess: (result: any) => {
+          updateSettings.mutate({ verifyPublicationId: result.publicationId });
+          toast({ title: "Surface published", description: `Verification panel sent to ${channelId}.` });
+        },
+        onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
 
   const [enabled, setEnabled] = useState(false);
   const [verifyType, setVerifyType] = useState("button");
@@ -243,11 +308,22 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
           <div className="flex items-start gap-3 p-3 rounded-md bg-primary/5 border border-primary/20">
             <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             <p className="text-sm text-muted-foreground">
-              After saving, use <span className="font-mono text-primary">/post-verify</span> in your verification channel to post the verification embed with interactive components.
+              Save the verification policy here, then publish the bound verification surface below. The old manual `/post-verify` flow is no longer the primary path.
             </p>
           </div>
         </CardContent>
       </Card>
+
+      <StudioSurfaceCard
+        title="Verification Surface"
+        description="Design Studio now owns the verification panel. Publish the surface instead of relying on a hardcoded mini-builder."
+        documentId={settings?.verifyStudioDocumentId}
+        publication={verifyPublication}
+        onCreate={handleCreateSurface}
+        onOpen={() => settings?.verifyStudioDocumentId && openStudio(settings.verifyStudioDocumentId)}
+        onPublish={handlePublishSurface}
+        actionLabel="Create Surface"
+      />
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={updateSettings.isPending} data-testid="button-save-verify" className="gap-2">

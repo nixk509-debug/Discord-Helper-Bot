@@ -5,7 +5,7 @@ import {
   insertWarningSchema, insertPunishmentConfigSchema, insertLevelingConfigSchema,
   insertStarboardConfigSchema, insertTicketConfigSchema, insertTicketPanelSchema,
   insertScheduledMessageSchema, insertAuditLogConfigSchema,
-  type Embed, type ServerResponse,
+  type Embed, type ServerResponse, type StudioDocumentRecord, type StudioPublication,
 } from './schema';
 
 export const errorSchemas = {
@@ -70,10 +70,37 @@ const discordContextSchema = z.object({
     mentionable: z.boolean().optional(),
     hoist: z.boolean().optional(),
   })),
+  emojis: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    animated: z.boolean().optional(),
+    available: z.boolean().optional(),
+    managed: z.boolean().optional(),
+  })).default([]),
 });
 
 const sendEmbedSchema = z.object({
   channelId: z.string().min(1),
+});
+
+const studioDocumentInputSchema = z.object({
+  scope: z.enum(["server", "personal", "starter"]).default("server"),
+  kind: z.enum(["surface", "template", "divider_preset", "style_block", "theme_pack"]).default("surface"),
+  name: z.string().min(1),
+  slug: z.string().optional(),
+  moduleBinding: z.string().optional(),
+  document: z.any(),
+  isArchived: z.boolean().optional(),
+});
+
+const studioPublishSchema = z.object({
+  documentId: z.number().optional(),
+  document: z.any().optional(),
+  target: z.object({
+    channelId: z.string().min(1),
+    messageId: z.string().optional(),
+    viewId: z.string().optional(),
+  }),
 });
 
 export const api = {
@@ -87,6 +114,27 @@ export const api = {
     list: { method: 'GET' as const, path: '/api/servers' as const, responses: { 200: z.array(z.custom<ServerResponse>()) } },
     get: { method: 'GET' as const, path: '/api/servers/:id' as const, responses: { 200: z.custom<ServerResponse>(), 404: errorSchemas.notFound } },
     discordContext: { method: 'GET' as const, path: '/api/servers/:serverId/discord-context' as const, responses: { 200: discordContextSchema, 404: errorSchemas.notFound } },
+    studioDocuments: {
+      list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/documents' as const, responses: { 200: z.array(z.custom<StudioDocumentRecord>()) } },
+      create: { method: 'POST' as const, path: '/api/servers/:serverId/studio/documents' as const, input: studioDocumentInputSchema, responses: { 201: z.custom<StudioDocumentRecord>(), 400: errorSchemas.validation } },
+    },
+    studioPublications: {
+      list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/publications' as const, responses: { 200: z.array(z.custom<StudioPublication>()) } },
+    },
+    studioPublish: {
+      publish: { method: 'POST' as const, path: '/api/servers/:serverId/studio/publish' as const, input: studioPublishSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
+    },
+  },
+  studio: {
+    documents: {
+      update: { method: 'PATCH' as const, path: '/api/studio/documents/:id' as const, input: studioDocumentInputSchema.partial(), responses: { 200: z.custom<StudioDocumentRecord>(), 404: errorSchemas.notFound } },
+    },
+    publications: {
+      clone: { method: 'POST' as const, path: '/api/studio/publications/:id/clone' as const, input: z.object({ channelId: z.string().min(1) }), responses: { 200: z.any(), 404: errorSchemas.notFound } },
+      rollback: { method: 'POST' as const, path: '/api/studio/publications/:id/rollback' as const, input: z.object({ snapshotId: z.number() }), responses: { 200: z.any(), 404: errorSchemas.notFound } },
+      archive: { method: 'POST' as const, path: '/api/studio/publications/:id/archive' as const, responses: { 200: z.any(), 404: errorSchemas.notFound } },
+      status: { method: 'PATCH' as const, path: '/api/studio/publications/:id/status' as const, input: z.object({ active: z.boolean().optional(), status: z.string().optional() }), responses: { 200: z.any(), 404: errorSchemas.notFound } },
+    },
   },
   settings: {
     update: { method: 'PATCH' as const, path: '/api/servers/:serverId/settings' as const, input: insertSettingsSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
@@ -152,6 +200,7 @@ export const api = {
     upsertConfig: { method: 'PUT' as const, path: '/api/servers/:serverId/tickets/config' as const, input: insertTicketConfigSchema, responses: { 200: z.any(), 400: errorSchemas.validation } },
     listPanels: { method: 'GET' as const, path: '/api/servers/:serverId/tickets/panels' as const, responses: { 200: z.array(z.any()) } },
     createPanel: { method: 'POST' as const, path: '/api/servers/:serverId/tickets/panels' as const, input: insertTicketPanelSchema, responses: { 201: z.any(), 400: errorSchemas.validation } },
+    updatePanel: { method: 'PATCH' as const, path: '/api/ticket-panels/:id' as const, input: insertTicketPanelSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation } },
     deletePanel: { method: 'DELETE' as const, path: '/api/ticket-panels/:id' as const, responses: { 204: z.void() } },
   },
   scheduledMessages: {
@@ -187,4 +236,6 @@ export type CreateEmbedInput = z.infer<typeof api.embeds.create.input>;
 export type UpdateEmbedInput = z.infer<typeof api.embeds.update.input>;
 export type SendEmbedInput = z.infer<typeof api.embeds.send.input>;
 export type DiscordContext = z.infer<typeof discordContextSchema>;
+export type StudioDocumentInput = z.infer<typeof studioDocumentInputSchema>;
+export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
 

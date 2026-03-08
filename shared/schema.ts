@@ -33,10 +33,13 @@ export const serverSettings = pgTable("server_settings", {
   welcomeDmEnabled: boolean("welcome_dm_enabled").default(false),
   welcomeDmMessage: text("welcome_dm_message"),
   onboardingDms: jsonb("onboarding_dms").$type<OnboardingDm[]>().default([]),
+  welcomeStudioDocumentId: integer("welcome_studio_document_id"),
+  welcomeDmStudioDocumentId: integer("welcome_dm_studio_document_id"),
   leaveEnabled: boolean("leave_enabled").default(false),
   leaveChannelId: text("leave_channel_id"),
   leaveMessage: text("leave_message"),
   leaveEmbedId: integer("leave_embed_id"),
+  leaveStudioDocumentId: integer("leave_studio_document_id"),
 
   // Automod
   automodEnabled: boolean("automod_enabled").default(false),
@@ -83,6 +86,9 @@ export const serverSettings = pgTable("server_settings", {
   unverifiedRoleId: text("unverified_role_id"),
   verifyMinAccountAge: integer("verify_min_account_age").default(0),
   verifyCodeWord: text("verify_code_word"),
+  verifyStudioDocumentId: integer("verify_studio_document_id"),
+  verifyPublicationId: integer("verify_publication_id"),
+  verifyEntryViewId: text("verify_entry_view_id"),
 
   // NSFW Module
   nsfwEnabled: boolean("nsfw_enabled").default(false),
@@ -165,6 +171,7 @@ export const userPreferences = pgTable("user_preferences", {
   glowStrength: integer("glow_strength").default(50),
   uiDensity: text("ui_density").default("comfort"),
   glitchFx: boolean("glitch_fx").default(true),
+  studioState: jsonb("studio_state").$type<StudioUserState>().default({ recentEmoji: [], favoriteEmoji: [] }),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ id: true });
@@ -180,6 +187,63 @@ export const templates = pgTable("templates", {
   type: text("type").notNull(),
   data: jsonb("data").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- STUDIO DOCUMENTS ---
+export const studioDocuments = pgTable("studio_documents", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  scope: text("scope").notNull().default("server"),
+  kind: text("kind").notNull().default("surface"),
+  name: text("name").notNull(),
+  slug: text("slug"),
+  moduleBinding: text("module_binding"),
+  document: jsonb("document").$type<StudioDocument>().notNull(),
+  isArchived: boolean("is_archived").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const studioPublications = pgTable("studio_publications", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  documentId: integer("document_id").notNull().references(() => studioDocuments.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  messageId: text("message_id").notNull(),
+  active: boolean("active").default(true),
+  status: text("status").notNull().default("published"),
+  currentSnapshotId: integer("current_snapshot_id"),
+  currentViewId: text("current_view_id"),
+  lastPublishedAt: timestamp("last_published_at").defaultNow(),
+  lastInteractionAt: timestamp("last_interaction_at"),
+  lastFailureAt: timestamp("last_failure_at"),
+  lastFailureSummary: text("last_failure_summary"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const studioPublicationSnapshots = pgTable("studio_publication_snapshots", {
+  id: serial("id").primaryKey(),
+  publicationId: integer("publication_id").notNull().references(() => studioPublications.id, { onDelete: "cascade" }),
+  version: integer("version").notNull().default(1),
+  snapshot: jsonb("snapshot").$type<StudioPublicationSnapshot>().notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const studioRuntimeEvents = pgTable("studio_runtime_events", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  publicationId: integer("publication_id").references(() => studioPublications.id, { onDelete: "set null" }),
+  documentId: integer("document_id").references(() => studioDocuments.id, { onDelete: "set null" }),
+  severity: text("severity").notNull().default("info"),
+  eventType: text("event_type").notNull(),
+  summary: text("summary").notNull(),
+  details: jsonb("details"),
+  nodeId: text("node_id"),
+  actionId: text("action_id"),
+  occurredAt: timestamp("occurred_at").defaultNow(),
 });
 
 // --- CUSTOM COMMANDS ---
@@ -368,6 +432,9 @@ export const ticketPanels = pgTable("ticket_panels", {
   buttonEmoji: text("button_emoji").default("🎫"),
   buttonStyle: integer("button_style").default(1),
   embedColor: text("embed_color").default("#dc2626"),
+  studioDocumentId: integer("studio_document_id"),
+  publicationId: integer("publication_id"),
+  entryViewId: text("entry_view_id"),
 });
 
 // --- SCHEDULED MESSAGES ---
@@ -654,6 +721,9 @@ export const giveaways = pgTable("giveaways", {
 // --- RELATIONS ---
 export const serverRelations = relations(servers, ({ one, many }) => ({
   settings: one(serverSettings, { fields: [servers.id], references: [serverSettings.serverId] }),
+  studioDocuments: many(studioDocuments),
+  studioPublications: many(studioPublications),
+  studioRuntimeEvents: many(studioRuntimeEvents),
   customCommands: many(customCommands),
   embeds: many(embeds),
   channelSettings: many(channelSettings),
@@ -729,6 +799,8 @@ export const ticketConfigRelations = relations(ticketConfig, ({ one }) => ({
 
 export const ticketPanelsRelations = relations(ticketPanels, ({ one }) => ({
   server: one(servers, { fields: [ticketPanels.serverId], references: [servers.id] }),
+  studioDocument: one(studioDocuments, { fields: [ticketPanels.studioDocumentId], references: [studioDocuments.id] }),
+  publication: one(studioPublications, { fields: [ticketPanels.publicationId], references: [studioPublications.id] }),
 }));
 
 export const scheduledMessagesRelations = relations(scheduledMessages, ({ one }) => ({
@@ -741,11 +813,38 @@ export const auditLogConfigRelations = relations(auditLogConfig, ({ one }) => ({
 
 export const usersRelations = relations(users, ({ many }) => ({
   templates: many(templates),
+  studioDocuments: many(studioDocuments),
+  studioPublicationSnapshots: many(studioPublicationSnapshots),
 }));
 
 export const templatesRelations = relations(templates, ({ one }) => ({
   user: one(users, { fields: [templates.userId], references: [users.id] }),
   server: one(servers, { fields: [templates.serverId], references: [servers.id] }),
+}));
+
+export const studioDocumentsRelations = relations(studioDocuments, ({ one, many }) => ({
+  server: one(servers, { fields: [studioDocuments.serverId], references: [servers.id] }),
+  owner: one(users, { fields: [studioDocuments.ownerUserId], references: [users.id] }),
+  publications: many(studioPublications),
+  runtimeEvents: many(studioRuntimeEvents),
+}));
+
+export const studioPublicationsRelations = relations(studioPublications, ({ one, many }) => ({
+  server: one(servers, { fields: [studioPublications.serverId], references: [servers.id] }),
+  document: one(studioDocuments, { fields: [studioPublications.documentId], references: [studioDocuments.id] }),
+  snapshots: many(studioPublicationSnapshots),
+  runtimeEvents: many(studioRuntimeEvents),
+}));
+
+export const studioPublicationSnapshotsRelations = relations(studioPublicationSnapshots, ({ one }) => ({
+  publication: one(studioPublications, { fields: [studioPublicationSnapshots.publicationId], references: [studioPublications.id] }),
+  owner: one(users, { fields: [studioPublicationSnapshots.createdByUserId], references: [users.id] }),
+}));
+
+export const studioRuntimeEventsRelations = relations(studioRuntimeEvents, ({ one }) => ({
+  server: one(servers, { fields: [studioRuntimeEvents.serverId], references: [servers.id] }),
+  document: one(studioDocuments, { fields: [studioRuntimeEvents.documentId], references: [studioDocuments.id] }),
+  publication: one(studioPublications, { fields: [studioRuntimeEvents.publicationId], references: [studioPublications.id] }),
 }));
 
 export const automationsRelations = relations(automations, ({ one }) => ({
@@ -827,12 +926,235 @@ export interface CommandAction {
 export type InteractiveReplyMode = "ephemeral" | "channel";
 
 export interface InteractiveActionConfig {
-  type: "role_add" | "role_remove" | "role_toggle" | "open_url" | "run_command";
+  type:
+    | "role_add"
+    | "role_remove"
+    | "role_toggle"
+    | "ticket_create"
+    | "open_url"
+    | "run_command"
+    | "reply_message"
+    | "follow_up_message"
+    | "open_modal"
+    | "channel_message"
+    | "dm_user"
+    | "log_action"
+    | "goto_view"
+    | "back_view"
+    | "cancel_view"
+    | "confirm"
+    | "hidden_by_gate";
   roleId?: string;
+  ticketPanelId?: number;
+  ticketDepartmentId?: string;
   url?: string;
   commandName?: string;
   commandArgs?: string;
   replyMode?: InteractiveReplyMode;
+  channelId?: string;
+  modalId?: string;
+  targetViewId?: string;
+  fallbackViewId?: string;
+  response?: StudioResponseConfig;
+  allowedRoleIds?: string[];
+  blockedRoleIds?: string[];
+  disabled?: boolean;
+  hiddenByGate?: boolean;
+  cooldownSeconds?: number;
+  rateLimitKey?: string;
+  logLabel?: string;
+}
+
+export type StudioDocumentScope = "server" | "personal" | "starter";
+export type StudioDocumentKind = "surface" | "template" | "divider_preset" | "style_block" | "theme_pack";
+export type StudioModuleBinding =
+  | "verify"
+  | "welcome"
+  | "welcome_dm"
+  | "leave"
+  | "tickets"
+  | "ticket_panel";
+export type StudioNodeType =
+  | "container"
+  | "section"
+  | "text_display"
+  | "media_gallery"
+  | "file"
+  | "action_row"
+  | "button"
+  | "string_select"
+  | "role_select"
+  | "user_select"
+  | "channel_select"
+  | "mentionable_select"
+  | "divider"
+  | "style_block";
+export type StudioPublicationStatus = "draft" | "published" | "archived" | "degraded" | "failed";
+
+export interface StudioUserState {
+  recentEmoji?: string[];
+  favoriteEmoji?: string[];
+}
+
+export interface StudioEmbedDraft {
+  title?: string;
+  description?: string;
+  color?: string;
+  fields?: EmbedFieldType[];
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  footerText?: string;
+  footerIconUrl?: string;
+  authorName?: string;
+  authorUrl?: string;
+  authorIconUrl?: string;
+  timestamp?: boolean;
+}
+
+export interface StudioInlineResponse {
+  content?: string;
+  embeds?: StudioEmbedDraft[];
+  viewId?: string;
+}
+
+export interface StudioResponseConfig {
+  mode?: "inline" | "template";
+  inline?: StudioInlineResponse;
+  templateDocumentId?: number;
+  templateViewId?: string;
+}
+
+export interface StudioView {
+  id: string;
+  name: string;
+  messageContent?: string;
+  embeds: StudioEmbedDraft[];
+  rootNodeIds: string[];
+}
+
+export interface StudioNode {
+  id: string;
+  type: StudioNodeType;
+  viewId: string;
+  parentId?: string | null;
+  childIds: string[];
+  props: Record<string, unknown>;
+  actionId?: string;
+  optionActionIds?: Record<string, string>;
+}
+
+export interface StudioModalField {
+  id: string;
+  label: string;
+  style: "short" | "paragraph";
+  placeholder?: string;
+  required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+}
+
+export interface StudioModalDefinition {
+  id: string;
+  title: string;
+  customIdSeed: string;
+  fields: StudioModalField[];
+  submitActionIds: string[];
+}
+
+export interface StudioAction extends InteractiveActionConfig {
+  id: string;
+  label?: string;
+}
+
+export interface StudioAsset {
+  id: string;
+  name: string;
+  type: "image" | "file" | "banner";
+  url: string;
+}
+
+export interface StudioDividerPreset {
+  id: string;
+  name: string;
+  mode: "line" | "symbol" | "emoji" | "stacked";
+  text?: string;
+  symbol?: string;
+  emoji?: string;
+  repeat?: number;
+  spacing?: "tight" | "normal" | "relaxed";
+}
+
+export interface StudioStyleBlockPreset {
+  id: string;
+  name: string;
+  variant:
+    | "warning_strip"
+    | "rules_block"
+    | "locked_access"
+    | "archive_card"
+    | "red_alert"
+    | "spotlight_card";
+  description?: string;
+  accentColor?: string;
+  nodeTemplateIds?: string[];
+}
+
+export interface StudioThemePack {
+  id: string;
+  name: string;
+  accentColor?: string;
+  dividerPresetId?: string;
+  borderStyle?: "minimal" | "soft" | "strong";
+  emojiStyle?: "native" | "custom_first";
+  spacingFeel?: "compact" | "balanced" | "airy";
+}
+
+export interface StudioDocument {
+  version: number;
+  meta: {
+    name: string;
+    category?: string;
+    entryViewId: string;
+    themePackId?: string;
+  };
+  views: Record<string, StudioView>;
+  nodes: Record<string, StudioNode>;
+  actions: Record<string, StudioAction>;
+  modals: Record<string, StudioModalDefinition>;
+  assets: StudioAsset[];
+  libraries: {
+    dividerPresetIds: string[];
+    styleBlockIds: string[];
+    themePackIds: string[];
+  };
+  design?: {
+    dividerPresets?: StudioDividerPreset[];
+    styleBlocks?: StudioStyleBlockPreset[];
+    themePacks?: StudioThemePack[];
+  };
+}
+
+export interface StudioPublicationSnapshot {
+  documentId: number;
+  documentName: string;
+  documentVersion: number;
+  publishedViewId: string;
+  channelId: string;
+  guildId: string;
+  render: {
+    content?: string;
+    embeds: StudioEmbedDraft[];
+    components: EmbedComponentType[];
+  };
+  diagnostics: StudioDiagnostic[];
+  document: StudioDocument;
+}
+
+export interface StudioDiagnostic {
+  level: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  path?: string;
 }
 
 // --- AUTOMATION FLOW TYPES ---
@@ -1076,6 +1398,10 @@ export const insertScheduledMessageSchema = createInsertSchema(scheduledMessages
 export const insertAuditLogConfigSchema = createInsertSchema(auditLogConfig).omit({ id: true, serverId: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertTemplateSchema = createInsertSchema(templates).omit({ id: true, createdAt: true });
+export const insertStudioDocumentSchema = createInsertSchema(studioDocuments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertStudioPublicationSchema = createInsertSchema(studioPublications).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertStudioPublicationSnapshotSchema = createInsertSchema(studioPublicationSnapshots).omit({ id: true, createdAt: true });
+export const insertStudioRuntimeEventSchema = createInsertSchema(studioRuntimeEvents).omit({ id: true, occurredAt: true });
 export const insertAutomationSchema = createInsertSchema(automations).omit({ id: true, createdAt: true, updatedAt: true, serverId: true });
 export const insertServerVariableSchema = createInsertSchema(serverVariables).omit({ id: true, updatedAt: true, serverId: true });
 export const insertEconomySchema = createInsertSchema(economy).omit({ id: true, createdAt: true, serverId: true });
@@ -1113,6 +1439,10 @@ export type ScheduledMessage = typeof scheduledMessages.$inferSelect;
 export type AuditLogConfigType = typeof auditLogConfig.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type Template = typeof templates.$inferSelect;
+export type StudioDocumentRecord = typeof studioDocuments.$inferSelect;
+export type StudioPublication = typeof studioPublications.$inferSelect;
+export type StudioPublicationSnapshotRecord = typeof studioPublicationSnapshots.$inferSelect;
+export type StudioRuntimeEvent = typeof studioRuntimeEvents.$inferSelect;
 export type Automation = typeof automations.$inferSelect;
 export type ServerVariable = typeof serverVariables.$inferSelect;
 export type EconomyAccount = typeof economy.$inferSelect;
@@ -1134,6 +1464,10 @@ export type PermissionRule = typeof permissionRules.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertTemplate = z.infer<typeof insertTemplateSchema>;
+export type InsertStudioDocument = z.infer<typeof insertStudioDocumentSchema>;
+export type InsertStudioPublication = z.infer<typeof insertStudioPublicationSchema>;
+export type InsertStudioPublicationSnapshot = z.infer<typeof insertStudioPublicationSnapshotSchema>;
+export type InsertStudioRuntimeEvent = z.infer<typeof insertStudioRuntimeEventSchema>;
 export type InsertAutomation = z.infer<typeof insertAutomationSchema>;
 export type InsertServerVariable = z.infer<typeof insertServerVariableSchema>;
 
