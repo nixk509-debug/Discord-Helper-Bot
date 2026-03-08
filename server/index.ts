@@ -21,24 +21,34 @@ declare module "http" {
   }
 }
 
-app.post(
-  "/api/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const signature = req.headers["stripe-signature"];
-    if (!signature) {
-      return res.status(400).json({ error: "Missing stripe-signature" });
+// stripe webhook route is only relevant when the Replit connector is
+// configured. registering it everywhere leads to pointless 404s and can
+// trigger `getStripeSync` even on self‑hosted installs.
+if (
+  process.env.REPLIT_CONNECTORS_HOSTNAME &&
+  (process.env.REPL_IDENTITY || process.env.WEB_REPL_RENEWAL)
+) {
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      const signature = req.headers["stripe-signature"];
+      if (!signature) {
+        return res.status(400).json({ error: "Missing stripe-signature" });
+      }
+      try {
+        const sig = Array.isArray(signature) ? signature[0] : signature;
+        await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+        res.status(200).json({ received: true });
+      } catch (error: any) {
+        console.error("Webhook error:", error.message);
+        res.status(400).json({ error: "Webhook processing error" });
+      }
     }
-    try {
-      const sig = Array.isArray(signature) ? signature[0] : signature;
-      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      res.status(200).json({ received: true });
-    } catch (error: any) {
-      console.error("Webhook error:", error.message);
-      res.status(400).json({ error: "Webhook processing error" });
-    }
-  }
-);
+  );
+} else {
+  console.log("Stripe webhook route not registered (non-Replit environment)");
+}
 
 app.use(
   express.json({

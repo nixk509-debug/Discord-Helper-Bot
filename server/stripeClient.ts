@@ -64,6 +64,19 @@ let stripeSync: any = null;
 
 export async function getStripeSync() {
   if (!stripeSync) {
+    // Only attempt to construct the Replit-specific sync helper when we
+    // actually appear to be running on Replit.  Without the connector token the
+    // import will still succeed (the package is installed) but later calls
+    // will fail and the startup logs get very noisy.
+    if (
+      !process.env.REPLIT_CONNECTORS_HOSTNAME ||
+      (!process.env.REPL_IDENTITY && !process.env.WEB_REPL_RENEWAL)
+    ) {
+      throw new Error(
+        "Stripe sync is unavailable: not running in a Replit environment"
+      );
+    }
+
     const { StripeSync } = await import('stripe-replit-sync');
     const secretKey = await getStripeSecretKey();
     stripeSync = new StripeSync({
