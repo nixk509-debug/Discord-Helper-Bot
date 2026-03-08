@@ -1,5 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, "..");
+const envPath = path.resolve(projectRoot, ".env");
+const serverEntry = path.resolve(projectRoot, "dist/index.cjs");
 
 function loadDotEnv(filePath = ".env") {
   if (!existsSync(filePath)) return;
@@ -30,12 +38,19 @@ function loadDotEnv(filePath = ".env") {
   }
 }
 
-loadDotEnv();
+loadDotEnv(envPath);
 process.env.NODE_ENV = "production";
 
-const child = spawn(process.execPath, ["dist/index.cjs"], {
+if (!existsSync(serverEntry)) {
+  console.error(`[start-prod] Missing build output: ${serverEntry}`);
+  console.error("[start-prod] Run `npm run build` before `npm run start`.");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [serverEntry], {
   stdio: "inherit",
   env: process.env,
+  cwd: projectRoot,
 });
 
 const forward = (signal) => {
