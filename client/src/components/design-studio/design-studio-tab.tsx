@@ -12,6 +12,7 @@ import {
   FilePlus2,
   FolderTree,
   Grip,
+  ImageIcon,
   Library,
   Monitor,
   MousePointer2,
@@ -53,6 +54,7 @@ import {
   createStudioDocument as createStudioDocumentDraft,
   defaultPrimarySurfaceName,
   defaultSurfaceName,
+  inferStudioPrimarySurfaceType,
   parseStudioEntryIntent,
   type StudioPrimarySurfaceType,
   type StudioEntryIntent,
@@ -105,7 +107,8 @@ type PreviewMode = "desktop" | "mobile" | "compact";
 type ComposerMode = "edit" | "preview" | "json";
 type LibraryScopeFilter = "all" | "personal" | "server";
 type LibraryCategoryFilter = "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
-type BuildFocusId = "project" | "body" | "embeds" | "components" | "actions" | "modals" | "assets";
+type BuildFocusId = "content" | "embeds" | "components" | "actions" | "assets";
+type MobilePrimaryBuildFocusId = Exclude<BuildFocusId, "assets">;
 type LibraryModeId = "shelf" | "tools" | "templates";
 
 type PublicationWithMeta = StudioPublication & {
@@ -177,6 +180,42 @@ const QUICK_MACROS = [
   { label: "View Ref", value: "{{view:entry}}" },
   { label: "Action Ref", value: "{{action:id}}" },
 ];
+
+const MOBILE_BUILD_WORKSPACES = [
+  { id: "content" as const, label: "Content", detail: "Project setup, views, and body copy.", icon: FilePlus2 },
+  { id: "embeds" as const, label: "Embeds", detail: "Cards, images, and rich message styling.", icon: Sparkles },
+  { id: "components" as const, label: "Components", detail: "Layout blocks, rows, buttons, and menus.", icon: FolderTree },
+  { id: "actions" as const, label: "Actions", detail: "Replies, modals, routing, and interaction logic.", icon: MousePointer2 },
+];
+
+const MOBILE_LIBRARY_MODES = [
+  { id: "shelf" as const, label: "Library" },
+  { id: "tools" as const, label: "Tools" },
+  { id: "templates" as const, label: "Templates" },
+];
+
+const MOBILE_UTILITY_AREAS = [
+  { id: "preview" as const, label: "Preview", icon: Eye },
+  { id: "library" as const, label: "Library", icon: Library },
+  { id: "assets" as const, label: "Assets", icon: ImageIcon },
+  { id: "publish" as const, label: "Publish", icon: Rocket },
+];
+
+function formatUnitCount(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function getBuildFocusFromPrimaryType(primaryType: StudioPrimarySurfaceType): BuildFocusId {
+  switch (primaryType) {
+    case "embed":
+      return "embeds";
+    case "components":
+      return "components";
+    case "message":
+    default:
+      return "content";
+  }
+}
 
 function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -760,7 +799,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [selectedModalId, setSelectedModalId] = useState<string | null>(null);
   const [selectedEmbedIndex, setSelectedEmbedIndex] = useState<number | null>(null);
   const [activeArea, setActiveArea] = useState<StudioAreaId>("build");
-  const [buildFocusId, setBuildFocusId] = useState<BuildFocusId>("body");
+  const [buildFocusId, setBuildFocusId] = useState<BuildFocusId>("content");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -845,6 +884,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   useEffect(() => {
     if (!currentRecord) return;
     if (dirty && loadedDocumentIdRef.current === currentRecord.id) return;
+    const isNewDocument = loadedDocumentIdRef.current !== currentRecord.id;
     const nextDraft = cloneDocument(currentRecord.document as StudioDocument);
     ensureDesign(nextDraft);
     setDraft(nextDraft);
@@ -855,6 +895,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setSelectedModalId(null);
     setSelectedEmbedIndex(null);
     setLastDiagnostics([]);
+    if (isNewDocument) {
+      setActiveArea("build");
+      setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(nextDraft)));
+      setLibraryModeId("shelf");
+      setPreviewOpen(false);
+      setInspectorOpen(false);
+    }
     loadedDocumentIdRef.current = currentRecord.id;
   }, [currentRecord, dirty]);
 
@@ -876,6 +923,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const allDividerPresets = useMemo(() => [...(draft?.design?.dividerPresets || [])], [draft]);
   const allStyleBlocks = useMemo(() => [...STYLE_BLOCK_STARTERS, ...(draft?.design?.styleBlocks || [])], [draft]);
   const allThemePacks = useMemo(() => [...THEME_PACK_STARTERS, ...(draft?.design?.themePacks || [])], [draft]);
+  const currentViewNodeCount = useMemo(
+    () => (draft ? Object.values(draft.nodes).filter((node) => node.viewId === selectedViewId).length : 0),
+    [draft, selectedViewId],
+  );
+  const actionCount = draft ? Object.keys(draft.actions).length : 0;
+  const modalCount = draft ? Object.keys(draft.modals).length : 0;
 
   const interactionRows = useMemo(() => (draft ? collectInteractionMap(draft, selectedViewId) : []), [draft, selectedViewId]);
   const diagnostics = useMemo(() => {
@@ -896,6 +949,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     }
     return next;
   }, [boundTicketPanel, draft, lastDiagnostics, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length]);
+  const errorCount = diagnostics.filter((entry) => entry.level === "error").length;
+  const warningCount = diagnostics.filter((entry) => entry.level === "warning").length;
   const diagnosticsForPrefix = (prefix: string) => diagnostics.filter((entry) => typeof entry.path === "string" && entry.path.startsWith(prefix));
 
   const selectedNode = draft && selectedNodeId ? draft.nodes[selectedNodeId] : null;
@@ -944,6 +999,48 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     });
   };
 
+  const openEmbedEditor = (index: number, viewId = selectedViewId) => {
+    setActiveArea("build");
+    setBuildFocusId("embeds");
+    setSelectedViewId(viewId);
+    setSelectedEmbedIndex(index);
+    setSelectedNodeId(null);
+    setSelectedActionId(null);
+    setSelectedModalId(null);
+    if (isMobile) setInspectorOpen(true);
+  };
+
+  const openNodeEditor = (nodeId: string, viewId = selectedViewId) => {
+    setActiveArea("build");
+    setBuildFocusId("components");
+    setSelectedViewId(viewId);
+    setSelectedNodeId(nodeId);
+    setSelectedActionId(null);
+    setSelectedModalId(null);
+    setSelectedEmbedIndex(null);
+    if (isMobile) setInspectorOpen(true);
+  };
+
+  const openActionEditor = (actionId: string) => {
+    setActiveArea("build");
+    setBuildFocusId("actions");
+    setSelectedActionId(actionId);
+    setSelectedNodeId(null);
+    setSelectedModalId(null);
+    setSelectedEmbedIndex(null);
+    if (isMobile) setInspectorOpen(true);
+  };
+
+  const openModalEditor = (modalId: string) => {
+    setActiveArea("build");
+    setBuildFocusId("actions");
+    setSelectedModalId(modalId);
+    setSelectedNodeId(null);
+    setSelectedActionId(null);
+    setSelectedEmbedIndex(null);
+    if (isMobile) setInspectorOpen(true);
+  };
+
   useEffect(() => {
     if (!inspectorOpen) return;
     setComposerMode("edit");
@@ -960,12 +1057,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       const [, viewId, rawIndex] = embedMatch;
       const index = Number(rawIndex);
       if (draft.views[viewId] && Number.isFinite(index)) {
-        setSelectedViewId(viewId);
-        setSelectedEmbedIndex(index);
-        setSelectedNodeId(null);
-        setSelectedActionId(null);
-        setSelectedModalId(null);
-        if (isMobile) setInspectorOpen(true);
+        openEmbedEditor(index, viewId);
       }
       return;
     }
@@ -975,12 +1067,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       const nodeId = nodeMatch[1];
       const node = draft.nodes[nodeId];
       if (node) {
-        setSelectedViewId(node.viewId || selectedViewId);
-        setSelectedNodeId(nodeId);
-        setSelectedEmbedIndex(null);
-        setSelectedActionId(null);
-        setSelectedModalId(null);
-        if (isMobile) setInspectorOpen(true);
+        openNodeEditor(nodeId, node.viewId || selectedViewId);
       }
       return;
     }
@@ -989,11 +1076,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     if (actionMatch) {
       const actionId = actionMatch[1];
       if (draft.actions[actionId]) {
-        setSelectedActionId(actionId);
-        setSelectedEmbedIndex(null);
-        setSelectedNodeId(null);
-        setSelectedModalId(null);
-        if (isMobile) setInspectorOpen(true);
+        openActionEditor(actionId);
       }
       return;
     }
@@ -1002,11 +1085,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     if (modalMatch) {
       const modalId = modalMatch[1];
       if (draft.modals[modalId]) {
-        setSelectedModalId(modalId);
-        setSelectedEmbedIndex(null);
-        setSelectedNodeId(null);
-        setSelectedActionId(null);
-        if (isMobile) setInspectorOpen(true);
+        openModalEditor(modalId);
       }
       return;
     }
@@ -1017,12 +1096,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       const index = Number(rawIndex);
       const view = draft.views[viewId];
       if (view && Number.isFinite(index) && view.rootNodeIds[index]) {
-        setSelectedViewId(viewId);
-        setSelectedNodeId(view.rootNodeIds[index]);
-        setSelectedEmbedIndex(null);
-        setSelectedActionId(null);
-        setSelectedModalId(null);
-        if (isMobile) setInspectorOpen(true);
+        openNodeEditor(view.rootNodeIds[index], viewId);
       }
     }
   };
@@ -1072,9 +1146,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          const normalized = normalizeDocumentDraft(created.document, created.name);
           setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
+          setDraft(cloneDocument(normalized));
           setDirty(false);
+          setActiveArea("build");
+          setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
+          setLibraryModeId("shelf");
+          setPreviewOpen(false);
+          setInspectorOpen(false);
           loadedDocumentIdRef.current = created.id;
           const url = new URL(window.location.href);
           url.searchParams.set("documentId", String(created.id));
@@ -1098,10 +1178,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          const normalized = normalizeDocumentDraft(created.document, created.name);
           setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
+          setDraft(cloneDocument(normalized));
           setDirty(false);
           setActiveArea("build");
+          setBuildFocusId(getBuildFocusFromPrimaryType(primaryType));
+          setLibraryModeId("shelf");
           setPreviewOpen(false);
           setInspectorOpen(false);
           loadedDocumentIdRef.current = created.id;
@@ -1127,10 +1210,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          const normalized = normalizeDocumentDraft(created.document, created.name);
           toast({ title: asTemplate ? "Template saved" : "Project duplicated", description: created.name });
           setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
+          setDraft(cloneDocument(normalized));
           setDirty(false);
+          setActiveArea("build");
+          setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
+          setLibraryModeId("shelf");
+          setPreviewOpen(false);
+          setInspectorOpen(false);
           loadedDocumentIdRef.current = created.id;
           const url = new URL(window.location.href);
           url.searchParams.set("documentId", String(created.id));
@@ -1316,6 +1405,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
   const addNodeToCurrentView = (type: StudioNodeType, parentId?: string | null) => {
     if (!draft || !currentView) return;
+    setActiveArea("build");
+    setBuildFocusId("components");
     const targetParentId = parentId || (selectedNode && canParentNode(selectedNode.type, type) ? selectedNode.id : null);
     touchDraft((document) => {
       const view = getView(document, selectedViewId);
@@ -1939,6 +2030,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     touchDraft((document) => {
       document.actions[action.id] = action;
     });
+    setBuildFocusId("actions");
     setSelectedActionId(action.id);
     setSelectedNodeId(null);
     setSelectedModalId(null);
@@ -1955,6 +2047,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       document.modals[modal.id] = modal;
       document.actions[submitAction.id] = submitAction;
     });
+    setBuildFocusId("actions");
     setSelectedModalId(modal.id);
     setSelectedActionId(null);
     setSelectedNodeId(null);
@@ -1969,6 +2062,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       const normalized = normalizeDocumentDraft(parsed, draft?.meta.name || "Imported Project");
       setDraft(normalized);
       setDirty(true);
+      setActiveArea("build");
+      setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
       setSelectedViewId(normalized.meta.entryViewId);
       toast({ title: "JSON imported", description: "Review and save before publishing." });
     } catch (error: any) {
@@ -2037,29 +2132,35 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {draft ? Object.values(draft.views).map((view) => (
-              <Button
-                key={view.id}
-                variant={selectedViewId === view.id ? "default" : "outline"}
-                size="sm"
-                onClick={() => {
-                  setSelectedViewId(view.id);
-                  setSelectedNodeId(null);
-                  setSelectedActionId(null);
-                  setSelectedModalId(null);
-                  setSelectedEmbedIndex(null);
-                }}
-              >
-                {view.name}
-                {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+          {!isMobile ? (
+            <div className="flex flex-wrap gap-2">
+              {draft ? Object.values(draft.views).map((view) => (
+                <Button
+                  key={view.id}
+                  variant={selectedViewId === view.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setSelectedViewId(view.id);
+                    setSelectedNodeId(null);
+                    setSelectedActionId(null);
+                    setSelectedModalId(null);
+                    setSelectedEmbedIndex(null);
+                  }}
+                >
+                  {view.name}
+                  {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+                </Button>
+              )) : null}
+              <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Set Start
               </Button>
-            )) : null}
-            <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Set Start
-            </Button>
-          </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
+              Quick view switching stays in the rail above. Use the view tools here to add, duplicate, remove, or set the start view.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -2118,21 +2219,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               key={`embed-${index}`}
               role="button"
               tabIndex={0}
-              onClick={() => {
-                setSelectedEmbedIndex(index);
-                setSelectedNodeId(null);
-                setSelectedActionId(null);
-                setSelectedModalId(null);
-                if (isMobile) setInspectorOpen(true);
-              }}
+              onClick={() => openEmbedEditor(index)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                setSelectedEmbedIndex(index);
-                setSelectedNodeId(null);
-                setSelectedActionId(null);
-                setSelectedModalId(null);
-                if (isMobile) setInspectorOpen(true);
+                openEmbedEditor(index);
               }}
               className={cn(
                 "w-full rounded-2xl border bg-background/30 p-4 text-left transition",
@@ -2166,6 +2257,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         })}
         <Button variant="outline" className="w-full gap-2" onClick={() => touchDraft((document) => {
           document.views[selectedViewId].embeds.push({ title: "", description: "", color: document.views[selectedViewId].embeds[0]?.color || "#5865F2" });
+          setBuildFocusId("embeds");
           setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
           setSelectedNodeId(null);
           setSelectedActionId(null);
@@ -2497,15 +2589,140 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </Card>
   );
 
-  const renderBuildWorkspace = () => (
-    <div className="space-y-4">
-      {renderOverviewSection()}
-      {renderContentSection()}
-      {renderEmbedsSection()}
-      {renderTreeSection()}
-      {renderActionsSection()}
+  const renderMobileWorkspaceBanner = ({
+    eyebrow,
+    title,
+    description,
+    chips = [],
+  }: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    chips?: string[];
+  }) => (
+    <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,20,24,0.96),rgba(8,9,11,0.98))] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.34)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,45,77,0.16),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(177,18,38,0.18),transparent_30%)]" />
+      <div className="relative">
+        <p className="text-[10px] uppercase tracking-[0.34em] text-white/40">{eyebrow}</p>
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-display text-xl text-white">{title}</h3>
+            <p className="mt-1 max-w-[28rem] text-sm text-muted-foreground">{description}</p>
+          </div>
+          <Badge className={cn("shrink-0 border border-white/10 bg-white/5 text-[11px] text-white", dirty ? "text-primary" : "text-white/80")}>
+            {dirty ? "Unsaved" : "Saved"}
+          </Badge>
+        </div>
+        {chips.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {chips.map((chip) => (
+              <Badge key={`${eyebrow}-${chip}`} variant="outline" className="border-white/10 bg-black/20 text-[11px] text-white/75">
+                {chip}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
+
+  const renderBuildWorkspace = () => {
+    if (!isMobile) {
+      return (
+        <div className="space-y-4">
+          {renderOverviewSection()}
+          {renderContentSection()}
+          {renderEmbedsSection()}
+          {renderTreeSection()}
+          {renderActionsSection()}
+        </div>
+      );
+    }
+
+    switch (buildFocusId) {
+      case "embeds":
+        return (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Embed Workspace",
+              title: "Rich message cards",
+              description: "Manage embeds, color accents, media, and field-heavy message layouts for the current view.",
+              chips: [
+                currentView?.name || "No view",
+                formatUnitCount(currentView?.embeds?.length || 0, "embed"),
+                errorCount > 0 ? `${errorCount} error${errorCount === 1 ? "" : "s"}` : "Preview-safe",
+              ],
+            })}
+            {renderEmbedsSection()}
+          </div>
+        );
+      case "components":
+        return (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Component Workspace",
+              title: "Layout and interaction blocks",
+              description: "Shape the structure of the active view with sections, buttons, menus, dividers, galleries, and files.",
+              chips: [
+                currentView?.name || "No view",
+                formatUnitCount(currentViewNodeCount, "block"),
+                actionCount > 0 ? `${actionCount} linked action${actionCount === 1 ? "" : "s"}` : "No linked actions",
+              ],
+            })}
+            {renderTreeSection()}
+          </div>
+        );
+      case "actions":
+        return (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Action Workspace",
+              title: "Responses and modal flow",
+              description: "Wire buttons, menus, and forms into replies, routes, role updates, and operational actions.",
+              chips: [
+                formatUnitCount(actionCount, "action"),
+                formatUnitCount(modalCount, "modal"),
+                warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "Runtime ready",
+              ],
+            })}
+            {renderActionsSection()}
+          </div>
+        );
+      case "assets":
+        return (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Asset Utility",
+              title: "Images, banners, and file links",
+              description: "Keep reusable media references attached to the current project so embeds and layouts stay consistent.",
+              chips: [
+                formatUnitCount(draft?.assets?.length || 0, "asset"),
+                currentView?.name || "Project-wide",
+              ],
+            })}
+            {renderAssetsSection()}
+          </div>
+        );
+      case "content":
+      default:
+        return (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Content Workspace",
+              title: "Message surface and view setup",
+              description: "Rename the project, switch views, tune the start point, and write the message body from one focused editing lane.",
+              chips: [
+                currentView?.name || "No view",
+                `${(currentView?.messageContent || "").length}/2000 chars`,
+                draft ? formatUnitCount(Object.keys(draft.views).length, "view") : "0 views",
+              ],
+            })}
+            {renderOverviewSection()}
+            {renderContentSection()}
+          </div>
+        );
+    }
+  };
 
   const renderTreeSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
@@ -2528,13 +2745,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <div className="space-y-2">
           {(currentView?.rootNodeIds || []).length === 0 ? <p className="text-sm text-muted-foreground">No blocks yet. Add a node to start the layout.</p> : null}
           {(currentView?.rootNodeIds || []).map((nodeId) => (
-            <NodeTreeItem key={nodeId} document={draft!} nodeId={nodeId} depth={0} selectedNodeId={selectedNodeId} diagnosticsForPrefix={diagnosticsForPrefix} onSelect={(node) => {
-              setSelectedNodeId(node);
-              setSelectedActionId(null);
-              setSelectedModalId(null);
-              setSelectedEmbedIndex(null);
-              if (isMobile) setInspectorOpen(true);
-            }} />
+            <NodeTreeItem key={nodeId} document={draft!} nodeId={nodeId} depth={0} selectedNodeId={selectedNodeId} diagnosticsForPrefix={diagnosticsForPrefix} onSelect={(node) => openNodeEditor(node)} />
           ))}
         </div>
       </CardContent>
@@ -2568,13 +2779,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 <button
                   key={action.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedActionId(action.id);
-                    setSelectedNodeId(null);
-                    setSelectedModalId(null);
-                    setSelectedEmbedIndex(null);
-                    if (isMobile) setInspectorOpen(true);
-                  }}
+                  onClick={() => openActionEditor(action.id)}
                   className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedActionId === action.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}
                 >
                   <MousePointer2 className="h-4 w-4 text-primary" />
@@ -2615,13 +2820,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 <button
                   key={modal.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedModalId(modal.id);
-                    setSelectedNodeId(null);
-                    setSelectedActionId(null);
-                    setSelectedEmbedIndex(null);
-                    if (isMobile) setInspectorOpen(true);
-                  }}
+                  onClick={() => openModalEditor(modal.id)}
                   className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedModalId === modal.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}
                 >
                   <Workflow className="h-4 w-4 text-primary" />
@@ -2736,20 +2935,67 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </div>
   );
 
-  const renderDesignWorkspace = () => (
-    <div className="space-y-4">
-      {renderLibraryShelfSection()}
-      {renderDesignSection()}
-      {renderTemplatesSection()}
-    </div>
-  );
+  const renderDesignWorkspace = () => {
+    if (!isMobile) {
+      return (
+        <div className="space-y-4">
+          {renderLibraryShelfSection()}
+          {renderDesignSection()}
+          {renderTemplatesSection()}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {renderMobileWorkspaceBanner({
+          eyebrow: "Studio Library",
+          title: "Assets, presets, and reusable parts",
+          description: "Browse saved pieces, build new visual helpers, or jump into templates and JSON tools without leaving the editor.",
+          chips: [
+            formatUnitCount(libraryItems.length, "saved item"),
+            librarySearch ? `Search: ${librarySearch}` : "Browse mode",
+          ],
+        })}
+        <div className="grid grid-cols-3 gap-2">
+          {MOBILE_LIBRARY_MODES.map((mode) => (
+            <Button
+              key={`mobile-library-mode-${mode.id}`}
+              variant={libraryModeId === mode.id ? "default" : "outline"}
+              className={cn("h-auto rounded-2xl px-3 py-3 text-sm", libraryModeId === mode.id ? "shadow-[0_16px_30px_rgba(177,18,38,0.2)]" : "border-white/10 bg-background/35")}
+              onClick={() => setLibraryModeId(mode.id)}
+            >
+              {mode.label}
+            </Button>
+          ))}
+        </div>
+        {libraryModeId === "shelf" ? renderLibraryShelfSection() : null}
+        {libraryModeId === "tools" ? renderDesignSection() : null}
+        {libraryModeId === "templates" ? renderTemplatesSection() : null}
+      </div>
+    );
+  };
 
   const renderActiveWorkspace = () => {
     switch (activeArea) {
       case "library":
         return renderDesignWorkspace();
       case "publish":
-        return renderPublishSection();
+        return isMobile ? (
+          <div className="space-y-4">
+            {renderMobileWorkspaceBanner({
+              eyebrow: "Publish Utility",
+              title: "Validate and ship",
+              description: "Review diagnostics, target the right channel, and publish or update the live message without leaving Studio.",
+              chips: [
+                `${errorCount} error${errorCount === 1 ? "" : "s"}`,
+                `${warningCount} warning${warningCount === 1 ? "" : "s"}`,
+                selectedPublication ? `Live #${selectedPublication.id}` : "No live message",
+              ],
+            })}
+            {renderPublishSection()}
+          </div>
+        ) : renderPublishSection();
       case "preview":
         return null;
       case "build":
@@ -3646,7 +3892,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }
 
   const topBar = (
-    <Card className="glass-card sticky top-0 z-20 border-white/10 bg-background/95 backdrop-blur">
+    <Card className={cn("sticky top-0 z-20 border-white/10 backdrop-blur", isMobile ? "overflow-hidden bg-[#060709]/95 shadow-[0_20px_60px_rgba(0,0,0,0.38)]" : "glass-card bg-background/95")}>
       <CardContent className="flex items-center gap-2 p-3">
         <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
           <ChevronLeft className="h-4 w-4" />
@@ -3696,6 +3942,29 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </div>
   );
 
+  const activateBuildFocus = (focus: MobilePrimaryBuildFocusId) => {
+    setActiveArea("build");
+    setBuildFocusId(focus);
+    setPreviewOpen(false);
+  };
+
+  const activateMobileUtility = (utilityId: (typeof MOBILE_UTILITY_AREAS)[number]["id"]) => {
+    if (utilityId === "preview") {
+      setPreviewOpen(true);
+      return;
+    }
+
+    setPreviewOpen(false);
+
+    if (utilityId === "assets") {
+      setActiveArea("build");
+      setBuildFocusId("assets");
+      return;
+    }
+
+    setActiveArea(utilityId);
+  };
+
   const activateArea = (sectionId: StudioAreaId) => {
     if (sectionId === "preview") {
       setPreviewOpen(true);
@@ -3725,11 +3994,85 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <StudioPreview document={draft} viewId={selectedViewId} interactionRows={interactionRows} diagnostics={diagnostics} mode={previewMode} />
   );
 
+  const mobileViewChips = (
+    <div className="overflow-x-auto pb-1">
+      <div className="flex min-w-max gap-2">
+        {Object.values(draft.views).map((view) => (
+          <Button
+            key={`mobile-view-chip-${view.id}`}
+            variant={selectedViewId === view.id ? "default" : "outline"}
+            size="sm"
+            className={cn("rounded-full", selectedViewId !== view.id && "border-white/10 bg-background/30")}
+            onClick={() => {
+              setSelectedViewId(view.id);
+              setSelectedNodeId(null);
+              setSelectedActionId(null);
+              setSelectedModalId(null);
+              setSelectedEmbedIndex(null);
+            }}
+          >
+            {view.name}
+            {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+          </Button>
+        ))}
+        <Button variant="ghost" size="sm" className="rounded-full border border-white/10 bg-background/25" onClick={() => activateBuildFocus("content")}>
+          Manage Views
+        </Button>
+      </div>
+    </div>
+  );
+
+  const mobileBuildNav = (
+    <div className="grid grid-cols-4 gap-2">
+      {MOBILE_BUILD_WORKSPACES.map(({ id, label, detail, icon: Icon }) => {
+        const isActive = activeArea === "build" && buildFocusId === id;
+        const detailText =
+          id === "content"
+            ? `${(currentView?.messageContent || "").length} chars`
+            : id === "embeds"
+              ? formatUnitCount(currentView?.embeds?.length || 0, "embed")
+              : id === "components"
+                ? formatUnitCount(currentViewNodeCount, "block")
+                : `${actionCount + modalCount} logic`;
+
+        return (
+          <button
+            key={`mobile-build-focus-${id}`}
+            type="button"
+            onClick={() => activateBuildFocus(id)}
+            className={cn(
+              "rounded-[22px] border px-2.5 py-3 text-left transition",
+              isActive
+                ? "border-primary/45 bg-primary/12 shadow-[0_16px_30px_rgba(177,18,38,0.22)]"
+                : "border-white/10 bg-[linear-gradient(180deg,rgba(21,24,29,0.92),rgba(10,11,13,0.98))] hover:border-white/20",
+            )}
+            title={detail}
+          >
+            <Icon className={cn("mb-2 h-4 w-4", isActive ? "text-primary" : "text-white/65")} />
+            <p className="text-xs font-semibold text-white">{label}</p>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/45">{detailText}</p>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const mobileActiveUtilityId = previewOpen
+    ? "preview"
+    : activeArea === "library"
+      ? "library"
+      : activeArea === "publish"
+        ? "publish"
+        : activeArea === "build" && buildFocusId === "assets"
+          ? "assets"
+          : null;
+
   if (isMobile) {
     return (
-      <div className="space-y-4 pb-24">
+      <div className="space-y-4 pb-28">
         {topBar}
-        {viewChips}
+        {mobileBuildNav}
+        {activeArea === "build" && buildFocusId !== "assets" ? mobileViewChips : null}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -3817,6 +4160,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   onClick={() => {
                     touchDraft((document) => {
                       document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
+                      setBuildFocusId("embeds");
                       setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
                       setSelectedNodeId(null);
                       setSelectedActionId(null);
@@ -3839,7 +4183,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </DrawerContent>
         </Drawer>
 
-        {activeArea === "build" ? (
+        {activeArea === "build" && buildFocusId !== "assets" ? (
           <Button
             className="fixed bottom-20 right-4 z-30 gap-2 rounded-full shadow-xl"
             onClick={() => setQuickAddOpen(true)}
@@ -3850,16 +4194,22 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         ) : null}
 
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-background/95 backdrop-blur">
-          <div className="grid grid-cols-4 gap-1 p-2">
-            {STUDIO_MAIN_AREAS.map((section) => (
-              <Button
-                key={`mobile-nav-${section.id}`}
-                variant={(section.id === "preview" ? previewOpen : activeArea === section.id) ? "default" : "ghost"}
-                size="sm"
-                onClick={() => activateArea(section.id)}
+          <div className="grid grid-cols-4 gap-2 p-2">
+            {MOBILE_UTILITY_AREAS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={`mobile-utility-${id}`}
+                type="button"
+                onClick={() => activateMobileUtility(id)}
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-center transition",
+                  mobileActiveUtilityId === id
+                    ? "border-primary/40 bg-primary/10 text-white shadow-[0_10px_24px_rgba(177,18,38,0.2)]"
+                    : "border-white/5 bg-transparent text-white/60 hover:border-white/10 hover:bg-white/[0.03]",
+                )}
               >
-                {section.label}
-              </Button>
+                <Icon className="h-4 w-4" />
+                <span className="text-[11px] font-medium">{label}</span>
+              </button>
             ))}
           </div>
         </div>
