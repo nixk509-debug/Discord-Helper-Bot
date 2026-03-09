@@ -51,6 +51,10 @@ export function buildStudioEmbedBuilders(snapshot: StudioPublicationSnapshot) {
       embed.setDescription(String(rawEmbed.description));
       hasContent = true;
     }
+    if (rawEmbed.url) {
+      embed.setURL(String(rawEmbed.url));
+      hasContent = true;
+    }
     const color = parseColor(rawEmbed.color);
     if (color !== null) {
       embed.setColor(color);
@@ -131,12 +135,14 @@ function buildButton(component: EmbedComponentType, publicationId: number, diagn
 }
 
 function buildStringSelect(component: EmbedComponentType, publicationId: number, diagnostics: StudioDiagnostic[]) {
+  const minValues = Math.max(0, Math.min(25, Number(component.minValues || 1)));
+  const maxValues = Math.max(minValues || 1, Math.min(25, Number(component.maxValues || 1)));
   const menu = new StringSelectMenuBuilder()
     .setCustomId(String(component.customId || component.id || `studio_select_${publicationId}`))
     .setPlaceholder(String(component.placeholder || component.label || "Select an option").slice(0, 150))
     .setDisabled(Boolean(component.disabled))
-    .setMinValues(1)
-    .setMaxValues(1);
+    .setMinValues(minValues || 1)
+    .setMaxValues(maxValues);
 
   const options = (component.options || []).flatMap((option: EmbedComponentOption) => {
     const action = option.action || component.action;
@@ -159,6 +165,7 @@ function buildStringSelect(component: EmbedComponentType, publicationId: number,
       }),
       description: option.description ? String(option.description).slice(0, 100) : undefined,
       emoji: toEmoji(option.emoji),
+      default: Boolean((option as any).default),
     }];
   });
 

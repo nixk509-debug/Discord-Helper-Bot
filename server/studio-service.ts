@@ -29,6 +29,7 @@ import {
   type StudioThemePack,
   type Template,
 } from "@shared/schema";
+import { serializeStudioDocumentView } from "@shared/studio-document";
 
 export const STUDIO_TEMPLATE_TYPE = "design_studio";
 export const DEFAULT_STUDIO_ENTRY_VIEW = "entry";
@@ -588,112 +589,13 @@ function appendContentPart(parts: string[], nextValue?: string | null) {
 }
 
 export function renderStudioDocumentView(document: StudioDocument, requestedViewId?: string) {
-  const diagnostics: StudioDiagnostic[] = [];
-  const view = getStudioView(document, requestedViewId);
-  if (!view) {
-    return {
-      content: "",
-      embeds: [] as StudioEmbedDraft[],
-      interactiveComponents: [] as EmbedComponentType[],
-      diagnostics: [{ level: "error", code: "VIEW_NOT_FOUND", message: "Studio view could not be resolved." }],
-      viewId: document.meta.entryViewId,
-    };
-  }
-
-  const contentParts: string[] = [];
-  appendContentPart(contentParts, view.messageContent);
-  const embeds: StudioEmbedDraft[] = Array.isArray(view.embeds) ? [...view.embeds] : [];
-  const interactiveComponents: EmbedComponentType[] = [];
-
-  const visitNode = (nodeId: string) => {
-    const node = document.nodes[nodeId];
-    if (!node) {
-      diagnostics.push({ level: "warning", code: "NODE_MISSING", message: `Missing node ${nodeId}.`, path: nodeId });
-      return;
-    }
-
-    switch (node.type) {
-      case "container":
-      case "section": {
-        appendContentPart(contentParts, node.props.heading ? `**${String(node.props.heading)}**` : "");
-        appendContentPart(contentParts, node.props.description ? String(node.props.description) : "");
-        node.childIds.forEach(visitNode);
-        return;
-      }
-      case "text_display": {
-        appendContentPart(contentParts, String(node.props.text || ""));
-        return;
-      }
-      case "divider": {
-        appendContentPart(contentParts, buildDividerText(node.props));
-        return;
-      }
-      case "style_block": {
-        embeds.push(buildStyleBlockEmbed(node));
-        return;
-      }
-      case "media_gallery": {
-        const items = Array.isArray(node.props.items) ? node.props.items : [];
-        for (const item of items.slice(0, 4)) {
-          const url = String((item as any)?.url || "").trim();
-          if (!url) continue;
-          embeds.push({
-            title: String(node.props.title || ""),
-            description: String((item as any)?.description || ""),
-            imageUrl: url,
-            color: String(node.props.accentColor || "#5865F2"),
-          });
-        }
-        if (items.length === 0) {
-          diagnostics.push({ level: "warning", code: "MEDIA_EMPTY", message: "Media gallery has no items.", path: node.id });
-        }
-        return;
-      }
-      case "file": {
-        const url = String(node.props.url || "").trim();
-        if (url) {
-          appendContentPart(contentParts, `[${String(node.props.label || "Attachment")}](${url})`);
-        } else {
-          diagnostics.push({ level: "warning", code: "FILE_URL_MISSING", message: "File block is missing a URL.", path: node.id });
-        }
-        return;
-      }
-      case "action_row": {
-        const rowComponents = node.childIds
-          .map((childId) => renderInteractiveNode(document, childId, diagnostics))
-          .filter((entry): entry is EmbedComponentType => Boolean(entry));
-        if (rowComponents.length > 0) {
-          interactiveComponents.push({
-            type: COMPONENT_TYPES.ACTION_ROW,
-            components: rowComponents,
-          });
-        }
-        return;
-      }
-      case "button":
-      case "string_select":
-      case "role_select":
-      case "user_select":
-      case "channel_select":
-      case "mentionable_select": {
-        const interactive = renderInteractiveNode(document, node.id, diagnostics);
-        if (interactive) interactiveComponents.push(interactive);
-        return;
-      }
-      default: {
-        diagnostics.push({ level: "info", code: "NODE_PREVIEW_ONLY", message: `${node.type} is preview-only in this runtime path.`, path: node.id });
-      }
-    }
-  };
-
-  view.rootNodeIds.forEach(visitNode);
-
+  const serialized = serializeStudioDocumentView(document, requestedViewId);
   return {
-    content: contentParts.join("\n\n").trim(),
-    embeds: embeds.slice(0, 10),
-    interactiveComponents,
-    diagnostics,
-    viewId: view.id,
+    content: serialized.content,
+    embeds: serialized.embeds,
+    interactiveComponents: serialized.interactiveComponents,
+    diagnostics: serialized.diagnostics,
+    viewId: serialized.viewId,
   };
 }
 

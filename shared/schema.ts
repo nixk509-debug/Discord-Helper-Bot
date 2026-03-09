@@ -998,6 +998,7 @@ export interface StudioUserState {
 
 export interface StudioEmbedDraft {
   title?: string;
+  url?: string;
   description?: string;
   color?: string;
   fields?: EmbedFieldType[];
@@ -1006,6 +1007,7 @@ export interface StudioEmbedDraft {
   footerText?: string;
   footerIconUrl?: string;
   authorName?: string;
+  authorId?: string;
   authorUrl?: string;
   authorIconUrl?: string;
   timestamp?: boolean;
@@ -1333,6 +1335,7 @@ export interface EmbedComponentType {
   type: number;
   id?: string;
   label?: string;
+  value?: string;
   style?: number;
   customId?: string;
   url?: string;
@@ -1345,6 +1348,9 @@ export interface EmbedComponentType {
   spacing?: "small" | "large";
   divider?: boolean;
   accentColor?: string;
+  minValues?: number;
+  maxValues?: number;
+  default?: boolean;
   items?: EmbedMediaItem[];
   accessory?: EmbedComponentType;
   components?: EmbedComponentType[];
@@ -1363,6 +1369,7 @@ export interface EmbedComponentOption {
   value: string;
   description?: string;
   emoji?: string;
+  default?: boolean;
   action?: InteractiveActionConfig;
 }
 

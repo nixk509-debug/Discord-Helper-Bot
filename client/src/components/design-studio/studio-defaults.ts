@@ -179,16 +179,18 @@ export function defaultSurfaceName(binding?: StudioModuleBinding | null) {
   }
 }
 
-export const STUDIO_MOBILE_SECTIONS = [
-  { id: "message", label: "Message" },
-  { id: "components", label: "Components" },
-  { id: "actions", label: "Actions" },
-  { id: "design", label: "Design" },
-  { id: "publish", label: "Publish" },
+export const STUDIO_MAIN_AREAS = [
+  { id: "build", label: "Build" },
+  { id: "preview", label: "Preview" },
+  { id: "lab", label: "Lab" },
+  { id: "post", label: "Post" },
 ] as const;
 
+// Keep these exports for compatibility with existing imports.
+export const STUDIO_MOBILE_SECTIONS = STUDIO_MAIN_AREAS;
+
 export const STUDIO_BUILD_SECTIONS = [
-  { id: "overview", label: "Setup" },
-  { id: "content", label: "Text" },
+  { id: "message", label: "Message" },
   { id: "embeds", label: "Embeds" },
+  { id: "components", label: "Components" },
 ] as const;

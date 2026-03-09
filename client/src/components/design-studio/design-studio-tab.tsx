@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  ChevronLeft,
   ArrowDown,
   ArrowUp,
   Bot,
+  CheckCircle2,
+  CircleAlert,
+  CircleX,
   Copy,
   Eye,
   FilePlus2,
   FolderTree,
+  Grip,
   Library,
   Monitor,
   MousePointer2,
@@ -41,8 +46,7 @@ import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
   createStudioDocument as createStudioDocumentDraft,
   defaultSurfaceName,
-  STUDIO_BUILD_SECTIONS,
-  STUDIO_MOBILE_SECTIONS,
+  STUDIO_MAIN_AREAS,
 } from "@/components/design-studio/studio-defaults";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,6 +63,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
@@ -67,6 +72,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { collectStudioDiagnostics } from "@shared/studio-document";
 import type {
   InteractiveActionConfig,
   StudioAction,
@@ -83,8 +89,7 @@ import type {
   StudioThemePack,
 } from "@shared/schema";
 
-type MobileSectionId = (typeof STUDIO_MOBILE_SECTIONS)[number]["id"];
-type BuildSectionId = (typeof STUDIO_BUILD_SECTIONS)[number]["id"];
+type StudioAreaId = (typeof STUDIO_MAIN_AREAS)[number]["id"];
 type PreviewMode = "desktop" | "mobile" | "compact";
 
 type PublicationWithMeta = StudioPublication & {
@@ -145,6 +150,17 @@ const THEME_PACK_STARTERS: StudioThemePack[] = [
 ];
 
 const QUICK_EMOJI = ["🔥", "✨", "✅", "📌", "🎯", "⚠️", "📂", "🔒", "🧭", "🎫", "👋", "📣"];
+const QUICK_MACROS = [
+  { label: "User", value: "<@{user_id}>" },
+  { label: "Username", value: "{username}" },
+  { label: "Server", value: "{server_name}" },
+  { label: "Channel", value: "<#{channel_id}>" },
+  { label: "Role", value: "<@&{role_id}>" },
+  { label: "Timestamp", value: "<t:{unix}:f>" },
+  { label: "Message Link", value: "https://discord.com/channels/{guild_id}/{channel_id}/{message_id}" },
+  { label: "View Ref", value: "{{view:entry}}" },
+  { label: "Action Ref", value: "{{action:id}}" },
+];
 
 function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -528,17 +544,20 @@ function NodeTreeItem({
   nodeId,
   depth,
   selectedNodeId,
+  diagnosticsForPrefix,
   onSelect,
 }: {
   document: StudioDocument;
   nodeId: string;
   depth: number;
   selectedNodeId: string | null;
+  diagnosticsForPrefix?: (prefix: string) => StudioDiagnostic[];
   onSelect: (nodeId: string) => void;
 }) {
   const node = document.nodes[nodeId];
   if (!node) return null;
   const label = String(node.props.label || node.props.heading || node.props.title || node.props.text || node.type).slice(0, 48);
+  const issues = diagnosticsForPrefix ? diagnosticsForPrefix(`nodes.${node.id}`) : [];
 
   return (
     <div className="space-y-1">
@@ -553,7 +572,12 @@ function NodeTreeItem({
       >
         <FolderTree className="h-4 w-4 shrink-0" />
         <span className="truncate">{label}</span>
-        <Badge variant="outline" className="ml-auto shrink-0 border-white/10 text-[10px] uppercase">
+        {issues.length > 0 ? (
+          <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"} className="ml-auto shrink-0">
+            {issues.length}
+          </Badge>
+        ) : null}
+        <Badge variant="outline" className={cn("shrink-0 border-white/10 text-[10px] uppercase", issues.length === 0 ? "ml-auto" : "")}>
           {node.type.replace(/_/g, " ")}
         </Badge>
       </button>
@@ -564,11 +588,128 @@ function NodeTreeItem({
           nodeId={childId}
           depth={depth + 1}
           selectedNodeId={selectedNodeId}
+          diagnosticsForPrefix={diagnosticsForPrefix}
           onSelect={onSelect}
         />
       ))}
     </div>
   );
+}
+
+interface StudioEditorState {
+  draft: StudioDocument | null;
+  dirty: boolean;
+  selectedViewId: string;
+  selectedNodeId: string | null;
+  selectedActionId: string | null;
+  selectedModalId: string | null;
+  selectedEmbedIndex: number | null;
+  publishDiagnostics: StudioDiagnostic[];
+}
+
+type StudioEditorAction =
+  | { type: "load"; draft: StudioDocument }
+  | { type: "mutate"; updater: (document: StudioDocument) => void }
+  | { type: "mark_clean"; draft?: StudioDocument }
+  | { type: "select_view"; viewId: string }
+  | { type: "select_node"; nodeId: string | null }
+  | { type: "select_action"; actionId: string | null }
+  | { type: "select_modal"; modalId: string | null }
+  | { type: "select_embed"; index: number | null }
+  | { type: "set_publish_diagnostics"; diagnostics: StudioDiagnostic[] };
+
+function createEditorState(): StudioEditorState {
+  return {
+    draft: null,
+    dirty: false,
+    selectedViewId: "entry",
+    selectedNodeId: null,
+    selectedActionId: null,
+    selectedModalId: null,
+    selectedEmbedIndex: null,
+    publishDiagnostics: [],
+  };
+}
+
+function editorReducer(state: StudioEditorState, action: StudioEditorAction): StudioEditorState {
+  switch (action.type) {
+    case "load":
+      return {
+        draft: action.draft,
+        dirty: false,
+        selectedViewId: action.draft.meta.entryViewId,
+        selectedNodeId: null,
+        selectedActionId: null,
+        selectedModalId: null,
+        selectedEmbedIndex: null,
+        publishDiagnostics: [],
+      };
+    case "mutate": {
+      if (!state.draft) return state;
+      const nextDraft = cloneDocument(state.draft);
+      ensureDesign(nextDraft);
+      action.updater(nextDraft);
+      return {
+        ...state,
+        draft: nextDraft,
+        dirty: true,
+      };
+    }
+    case "mark_clean":
+      return {
+        ...state,
+        draft: action.draft || state.draft,
+        dirty: false,
+      };
+    case "select_view":
+      return {
+        ...state,
+        selectedViewId: action.viewId,
+        selectedNodeId: null,
+        selectedActionId: null,
+        selectedModalId: null,
+        selectedEmbedIndex: null,
+      };
+    case "select_node":
+      return {
+        ...state,
+        selectedNodeId: action.nodeId,
+        selectedActionId: null,
+        selectedModalId: null,
+        selectedEmbedIndex: null,
+      };
+    case "select_action":
+      return {
+        ...state,
+        selectedActionId: action.actionId,
+        selectedNodeId: null,
+        selectedModalId: null,
+        selectedEmbedIndex: null,
+      };
+    case "select_modal":
+      return {
+        ...state,
+        selectedModalId: action.modalId,
+        selectedNodeId: null,
+        selectedActionId: null,
+        selectedEmbedIndex: null,
+      };
+    case "select_embed":
+      return {
+        ...state,
+        selectedEmbedIndex: action.index,
+        selectedNodeId: null,
+        selectedActionId: null,
+        selectedModalId: null,
+      };
+    case "set_publish_diagnostics":
+      return {
+        ...state,
+        publishDiagnostics: action.diagnostics,
+      };
+    default:
+      return state;
+  }
 }
 
 export function DesignStudioTab({ serverId }: { serverId: number; toast?: any }) {
@@ -598,11 +739,12 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [selectedModalId, setSelectedModalId] = useState<string | null>(null);
-  const [activeMobileSection, setActiveMobileSection] = useState<MobileSectionId>("message");
-  const [activeBuildSection, setActiveBuildSection] = useState<BuildSectionId>("overview");
+  const [selectedEmbedIndex, setSelectedEmbedIndex] = useState<number | null>(null);
+  const [activeArea, setActiveArea] = useState<StudioAreaId>("build");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [publishChannelId, setPublishChannelId] = useState("");
   const [updateMessageId, setUpdateMessageId] = useState("");
   const [publishViewId, setPublishViewId] = useState("");
@@ -614,7 +756,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const loadedDocumentIdRef = useRef<number | null>(null);
 
   const shouldLoadDiscordContext =
-    activeMobileSection !== "message" ||
+    activeArea !== "build" ||
     Boolean(selectedNodeId) ||
     Boolean(selectedActionId) ||
     previewOpen;
@@ -671,6 +813,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     setSelectedNodeId(null);
     setSelectedActionId(null);
     setSelectedModalId(null);
+    setSelectedEmbedIndex(null);
     setLastDiagnostics([]);
     loadedDocumentIdRef.current = currentRecord.id;
   }, [currentRecord, dirty]);
@@ -697,7 +840,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const interactionRows = useMemo(() => (draft ? collectInteractionMap(draft, selectedViewId) : []), [draft, selectedViewId]);
   const diagnostics = useMemo(() => {
     if (!draft) return lastDiagnostics;
-    const next = [...collectDiagnostics(draft, selectedViewId), ...lastDiagnostics];
+    const next = [...collectStudioDiagnostics(draft, selectedViewId), ...lastDiagnostics];
     const ticketActions = Object.values(draft.actions).filter((action) => action.type === "ticket_create");
     if (ticketActions.length > 0 && !ticketConfig?.enabled) {
       next.push({ level: "warning", code: "TICKETS_DISABLED", message: "Ticket create actions exist, but the ticket system is disabled in module settings." });
@@ -713,10 +856,12 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     }
     return next;
   }, [boundTicketPanel, draft, lastDiagnostics, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length]);
+  const diagnosticsForPrefix = (prefix: string) => diagnostics.filter((entry) => typeof entry.path === "string" && entry.path.startsWith(prefix));
 
   const selectedNode = draft && selectedNodeId ? draft.nodes[selectedNodeId] : null;
   const selectedAction = draft && selectedActionId ? draft.actions[selectedActionId] : null;
   const selectedModal = draft && selectedModalId ? draft.modals[selectedModalId] : null;
+  const selectedEmbed = currentView && selectedEmbedIndex !== null ? currentView.embeds[selectedEmbedIndex] : null;
   const selectedPublication = publications.find((entry) => entry.id === selectedPublicationId) || null;
 
   const touchDraft = (updater: (document: StudioDocument) => void) => {
@@ -821,6 +966,10 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         rootNodeIds: [],
       };
       setSelectedViewId(id);
+      setSelectedNodeId(null);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
     });
   };
 
@@ -840,6 +989,141 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       });
       setSelectedViewId(document.meta.entryViewId);
       setSelectedNodeId(null);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
+    });
+  };
+
+  const setEntryView = (viewId: string) => {
+    touchDraft((document) => {
+      if (!document.views[viewId]) return;
+      document.meta.entryViewId = viewId;
+    });
+  };
+
+  const renameView = (viewId: string, name: string) => {
+    touchDraft((document) => {
+      if (!document.views[viewId]) return;
+      document.views[viewId].name = name;
+    });
+  };
+
+  const duplicateView = (viewId: string) => {
+    if (!draft || !draft.views[viewId]) return;
+    touchDraft((document) => {
+      const sourceView = document.views[viewId];
+      if (!sourceView) return;
+
+      const actionMap: Record<string, string> = {};
+      const modalMap: Record<string, string> = {};
+
+      const cloneAction = (actionId?: string) => {
+        if (!actionId) return undefined;
+        if (actionMap[actionId]) return actionMap[actionId];
+        const sourceAction = document.actions[actionId];
+        if (!sourceAction) return undefined;
+        const nextAction = cloneDocument(sourceAction);
+        nextAction.id = makeId("act");
+        actionMap[actionId] = nextAction.id;
+        if (nextAction.modalId) {
+          const nextModalId = cloneModal(nextAction.modalId);
+          nextAction.modalId = nextModalId;
+        }
+        document.actions[nextAction.id] = nextAction;
+        return nextAction.id;
+      };
+
+      const cloneModal = (modalId?: string) => {
+        if (!modalId) return undefined;
+        if (modalMap[modalId]) return modalMap[modalId];
+        const sourceModal = document.modals[modalId];
+        if (!sourceModal) return undefined;
+        const nextModal = cloneDocument(sourceModal);
+        nextModal.id = makeId("modal");
+        modalMap[modalId] = nextModal.id;
+        nextModal.submitActionIds = (sourceModal.submitActionIds || [])
+          .map((actionId) => cloneAction(actionId))
+          .filter((actionId): actionId is string => Boolean(actionId));
+        document.modals[nextModal.id] = nextModal;
+        return nextModal.id;
+      };
+
+      const cloneNode = (sourceId: string, newViewId: string, parentId?: string | null): string | null => {
+        const sourceNode = document.nodes[sourceId];
+        if (!sourceNode) return null;
+        const nextNode = cloneDocument(sourceNode);
+        nextNode.id = makeId(sourceNode.type.slice(0, 3));
+        nextNode.viewId = newViewId;
+        nextNode.parentId = parentId || null;
+        nextNode.childIds = [];
+        nextNode.actionId = cloneAction(sourceNode.actionId);
+        if (sourceNode.optionActionIds) {
+          const nextOptionActions: Record<string, string> = {};
+          for (const [value, actionId] of Object.entries(sourceNode.optionActionIds)) {
+            const clonedActionId = cloneAction(actionId);
+            if (clonedActionId) nextOptionActions[value] = clonedActionId;
+          }
+          nextNode.optionActionIds = nextOptionActions;
+        }
+        document.nodes[nextNode.id] = nextNode;
+        sourceNode.childIds.forEach((childId) => {
+          const nextChildId = cloneNode(childId, newViewId, nextNode.id);
+          if (nextChildId) nextNode.childIds.push(nextChildId);
+        });
+        return nextNode.id;
+      };
+
+      const nextViewId = makeId("view");
+      const nextRootNodeIds = sourceView.rootNodeIds
+        .map((nodeId) => cloneNode(nodeId, nextViewId, null))
+        .filter((nodeId): nodeId is string => Boolean(nodeId));
+
+      document.views[nextViewId] = {
+        ...cloneDocument(sourceView),
+        id: nextViewId,
+        name: `${sourceView.name} Copy`,
+        rootNodeIds: nextRootNodeIds,
+      };
+
+      setSelectedViewId(nextViewId);
+      setSelectedNodeId(null);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
+    });
+  };
+
+  const moveEmbed = (index: number, direction: "up" | "down") => {
+    touchDraft((document) => {
+      const embeds = document.views[selectedViewId]?.embeds || [];
+      const next = direction === "up" ? index - 1 : index + 1;
+      if (next < 0 || next >= embeds.length) return;
+      [embeds[index], embeds[next]] = [embeds[next], embeds[index]];
+      setSelectedEmbedIndex(next);
+    });
+  };
+
+  const duplicateEmbed = (index: number) => {
+    touchDraft((document) => {
+      const embeds = document.views[selectedViewId]?.embeds || [];
+      const source = embeds[index];
+      if (!source) return;
+      embeds.splice(index + 1, 0, cloneDocument(source));
+      setSelectedEmbedIndex(index + 1);
+    });
+  };
+
+  const deleteEmbed = (index: number) => {
+    touchDraft((document) => {
+      const embeds = document.views[selectedViewId]?.embeds || [];
+      if (index < 0 || index >= embeds.length) return;
+      embeds.splice(index, 1);
+      if (embeds.length === 0) {
+        setSelectedEmbedIndex(null);
+        return;
+      }
+      setSelectedEmbedIndex(Math.max(0, index - 1));
     });
   };
 
@@ -861,7 +1145,9 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       }
       document.nodes[node.id] = node;
       setSelectedNodeId(node.id);
-      if (node.actionId) setSelectedActionId(node.actionId);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
       if (isMobile) setInspectorOpen(true);
     });
   };
@@ -902,6 +1188,8 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       removeRecursive(nodeId);
       setSelectedNodeId(null);
       setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
     });
   };
 
@@ -950,6 +1238,9 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       const index = siblings.indexOf(nodeId);
       siblings.splice(index + 1, 0, newId);
       setSelectedNodeId(newId);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
     });
   };
 
@@ -975,6 +1266,23 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       }
     });
     setEmojiState(upsertRecentEmoji(serverId, emoji));
+  };
+
+  const insertMacro = (macro: string) => {
+    touchDraft((document) => {
+      const node = selectedNodeId ? document.nodes[selectedNodeId] : undefined;
+      const activeView = document.views[selectedViewId];
+      if (!activeView) return;
+      if (node?.type === "text_display") {
+        node.props.text = `${String(node.props.text || "")}${macro}`;
+        return;
+      }
+      if (selectedEmbedIndex !== null && activeView.embeds[selectedEmbedIndex]) {
+        activeView.embeds[selectedEmbedIndex].description = `${String(activeView.embeds[selectedEmbedIndex].description || "")}${macro}`;
+        return;
+      }
+      activeView.messageContent = `${String(activeView.messageContent || "")}${macro}`;
+    });
   };
 
   const saveDividerPreset = () => {
@@ -1065,6 +1373,11 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     if (!draft) return;
     if (!publishChannelId.trim()) {
       toast({ title: "Select a channel", description: "Choose the target channel before publishing.", variant: "destructive" });
+      return;
+    }
+    if (diagnostics.some((entry) => entry.level === "error")) {
+      setActiveArea("post");
+      toast({ title: "Fix errors first", description: "Publishing is blocked until validation errors are resolved.", variant: "destructive" });
       return;
     }
     publishMutation.mutate(
@@ -1183,13 +1496,88 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     });
   };
 
+  const duplicateActionById = (actionId: string) => {
+    touchDraft((document) => {
+      const source = document.actions[actionId];
+      if (!source) return;
+      const next = cloneDocument(source);
+      next.id = makeId("act");
+      document.actions[next.id] = next;
+      setSelectedActionId(next.id);
+      setSelectedNodeId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
+    });
+  };
+
+  const deleteActionById = (actionId: string) => {
+    if (!window.confirm("Delete this action?")) return;
+    touchDraft((document) => {
+      delete document.actions[actionId];
+      Object.values(document.nodes).forEach((node) => {
+        if (node.actionId === actionId) node.actionId = undefined;
+        if (node.optionActionIds) {
+          for (const [value, id] of Object.entries(node.optionActionIds)) {
+            if (id === actionId) delete node.optionActionIds[value];
+          }
+        }
+      });
+      Object.values(document.modals).forEach((modal) => {
+        modal.submitActionIds = modal.submitActionIds.filter((id) => id !== actionId);
+      });
+      setSelectedActionId(null);
+    });
+  };
+
+  const duplicateModalById = (modalId: string) => {
+    touchDraft((document) => {
+      const source = document.modals[modalId];
+      if (!source) return;
+      const actionMap: Record<string, string> = {};
+      const cloneAction = (actionId: string) => {
+        if (actionMap[actionId]) return actionMap[actionId];
+        const sourceAction = document.actions[actionId];
+        if (!sourceAction) return "";
+        const nextAction = cloneDocument(sourceAction);
+        nextAction.id = makeId("act");
+        document.actions[nextAction.id] = nextAction;
+        actionMap[actionId] = nextAction.id;
+        return nextAction.id;
+      };
+
+      const next = cloneDocument(source);
+      next.id = makeId("modal");
+      next.title = `${source.title} Copy`;
+      next.submitActionIds = source.submitActionIds.map(cloneAction).filter(Boolean);
+      document.modals[next.id] = next;
+      setSelectedModalId(next.id);
+      setSelectedActionId(null);
+      setSelectedNodeId(null);
+      setSelectedEmbedIndex(null);
+    });
+  };
+
+  const deleteModalById = (modalId: string) => {
+    if (!window.confirm("Delete this modal?")) return;
+    touchDraft((document) => {
+      delete document.modals[modalId];
+      Object.values(document.actions).forEach((action) => {
+        if (action.modalId === modalId) action.modalId = undefined;
+      });
+      setSelectedModalId(null);
+    });
+  };
+
   const addAction = (type: InteractiveActionConfig["type"] = "reply_message") => {
     const action = createAction(type);
     touchDraft((document) => {
       document.actions[action.id] = action;
     });
     setSelectedActionId(action.id);
-    setActiveMobileSection("actions");
+    setSelectedNodeId(null);
+    setSelectedModalId(null);
+    setSelectedEmbedIndex(null);
+    setActiveArea("build");
     if (isMobile) setInspectorOpen(true);
   };
 
@@ -1202,8 +1590,10 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       document.actions[submitAction.id] = submitAction;
     });
     setSelectedModalId(modal.id);
-    setSelectedActionId(submitAction.id);
-    setActiveMobileSection("actions");
+    setSelectedActionId(null);
+    setSelectedNodeId(null);
+    setSelectedEmbedIndex(null);
+    setActiveArea("build");
     if (isMobile) setInspectorOpen(true);
   };
 
@@ -1239,57 +1629,78 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Panel Setup</CardTitle>
-          <CardDescription>Name the panel or message, choose the starting screen, and jump into shared server panels.</CardDescription>
+          <CardTitle className="font-display text-base">Message Setup</CardTitle>
+          <CardDescription>Keep one message model across embeds, components, actions, and modals.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Document Name</Label>
+              <Label>Panel Name</Label>
               <Input value={draft?.meta.name || ""} onChange={(event) => touchDraft((document) => { document.meta.name = event.target.value; })} />
             </div>
             <div className="space-y-2">
-              <Label>Entry View</Label>
-              <Select value={draft?.meta.entryViewId || "entry"} onValueChange={(value) => touchDraft((document) => { document.meta.entryViewId = value; setSelectedViewId(value); })}>
+              <Label>View Name</Label>
+              <Input
+                value={currentView?.name || ""}
+                onChange={(event) => renameView(selectedViewId, event.target.value)}
+                placeholder="Entry"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Start View</Label>
+              <Select value={draft?.meta.entryViewId || "entry"} onValueChange={setEntryView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {draft ? Object.values(draft.views).map((view) => <SelectItem key={view.id} value={view.id}>{view.name}</SelectItem>) : null}
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {[
-              { binding: "verify", title: "Verification", detail: "Panels for onboarding and access confirmation." },
-              { binding: "welcome", title: "Welcome", detail: "Orientation messages, DM starts, and rules." },
-              { binding: "ticket_panel", title: "Tickets", detail: "Support launchers and intake panels." },
-            ].map((surface) => (
-              <button
-                key={surface.binding}
-                type="button"
-                onClick={() => openModuleSurface(surface.binding)}
-                className="rounded-2xl border border-white/10 bg-background/30 p-4 text-left transition hover:border-primary/30 hover:bg-primary/5"
-              >
-                <div className="mb-2 flex items-center gap-2 text-white">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  <span className="font-medium">{surface.title} Panel</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{surface.detail}</p>
-              </button>
-            ))}
+            <div className="space-y-2">
+              <Label>View Tools</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={addView} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add View
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => duplicateView(selectedViewId)} className="gap-2">
+                  <Copy className="h-4 w-4" />
+                  Duplicate
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeView(selectedViewId)}
+                  className="text-destructive"
+                  disabled={selectedViewId === draft?.meta.entryViewId}
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {draft ? Object.values(draft.views).map((view) => (
-              <Button key={view.id} variant={selectedViewId === view.id ? "default" : "outline"} size="sm" onClick={() => setSelectedViewId(view.id)}>
+              <Button
+                key={view.id}
+                variant={selectedViewId === view.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setSelectedViewId(view.id);
+                  setSelectedNodeId(null);
+                  setSelectedActionId(null);
+                  setSelectedModalId(null);
+                  setSelectedEmbedIndex(null);
+                }}
+              >
                 {view.name}
+                {draft.meta.entryViewId === view.id ? " - Entry" : ""}
               </Button>
             )) : null}
-            <Button variant="outline" size="sm" onClick={addView} className="gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
               <Plus className="h-4 w-4" />
-              Add View
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => removeView(selectedViewId)} className="text-destructive">
-              Remove Current View
+              Set Start
             </Button>
           </div>
         </CardContent>
@@ -1300,19 +1711,26 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const renderContentSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
-        <CardTitle className="font-display text-base">Message Content</CardTitle>
-        <CardDescription>Author the main content body for the active view.</CardDescription>
+        <CardTitle className="font-display text-base">Body</CardTitle>
+        <CardDescription>Write content for the selected view. Add embeds, components, and actions to the same message.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Textarea
           value={currentView?.messageContent || ""}
           onChange={(event) => touchDraft((document) => { document.views[selectedViewId].messageContent = event.target.value; })}
-          placeholder="Write the main message body here."
-          className="min-h-[180px]"
+          placeholder="Write message content..."
+          className="min-h-[140px]"
         />
+        <div className="flex flex-wrap gap-2">
+          {QUICK_MACROS.map((macro) => (
+            <Button key={`macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
+              {macro.label}
+            </Button>
+          ))}
+        </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>{(currentView?.messageContent || "").length}/2000 characters</span>
-          <span>Use views, embeds, and interactive blocks for structure.</span>
+          <span>Discord markdown and links are supported.</span>
         </div>
       </CardContent>
     </Card>
@@ -1322,53 +1740,80 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
         <CardTitle className="font-display text-base">Embeds</CardTitle>
-        <CardDescription>Stack embeds in the active view and tune titles, descriptions, media, and accent color.</CardDescription>
+        <CardDescription>Select an embed to edit in the inspector.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {(currentView?.embeds || []).map((embed, index) => (
-          <div key={`embed-${index}`} className="rounded-2xl border border-white/10 bg-background/30 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-white">Embed {index + 1}</p>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="icon" onClick={() => touchDraft((document) => {
-                  const embeds = document.views[selectedViewId].embeds;
-                  if (index > 0) [embeds[index - 1], embeds[index]] = [embeds[index], embeds[index - 1]];
-                })}><ArrowUp className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => touchDraft((document) => {
-                  const embeds = document.views[selectedViewId].embeds;
-                  if (index < embeds.length - 1) [embeds[index + 1], embeds[index]] = [embeds[index], embeds[index + 1]];
-                })}><ArrowDown className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => touchDraft((document) => { document.views[selectedViewId].embeds.splice(index, 1); })}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+        {(currentView?.embeds || []).length === 0 ? <p className="text-sm text-muted-foreground">No embeds yet. Add one to start.</p> : null}
+        {(currentView?.embeds || []).map((embed, index) => {
+          const path = `views.${selectedViewId}.embeds[${index}]`;
+          const issues = diagnosticsForPrefix(path);
+          const embedLabel = String(embed.title || "").trim() || `Embed ${index + 1}`;
+          const totalText = (
+            String(embed.title || "").length +
+            String(embed.description || "").length +
+            String(embed.authorName || "").length +
+            String(embed.footerText || "").length +
+            (embed.fields || []).reduce((count, field) => count + String(field.name || "").length + String(field.value || "").length, 0)
+          );
+
+          return (
+            <div
+              key={`embed-${index}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setSelectedEmbedIndex(index);
+                setSelectedNodeId(null);
+                setSelectedActionId(null);
+                setSelectedModalId(null);
+                if (isMobile) setInspectorOpen(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                setSelectedEmbedIndex(index);
+                setSelectedNodeId(null);
+                setSelectedActionId(null);
+                setSelectedModalId(null);
+                if (isMobile) setInspectorOpen(true);
+              }}
+              className={cn(
+                "w-full rounded-2xl border bg-background/30 p-4 text-left transition",
+                selectedEmbedIndex === index ? "border-primary/40 bg-primary/10" : "border-white/10 hover:border-white/20",
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">{embedLabel}</p>
+                  <p className="truncate text-xs text-muted-foreground">{String(embed.description || "No description").slice(0, 96)}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{totalText}/6000 chars</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {issues.length > 0 ? (
+                    <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>
+                      {issues.length} issue{issues.length === 1 ? "" : "s"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">OK</Badge>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); moveEmbed(index, "up"); }}><ArrowUp className="h-4 w-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); moveEmbed(index, "down"); }}><ArrowDown className="h-4 w-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); duplicateEmbed(index); }}><Copy className="h-4 w-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); deleteEmbed(index); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
               </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Title</Label>
-                <Input value={embed.title || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[index].title = event.target.value; })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Color</Label>
-                <Input value={embed.color || "#5865F2"} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[index].color = event.target.value; })} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea value={embed.description || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[index].description = event.target.value; })} className="min-h-[120px]" />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Image URL</Label>
-                <Input value={embed.imageUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[index].imageUrl = event.target.value; })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Thumbnail URL</Label>
-                <Input value={embed.thumbnailUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[index].thumbnailUrl = event.target.value; })} />
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         <Button variant="outline" className="w-full gap-2" onClick={() => touchDraft((document) => {
           document.views[selectedViewId].embeds.push({ title: "", description: "", color: document.views[selectedViewId].embeds[0]?.color || "#5865F2" });
+          setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
+          setSelectedNodeId(null);
+          setSelectedActionId(null);
+          setSelectedModalId(null);
+          if (isMobile) setInspectorOpen(true);
         })}>
           <Plus className="h-4 w-4" />
           Add Embed
@@ -1480,6 +1925,23 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           <Button variant="outline" onClick={saveThemePack}>Save Current Theme Pack</Button>
         </CardContent>
       </Card>
+
+      <Card className="glass-card border-white/10 bg-background/40">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Decorative Text Helpers</CardTitle>
+          <CardDescription>Discord-safe text presets and references you can insert into content or text blocks.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {QUICK_MACROS.map((macro) => (
+              <Button key={`lab-macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
+                {macro.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">These helpers insert Discord-safe tokens and references into your active message context.</p>
+        </CardContent>
+      </Card>
     </div>
   );
 
@@ -1561,17 +2023,15 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </Card>
   );
 
-  const renderBuildSection = () => {
-    switch (activeBuildSection) {
-      case "content":
-        return renderContentSection();
-      case "embeds":
-        return renderEmbedsSection();
-      case "overview":
-      default:
-        return renderOverviewSection();
-    }
-  };
+  const renderBuildWorkspace = () => (
+    <div className="space-y-4">
+      {renderOverviewSection()}
+      {renderContentSection()}
+      {renderEmbedsSection()}
+      {renderTreeSection()}
+      {renderActionsSection()}
+    </div>
+  );
 
   const renderTreeSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
@@ -1594,10 +2054,11 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         <div className="space-y-2">
           {(currentView?.rootNodeIds || []).length === 0 ? <p className="text-sm text-muted-foreground">No blocks yet. Add a node to start the layout.</p> : null}
           {(currentView?.rootNodeIds || []).map((nodeId) => (
-            <NodeTreeItem key={nodeId} document={draft!} nodeId={nodeId} depth={0} selectedNodeId={selectedNodeId} onSelect={(node) => {
+            <NodeTreeItem key={nodeId} document={draft!} nodeId={nodeId} depth={0} selectedNodeId={selectedNodeId} diagnosticsForPrefix={diagnosticsForPrefix} onSelect={(node) => {
               setSelectedNodeId(node);
-              const selected = draft?.nodes[node];
-              setSelectedActionId(selected?.actionId || Object.values(selected?.optionActionIds || {})[0] || null);
+              setSelectedActionId(null);
+              setSelectedModalId(null);
+              setSelectedEmbedIndex(null);
               if (isMobile) setInspectorOpen(true);
             }} />
           ))}
@@ -1627,16 +2088,33 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           <Separator className="bg-white/10" />
           <div className="space-y-2">
             {draft && Object.values(draft.actions).length === 0 ? <p className="text-sm text-muted-foreground">No actions yet.</p> : null}
-            {draft ? Object.values(draft.actions).map((action) => (
-              <button key={action.id} type="button" onClick={() => { setSelectedActionId(action.id); if (isMobile) setInspectorOpen(true); }} className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedActionId === action.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}>
-                <MousePointer2 className="h-4 w-4 text-primary" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">{action.label || action.type}</p>
-                  <p className="truncate text-xs text-muted-foreground">{actionSummary(action, draft)}</p>
-                </div>
-                <Badge variant="outline">{action.type}</Badge>
-              </button>
-            )) : null}
+            {draft ? Object.values(draft.actions).map((action) => {
+              const issues = diagnosticsForPrefix(`actions.${action.id}`);
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedActionId(action.id);
+                    setSelectedNodeId(null);
+                    setSelectedModalId(null);
+                    setSelectedEmbedIndex(null);
+                    if (isMobile) setInspectorOpen(true);
+                  }}
+                  className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedActionId === action.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}
+                >
+                  <MousePointer2 className="h-4 w-4 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">{action.label || action.type}</p>
+                    <p className="truncate text-xs text-muted-foreground">{actionSummary(action, draft)}</p>
+                  </div>
+                  {issues.length > 0 ? (
+                    <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>{issues.length}</Badge>
+                  ) : null}
+                  <Badge variant="outline">{action.type}</Badge>
+                </button>
+              );
+            }) : null}
           </div>
         </CardContent>
       </Card>
@@ -1657,16 +2135,33 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
         </Button>
         <div className="space-y-2">
           {draft && Object.values(draft.modals).length === 0 ? <p className="text-sm text-muted-foreground">No modals yet.</p> : null}
-          {draft ? Object.values(draft.modals).map((modal) => (
-            <button key={modal.id} type="button" onClick={() => { setSelectedModalId(modal.id); if (isMobile) setInspectorOpen(true); }} className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedModalId === modal.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}>
-              <Workflow className="h-4 w-4 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{modal.title}</p>
-                <p className="truncate text-xs text-muted-foreground">{modal.fields.length} fields - {modal.submitActionIds.length} submit actions</p>
-              </div>
-              <Badge variant="outline">modal</Badge>
-            </button>
-          )) : null}
+            {draft ? Object.values(draft.modals).map((modal) => {
+              const issues = diagnosticsForPrefix(`modals.${modal.id}`);
+              return (
+                <button
+                  key={modal.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedModalId(modal.id);
+                    setSelectedNodeId(null);
+                    setSelectedActionId(null);
+                    setSelectedEmbedIndex(null);
+                    if (isMobile) setInspectorOpen(true);
+                  }}
+                  className={cn("flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition", selectedModalId === modal.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}
+                >
+                  <Workflow className="h-4 w-4 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">{modal.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">{modal.fields.length} fields - {modal.submitActionIds.length} submit actions</p>
+                  </div>
+                  {issues.length > 0 ? (
+                    <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>{issues.length}</Badge>
+                  ) : null}
+                  <Badge variant="outline">modal</Badge>
+                </button>
+              );
+            }) : null}
         </div>
       </CardContent>
     </Card>
@@ -1676,8 +2171,38 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Publish and Lifecycle</CardTitle>
-          <CardDescription>Publish new messages, update existing ones, clone panels, and manage live publications.</CardDescription>
+          <CardTitle className="font-display text-base">Validation Summary</CardTitle>
+          <CardDescription>Fix errors before posting. Warnings can publish but may degrade output.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={diagnostics.some((entry) => entry.level === "error") ? "destructive" : "outline"}>
+              {diagnostics.filter((entry) => entry.level === "error").length} errors
+            </Badge>
+            <Badge variant={diagnostics.some((entry) => entry.level === "warning") ? "secondary" : "outline"}>
+              {diagnostics.filter((entry) => entry.level === "warning").length} warnings
+            </Badge>
+            <Badge variant="outline">{diagnostics.filter((entry) => entry.level === "info").length} info</Badge>
+          </div>
+          <ScrollArea className="max-h-56 rounded-xl border border-white/10 bg-background/40 p-3">
+            <div className="space-y-2">
+              {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This message is publish-safe.</p> : null}
+              {diagnostics.map((entry, index) => (
+                <div key={`${entry.code}-${index}`} className="rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-xs">
+                  <p className={cn("font-medium uppercase", entry.level === "error" ? "text-red-400" : entry.level === "warning" ? "text-amber-300" : "text-muted-foreground")}>{entry.level}</p>
+                  <p className="text-muted-foreground">{entry.message}</p>
+                  {entry.path ? <p className="text-[10px] text-muted-foreground/80">{entry.path}</p> : null}
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <Card className="glass-card border-white/10 bg-background/40">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Post</CardTitle>
+          <CardDescription>Pick a channel, publish new, or update an existing message.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
@@ -1699,40 +2224,36 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           <div className="flex flex-wrap gap-2">
             <Button onClick={publishDocument} disabled={publishMutation.isPending} className="gap-2"><Rocket className="h-4 w-4" />{publishMutation.isPending ? "Publishing..." : updateMessageId ? "Update Message" : "Publish New"}</Button>
             <Button variant="outline" onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2"><Save className="h-4 w-4" />Save Draft</Button>
+            <Button variant="outline" onClick={exportJson} className="gap-2">
+              <Copy className="h-4 w-4" />
+              Export JSON
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="glass-card border-white/10 bg-background/40">
-        <CardHeader>
-          <CardTitle className="font-display text-base">Publication List</CardTitle>
-          <CardDescription>Observe live status, last failures, snapshots, and quick lifecycle operations.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <DiscordChannelPicker serverId={serverId} value={cloneChannelId} onChange={setCloneChannelId} label="Clone Target Channel" allowedKinds={["text", "announcement", "forum"]} />
-          <div className="space-y-3">
-            {publications.length === 0 ? <p className="text-sm text-muted-foreground">No publications yet.</p> : null}
-            {publications.map((publication) => (
-              <div key={publication.id} className="rounded-2xl border border-white/10 bg-background/30 p-4 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-white">{publication.documentName || `Document ${publication.documentId}`}</p>
-                    <p className="text-xs text-muted-foreground">Publication #{publication.id} - {publication.channelId} - {publication.messageId}</p>
-                  </div>
-                  <Badge variant={publication.active ? "default" : "outline"}>{publication.status}</Badge>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setSelectedPublicationId(publication.id)}>Inspect</Button>
-                  <Button variant="outline" size="sm" onClick={() => clonePublication(publication.id)}>Clone</Button>
-                  <Button variant="outline" size="sm" onClick={() => rollbackPublication(publication)}>Rollback</Button>
-                  <Button variant="outline" size="sm" onClick={() => togglePublicationStatus(publication)}>{publication.active ? "Deactivate" : "Activate"}</Button>
-                  <Button variant="ghost" size="sm" onClick={() => archivePublication(publication.id)} className="text-destructive">Archive</Button>
-                </div>
+      {selectedPublication ? (
+        <Card className="glass-card border-white/10 bg-background/40">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Publish Diagnostics</CardTitle>
+            <CardDescription>Latest publication status and runtime hints.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="rounded-xl border border-white/10 bg-background/30 p-3">
+              <p className="text-white">Publication #{selectedPublication.id}</p>
+              <p className="text-xs text-muted-foreground">{selectedPublication.channelId} - {selectedPublication.messageId}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Status: {selectedPublication.status}</p>
+              {selectedPublication.lastFailureSummary ? <p className="mt-1 text-xs text-red-300">{selectedPublication.lastFailureSummary}</p> : null}
+            </div>
+            {(selectedPublication.recentEvents || []).map((event) => (
+              <div key={event.id} className="rounded-xl border border-white/10 bg-background/30 p-3 text-xs">
+                <p className="font-medium text-white">{event.summary}</p>
+                <p className="text-muted-foreground">{new Date(event.occurredAt).toLocaleString()}</p>
               </div>
             ))}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 
@@ -1740,36 +2261,171 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     <div className="space-y-4">
       {renderDesignSection()}
       {renderTemplatesSection()}
-      {renderAssetsSection()}
     </div>
   );
 
   const renderActiveWorkspace = () => {
-    switch (activeMobileSection) {
-      case "components":
-        return renderTreeSection();
-      case "actions":
-        return renderActionsSection();
-      case "design":
+    switch (activeArea) {
+      case "lab":
         return renderDesignWorkspace();
-      case "publish":
+      case "post":
         return renderPublishSection();
-      case "message":
+      case "preview":
+        return null;
+      case "build":
       default:
-        return renderBuildSection();
+        return renderBuildWorkspace();
     }
   };
 
   const inspectorBody = !draft ? null : (
     <div className="space-y-4">
+      {selectedEmbed && selectedEmbedIndex !== null ? (
+        <Card className="glass-card border-white/10 bg-background/40">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Embed</CardTitle>
+            <CardDescription>Embed {selectedEmbedIndex + 1}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(() => {
+                const issues = diagnosticsForPrefix(`views.${selectedViewId}.embeds[${selectedEmbedIndex}]`);
+                if (issues.length === 0) return <Badge variant="outline">No errors</Badge>;
+                return (
+                  <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>
+                    {issues.length} issue{issues.length === 1 ? "" : "s"}
+                  </Badge>
+                );
+              })()}
+              <Button variant="outline" size="sm" onClick={() => moveEmbed(selectedEmbedIndex, "up")}><ArrowUp className="h-4 w-4" /></Button>
+              <Button variant="outline" size="sm" onClick={() => moveEmbed(selectedEmbedIndex, "down")}><ArrowDown className="h-4 w-4" /></Button>
+              <Button variant="outline" size="sm" onClick={() => duplicateEmbed(selectedEmbedIndex)} className="gap-2"><Copy className="h-4 w-4" />Duplicate</Button>
+              <Button variant="ghost" size="sm" onClick={() => deleteEmbed(selectedEmbedIndex)} className="gap-2 text-destructive"><Trash2 className="h-4 w-4" />Delete</Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Title</Label>
+                <Input value={selectedEmbed.title || ""} onChange={(event) => touchDraft((document) => {
+                  document.views[selectedViewId].embeds[selectedEmbedIndex].title = event.target.value;
+                })} />
+                <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.title || "").length}/256</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Title URL</Label>
+                <Input value={selectedEmbed.url || ""} onChange={(event) => touchDraft((document) => {
+                  document.views[selectedViewId].embeds[selectedEmbedIndex].url = event.target.value;
+                })} placeholder="https://..." />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={selectedEmbed.description || ""} onChange={(event) => touchDraft((document) => {
+                document.views[selectedViewId].embeds[selectedEmbedIndex].description = event.target.value;
+              })} className="min-h-[120px]" />
+              <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.description || "").length}/4096</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Color</Label>
+                <Input value={selectedEmbed.color || "#5865F2"} onChange={(event) => touchDraft((document) => {
+                  document.views[selectedViewId].embeds[selectedEmbedIndex].color = event.target.value;
+                })} />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                <Label>Timestamp</Label>
+                <Switch checked={Boolean(selectedEmbed.timestamp)} onCheckedChange={(checked) => touchDraft((document) => {
+                  document.views[selectedViewId].embeds[selectedEmbedIndex].timestamp = checked;
+                })} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Author</Label>
+                <Input value={selectedEmbed.authorName || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorName = event.target.value; })} placeholder="Author name" />
+                <Input value={selectedEmbed.authorUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorUrl = event.target.value; })} placeholder="Author URL" />
+                <Input value={selectedEmbed.authorIconUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorIconUrl = event.target.value; })} placeholder="Author icon URL" />
+                <Input value={selectedEmbed.authorId || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorId = event.target.value; })} placeholder="Author ID (metadata)" />
+              </div>
+              <div className="space-y-2">
+                <Label>Footer</Label>
+                <Input value={selectedEmbed.footerText || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerText = event.target.value; })} placeholder="Footer text" />
+                <Input value={selectedEmbed.footerIconUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerIconUrl = event.target.value; })} placeholder="Footer icon URL" />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Image URL</Label>
+                <Input value={selectedEmbed.imageUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].imageUrl = event.target.value; })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Thumbnail URL</Label>
+                <Input value={selectedEmbed.thumbnailUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].thumbnailUrl = event.target.value; })} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Fields</Label>
+              {(selectedEmbed.fields || []).map((field, fieldIndex) => (
+                <div key={`embed-field-${selectedEmbedIndex}-${fieldIndex}`} className="rounded-lg border border-white/10 bg-background/50 p-3 space-y-2">
+                  <Input value={field.name || ""} onChange={(event) => touchDraft((document) => {
+                    document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
+                    document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] = {
+                      ...(document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] || {}),
+                      name: event.target.value,
+                    };
+                  })} placeholder="Field name" />
+                  <Textarea value={field.value || ""} onChange={(event) => touchDraft((document) => {
+                    document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
+                    document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] = {
+                      ...(document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] || {}),
+                      value: event.target.value,
+                    };
+                  })} placeholder="Field value" className="min-h-[80px]" />
+                  <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                    <Label>Inline</Label>
+                    <Switch checked={Boolean(field.inline)} onCheckedChange={(checked) => touchDraft((document) => {
+                      document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
+                      document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] = {
+                        ...(document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] || {}),
+                        inline: checked,
+                      };
+                    })} />
+                  </div>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={() => touchDraft((document) => {
+                document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
+                document.views[selectedViewId].embeds[selectedEmbedIndex].fields!.push({ name: "", value: "", inline: false });
+              })}>
+                Add Field
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {selectedNode ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
-            <CardTitle className="font-display text-base">Selected Block</CardTitle>
+            <CardTitle className="font-display text-base">Block</CardTitle>
             <CardDescription>{selectedNode.type.replace(/_/g, " ")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
+              {(() => {
+                const issues = diagnosticsForPrefix(`nodes.${selectedNode.id}`);
+                if (issues.length === 0) return <Badge variant="outline">No errors</Badge>;
+                return (
+                  <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>
+                    {issues.length} issue{issues.length === 1 ? "" : "s"}
+                  </Badge>
+                );
+              })()}
               <Button variant="outline" size="sm" onClick={() => moveNode(selectedNode.id, "up")}><ArrowUp className="h-4 w-4" /></Button>
               <Button variant="outline" size="sm" onClick={() => moveNode(selectedNode.id, "down")}><ArrowDown className="h-4 w-4" /></Button>
               <Button variant="outline" size="sm" onClick={() => duplicateNode(selectedNode.id)} className="gap-2"><Copy className="h-4 w-4" />Duplicate</Button>
@@ -1780,6 +2436,13 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
               <div className="space-y-2">
                 <Label>Text</Label>
                 <Textarea value={String(selectedNode.props.text || "")} onChange={(event) => updateSelectedNode((node) => { node.props.text = event.target.value; })} className="min-h-[180px]" />
+                <div className="flex flex-wrap gap-2">
+                  {QUICK_MACROS.slice(0, 5).map((macro) => (
+                    <Button key={`inspector-macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
+                      {macro.label}
+                    </Button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -1817,34 +2480,193 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                     else node.props.symbol = event.target.value;
                   })} placeholder="Symbol / emoji" />
                 </div>
+                <div className="space-y-2">
+                  <Label>Repeat</Label>
+                  <Input type="number" value={String(selectedNode.props.repeat || 1)} onChange={(event) => updateSelectedNode((node) => { node.props.repeat = Number(event.target.value || 1); })} />
+                </div>
               </>
             ) : null}
 
-            {["button", "role_select", "user_select", "channel_select", "mentionable_select"].includes(selectedNode.type) ? (
+            {selectedNode.type === "style_block" ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <Input value={String(selectedNode.props.title || "")} onChange={(event) => updateSelectedNode((node) => { node.props.title = event.target.value; })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Textarea value={String(selectedNode.props.description || "")} onChange={(event) => updateSelectedNode((node) => { node.props.description = event.target.value; })} className="min-h-[100px]" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Accent Color</Label>
+                  <Input value={String(selectedNode.props.accentColor || "#B11226")} onChange={(event) => updateSelectedNode((node) => { node.props.accentColor = event.target.value; })} />
+                </div>
+              </>
+            ) : null}
+
+            {selectedNode.type === "media_gallery" ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <Input value={String(selectedNode.props.title || "")} onChange={(event) => updateSelectedNode((node) => { node.props.title = event.target.value; })} />
+                </div>
+                <div className="space-y-3">
+                  {((selectedNode.props.items as any[]) || []).map((item, index) => (
+                    <div key={`${selectedNode.id}-media-${index}`} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
+                      <Input value={String(item?.url || "")} placeholder="https://..." onChange={(event) => updateSelectedNode((node) => {
+                        const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
+                        items[index] = { ...(items[index] || {}), url: event.target.value };
+                        node.props.items = items;
+                      })} />
+                      <Input value={String(item?.description || "")} placeholder="Description" onChange={(event) => updateSelectedNode((node) => {
+                        const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
+                        items[index] = { ...(items[index] || {}), description: event.target.value };
+                        node.props.items = items;
+                      })} />
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => updateSelectedNode((node) => {
+                        const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
+                        items.splice(index, 1);
+                        node.props.items = items;
+                      })}>
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={() => updateSelectedNode((node) => {
+                    const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
+                    items.push({ url: "", description: "" });
+                    node.props.items = items;
+                  })}>
+                    Add Media
+                  </Button>
+                </div>
+              </>
+            ) : null}
+
+            {selectedNode.type === "file" ? (
               <>
                 <div className="space-y-2">
                   <Label>Label</Label>
                   <Input value={String(selectedNode.props.label || "")} onChange={(event) => updateSelectedNode((node) => { node.props.label = event.target.value; })} />
                 </div>
                 <div className="space-y-2">
+                  <Label>URL</Label>
+                  <Input value={String(selectedNode.props.url || "")} onChange={(event) => updateSelectedNode((node) => { node.props.url = event.target.value; })} />
+                </div>
+              </>
+            ) : null}
+
+            {selectedNode.type === "action_row" ? (
+              <p className="text-sm text-muted-foreground">This row can hold up to five buttons or one select menu.</p>
+            ) : null}
+
+            {["button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(selectedNode.type) ? (
+              <>
+                <div className="space-y-2">
+                  <Label>{selectedNode.type === "button" ? "Label" : "Menu Label"}</Label>
+                  <Input value={String(selectedNode.props.label || "")} onChange={(event) => updateSelectedNode((node) => { node.props.label = event.target.value; })} />
+                </div>
+                {selectedNode.type === "button" ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Emoji</Label>
+                        <Input value={String(selectedNode.props.emoji || "")} onChange={(event) => updateSelectedNode((node) => { node.props.emoji = event.target.value; })} placeholder="Optional emoji" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Style</Label>
+                        <Select value={String(selectedNode.props.style || 1)} onValueChange={(value) => updateSelectedNode((node) => { node.props.style = Number(value); })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1">Primary</SelectItem>
+                            <SelectItem value="2">Secondary</SelectItem>
+                            <SelectItem value="3">Success</SelectItem>
+                            <SelectItem value="4">Danger</SelectItem>
+                            <SelectItem value="5">Link</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Custom ID</Label>
+                        <Input value={String(selectedNode.props.customId || "")} onChange={(event) => updateSelectedNode((node) => { node.props.customId = event.target.value; })} />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                        <Label>Disabled</Label>
+                        <Switch checked={Boolean(selectedNode.props.disabled)} onCheckedChange={(checked) => updateSelectedNode((node) => { node.props.disabled = checked; })} />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Placeholder</Label>
+                        <Input value={String(selectedNode.props.placeholder || "")} onChange={(event) => updateSelectedNode((node) => { node.props.placeholder = event.target.value; })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Custom ID</Label>
+                        <Input value={String(selectedNode.props.customId || "")} onChange={(event) => updateSelectedNode((node) => { node.props.customId = event.target.value; })} />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>Min</Label>
+                        <Input type="number" value={String(selectedNode.props.minValues || 1)} onChange={(event) => updateSelectedNode((node) => { node.props.minValues = Number(event.target.value || 1); })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max</Label>
+                        <Input type="number" value={String(selectedNode.props.maxValues || 1)} onChange={(event) => updateSelectedNode((node) => { node.props.maxValues = Number(event.target.value || 1); })} />
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                        <Label>Disabled</Label>
+                        <Switch checked={Boolean(selectedNode.props.disabled)} onCheckedChange={(checked) => updateSelectedNode((node) => { node.props.disabled = checked; })} />
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="space-y-2">
                   <Label>Action</Label>
-                  <Select value={selectedNode.actionId || "__none__"} onValueChange={(value) => updateSelectedNode((node) => { node.actionId = value === "__none__" ? undefined : value; setSelectedActionId(value === "__none__" ? null : value); })}>
+                  <Select
+                    value={selectedNode.actionId || "__none__"}
+                    onValueChange={(value) => {
+                      if (value === "__create__") {
+                        const nextAction = createAction("reply_message");
+                        touchDraft((document) => {
+                          document.actions[nextAction.id] = nextAction;
+                          if (selectedNodeId && document.nodes[selectedNodeId]) {
+                            document.nodes[selectedNodeId].actionId = nextAction.id;
+                          }
+                        });
+                        setSelectedActionId(nextAction.id);
+                        setSelectedNodeId(null);
+                        return;
+                      }
+                      updateSelectedNode((node) => { node.actionId = value === "__none__" ? undefined : value; });
+                    }}
+                  >
                     <SelectTrigger><SelectValue placeholder="Select action" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">No action</SelectItem>
+                      <SelectItem value="__create__">Create action</SelectItem>
                       {Object.values(draft.actions).map((action) => <SelectItem key={action.id} value={action.id}>{action.label || action.type}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
+                {selectedNode.actionId ? (
+                  <Button variant="outline" size="sm" onClick={() => {
+                    setSelectedActionId(selectedNode.actionId || null);
+                    setSelectedNodeId(null);
+                  }}>
+                    Edit Action
+                  </Button>
+                ) : null}
               </>
             ) : null}
 
             {selectedNode.type === "string_select" ? (
               <>
-                <div className="space-y-2">
-                  <Label>Placeholder</Label>
-                  <Input value={String(selectedNode.props.placeholder || "")} onChange={(event) => updateSelectedNode((node) => { node.props.placeholder = event.target.value; })} />
-                </div>
                 <div className="space-y-3">
                   {((selectedNode.props.options as any[]) || []).map((option, index) => (
                     <div key={`${selectedNode.id}-option-${index}`} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
@@ -1858,8 +2680,78 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                         options[index] = { ...options[index], value: event.target.value };
                         node.props.options = options;
                       })} placeholder="Option value" />
+                      <Input value={String(option.description || "")} onChange={(event) => updateSelectedNode((node) => {
+                        const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                        options[index] = { ...options[index], description: event.target.value };
+                        node.props.options = options;
+                      })} placeholder="Option description" />
+                      <Input value={String(option.emoji || "")} onChange={(event) => updateSelectedNode((node) => {
+                        const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                        options[index] = { ...options[index], emoji: event.target.value };
+                        node.props.options = options;
+                      })} placeholder="Option emoji" />
+                      <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                        <Label>Default</Label>
+                        <Switch checked={Boolean(option.default)} onCheckedChange={(checked) => updateSelectedNode((node) => {
+                          const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                          options[index] = { ...options[index], default: checked };
+                          node.props.options = options;
+                        })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Option Action</Label>
+                        <Select
+                          value={selectedNode.optionActionIds?.[String(option.value || "")] || "__none__"}
+                          onValueChange={(value) => {
+                            const optionValue = String(option.value || "");
+                            if (!optionValue) return;
+                            if (value === "__create__") {
+                              const nextAction = createAction("reply_message");
+                              touchDraft((document) => {
+                                document.actions[nextAction.id] = nextAction;
+                                if (selectedNodeId && document.nodes[selectedNodeId]) {
+                                  document.nodes[selectedNodeId].optionActionIds ||= {};
+                                  document.nodes[selectedNodeId].optionActionIds![optionValue] = nextAction.id;
+                                }
+                              });
+                              setSelectedActionId(nextAction.id);
+                              setSelectedNodeId(null);
+                              return;
+                            }
+                            touchDraft((document) => {
+                              if (!selectedNodeId || !document.nodes[selectedNodeId]) return;
+                              document.nodes[selectedNodeId].optionActionIds ||= {};
+                              if (value === "__none__") delete document.nodes[selectedNodeId].optionActionIds![optionValue];
+                              else document.nodes[selectedNodeId].optionActionIds![optionValue] = value;
+                            });
+                          }}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select action" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No action</SelectItem>
+                            <SelectItem value="__create__">Create action</SelectItem>
+                            {Object.values(draft.actions).map((action) => (
+                              <SelectItem key={`${selectedNode.id}-${option.value}-${action.id}`} value={action.id}>{action.label || action.type}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => updateSelectedNode((node) => {
+                        const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                        options.splice(index, 1);
+                        node.props.options = options;
+                      })}>
+                        Remove Option
+                      </Button>
                     </div>
                   ))}
+                  <Button variant="outline" size="sm" onClick={() => updateSelectedNode((node) => {
+                    const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                    options.push({ label: `Option ${options.length + 1}`, value: `option_${options.length + 1}` });
+                    node.props.options = options;
+                  })}>
+                    Add Option
+                  </Button>
                 </div>
               </>
             ) : null}
@@ -1870,10 +2762,23 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       {selectedAction ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
-            <CardTitle className="font-display text-base">Action Editor</CardTitle>
+            <CardTitle className="font-display text-base">Action</CardTitle>
             <CardDescription>{actionSummary(selectedAction, draft)}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              {(() => {
+                const issues = diagnosticsForPrefix(`actions.${selectedAction.id}`);
+                if (issues.length === 0) return <Badge variant="outline">No errors</Badge>;
+                return (
+                  <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>
+                    {issues.length} issue{issues.length === 1 ? "" : "s"}
+                  </Badge>
+                );
+              })()}
+              <Button variant="outline" size="sm" onClick={() => duplicateActionById(selectedAction.id)} className="gap-2"><Copy className="h-4 w-4" />Duplicate</Button>
+              <Button variant="ghost" size="sm" onClick={() => deleteActionById(selectedAction.id)} className="gap-2 text-destructive"><Trash2 className="h-4 w-4" />Delete</Button>
+            </div>
             <div className="space-y-2">
               <Label>Label</Label>
               <Input value={selectedAction.label || ""} onChange={(event) => updateSelectedAction((action) => { action.label = event.target.value; })} />
@@ -1886,6 +2791,22 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                   {ACTION_TYPE_OPTIONS.map((option) => <SelectItem key={option.type} value={option.type}>{option.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Reply Mode</Label>
+                <Select value={selectedAction.replyMode || "ephemeral"} onValueChange={(value: any) => updateSelectedAction((action) => { action.replyMode = value; })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ephemeral">Ephemeral</SelectItem>
+                    <SelectItem value="channel">Channel</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+                <Label>Disabled</Label>
+                <Switch checked={Boolean(selectedAction.disabled)} onCheckedChange={(checked) => updateSelectedAction((action) => { action.disabled = checked; })} />
+              </div>
             </div>
             {selectedAction.type === "open_url" ? <Input value={selectedAction.url || ""} onChange={(event) => updateSelectedAction((action) => { action.url = event.target.value; })} placeholder="https://..." /> : null}
             {["role_add", "role_remove", "role_toggle"].includes(selectedAction.type) ? (
@@ -1951,6 +2872,48 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                 </SelectContent>
               </Select>
             ) : null}
+            {["goto_view", "back_view", "confirm"].includes(selectedAction.type) ? (
+              <div className="space-y-2">
+                <Label>Target View</Label>
+                <Select value={selectedAction.targetViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.targetViewId = value === "__none__" ? undefined : value; })}>
+                  <SelectTrigger><SelectValue placeholder="Select view" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No target</SelectItem>
+                    {Object.values(draft.views).map((view) => (
+                      <SelectItem key={`target-${view.id}`} value={view.id}>{view.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {selectedAction.type === "cancel_view" ? (
+              <div className="space-y-2">
+                <Label>Fallback View</Label>
+                <Select value={selectedAction.fallbackViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.fallbackViewId = value === "__none__" ? undefined : value; })}>
+                  <SelectTrigger><SelectValue placeholder="Select fallback" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Use entry view</SelectItem>
+                    {Object.values(draft.views).map((view) => (
+                      <SelectItem key={`fallback-${view.id}`} value={view.id}>{view.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Allowed Roles (csv)</Label>
+                <Input value={(selectedAction.allowedRoleIds || []).join(",")} onChange={(event) => updateSelectedAction((action) => {
+                  action.allowedRoleIds = event.target.value.split(",").map((entry) => entry.trim()).filter(Boolean);
+                })} placeholder="role_id, role_id" />
+              </div>
+              <div className="space-y-2">
+                <Label>Blocked Roles (csv)</Label>
+                <Input value={(selectedAction.blockedRoleIds || []).join(",")} onChange={(event) => updateSelectedAction((action) => {
+                  action.blockedRoleIds = event.target.value.split(",").map((entry) => entry.trim()).filter(Boolean);
+                })} placeholder="role_id, role_id" />
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>{selectedAction.type === "ticket_create" ? "Ticket Opening Message" : "Inline Response Content"}</Label>
               <Textarea value={ensureInlineResponse(selectedAction).content || ""} onChange={(event) => updateSelectedAction((action) => { ensureInlineResponse(action).content = event.target.value; })} className="min-h-[120px]" />
@@ -1962,17 +2925,79 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       {selectedModal ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
-            <CardTitle className="font-display text-base">Modal Builder</CardTitle>
-            <CardDescription>Title, fields, and submit actions.</CardDescription>
+            <CardTitle className="font-display text-base">Modal</CardTitle>
+            <CardDescription>Title, custom id, fields, and submit actions.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Input value={selectedModal.title} onChange={(event) => updateSelectedModal((modal) => { modal.title = event.target.value; })} />
+            <div className="flex items-center gap-2">
+              {(() => {
+                const issues = diagnosticsForPrefix(`modals.${selectedModal.id}`);
+                if (issues.length === 0) return <Badge variant="outline">No errors</Badge>;
+                return (
+                  <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>
+                    {issues.length} issue{issues.length === 1 ? "" : "s"}
+                  </Badge>
+                );
+              })()}
+              <Button variant="outline" size="sm" onClick={() => duplicateModalById(selectedModal.id)} className="gap-2"><Copy className="h-4 w-4" />Duplicate</Button>
+              <Button variant="ghost" size="sm" onClick={() => deleteModalById(selectedModal.id)} className="gap-2 text-destructive"><Trash2 className="h-4 w-4" />Delete</Button>
+            </div>
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Input value={selectedModal.title} onChange={(event) => updateSelectedModal((modal) => { modal.title = event.target.value; })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Custom ID</Label>
+              <Input value={selectedModal.customIdSeed || ""} onChange={(event) => updateSelectedModal((modal) => { modal.customIdSeed = event.target.value; })} />
+            </div>
             {selectedModal.fields.map((field, index) => (
               <div key={field.id} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
+                <Label>Field {index + 1}</Label>
                 <Input value={field.label} onChange={(event) => updateSelectedModal((modal) => { modal.fields[index].label = event.target.value; })} placeholder="Label" />
                 <Input value={field.placeholder || ""} onChange={(event) => updateSelectedModal((modal) => { modal.fields[index].placeholder = event.target.value; })} placeholder="Placeholder" />
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Select value={field.style} onValueChange={(value: any) => updateSelectedModal((modal) => { modal.fields[index].style = value; })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="short">Short</SelectItem>
+                      <SelectItem value="paragraph">Paragraph</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" value={String(field.minLength || 0)} onChange={(event) => updateSelectedModal((modal) => { modal.fields[index].minLength = Number(event.target.value || 0); })} placeholder="Min" />
+                  <Input type="number" value={String(field.maxLength || 200)} onChange={(event) => updateSelectedModal((modal) => { modal.fields[index].maxLength = Number(event.target.value || 200); })} placeholder="Max" />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2">
+                    <Label>Required</Label>
+                    <Switch checked={Boolean(field.required)} onCheckedChange={(checked) => updateSelectedModal((modal) => { modal.fields[index].required = checked; })} />
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => updateSelectedModal((modal) => { modal.fields.splice(index, 1); })}>
+                    Remove
+                  </Button>
+                </div>
               </div>
             ))}
+            <div className="space-y-2">
+              <Label>Submit Actions</Label>
+              {selectedModal.submitActionIds.map((actionId, index) => (
+                <div key={`${selectedModal.id}-submit-${index}`} className="flex items-center gap-2">
+                  <Select value={actionId || "__none__"} onValueChange={(value) => updateSelectedModal((modal) => {
+                    modal.submitActionIds[index] = value === "__none__" ? "" : value;
+                  })}>
+                    <SelectTrigger><SelectValue placeholder="Select action" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {Object.values(draft.actions).map((action) => (
+                        <SelectItem key={`submit-${selectedModal.id}-${action.id}`} value={action.id}>{action.label || action.type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => updateSelectedModal((modal) => { modal.submitActionIds.splice(index, 1); })}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => updateSelectedModal((modal) => { modal.fields.push({ id: makeId("field"), label: `Field ${modal.fields.length + 1}`, style: "short", required: true, minLength: 1, maxLength: 200 }); })}>Add Field</Button>
               <Button variant="outline" onClick={() => {
@@ -1982,8 +3007,18 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
                   document.modals[selectedModal.id].submitActionIds.push(action.id);
                 });
                 setSelectedActionId(action.id);
+                setSelectedModalId(null);
+                setSelectedNodeId(null);
+                setSelectedEmbedIndex(null);
               }}>Add Submit Action</Button>
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      {!selectedEmbed && !selectedNode && !selectedAction && !selectedModal ? (
+        <Card className="glass-card border-white/10 bg-background/40">
+          <CardContent className="py-8 text-sm text-muted-foreground">
+            Select an embed, block, action, or modal to edit it here.
           </CardContent>
         </Card>
       ) : null}
@@ -2012,34 +3047,74 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   }
 
   const topBar = (
-    <Card className="glass-card border-white/10 bg-background/40">
-      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{getDocumentKindLabel(currentRecord?.kind)}</Badge>
-            {currentRecord?.moduleBinding ? <Badge variant="outline">{getBindingLabel(currentRecord.moduleBinding)}</Badge> : null}
-            <Badge variant={dirty ? "default" : "outline"}>{dirty ? "Unsaved" : "Saved"}</Badge>
-          </div>
-          <div>
-            <h2 className="text-2xl font-display font-bold text-white">{draft.meta.name}</h2>
-            <p className="text-sm text-muted-foreground">Saved items: {documents.length} - Live messages: {publications.filter((entry) => entry.active).length} - Interactions: {interactionRows.length}</p>
-          </div>
+    <Card className="glass-card sticky top-0 z-20 border-white/10 bg-background/95 backdrop-blur">
+      <CardContent className="flex items-center gap-2 p-3">
+        <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white">{draft.meta.name}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {dirty ? "Unsaved" : "Saved"} - {currentRecord?.moduleBinding ? getBindingLabel(currentRecord.moduleBinding) : getDocumentKindLabel(currentRecord?.kind)}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Panel</Button>
-          <Button variant="outline" onClick={() => setPreviewOpen(true)} className="gap-2 lg:hidden"><Eye className="h-4 w-4" />Preview</Button>
-          <Button variant="outline" onClick={exportJson}>Export JSON</Button>
-          <Button onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2"><Save className="h-4 w-4" />{updateDocumentMutation.isPending ? "Saving..." : "Save"}</Button>
-        </div>
+        <Button variant="outline" size="icon" onClick={() => setPreviewOpen(true)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2">
+          <Save className="h-4 w-4" />
+          {!isMobile ? "Save" : null}
+        </Button>
       </CardContent>
     </Card>
   );
 
+  const viewChips = (
+    <div className="overflow-x-auto pb-1">
+      <div className="flex min-w-max gap-2">
+        {Object.values(draft.views).map((view) => (
+          <Button
+            key={`view-chip-${view.id}`}
+            variant={selectedViewId === view.id ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setSelectedViewId(view.id);
+              setSelectedNodeId(null);
+              setSelectedActionId(null);
+              setSelectedModalId(null);
+              setSelectedEmbedIndex(null);
+            }}
+          >
+            {view.name}
+            {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+          </Button>
+        ))}
+        <Button variant="outline" size="sm" onClick={addView} className="gap-2">
+          <Plus className="h-4 w-4" />
+          + View
+        </Button>
+      </div>
+    </div>
+  );
+
+  const activateArea = (sectionId: StudioAreaId) => {
+    if (sectionId === "preview") {
+      setPreviewOpen(true);
+      return;
+    }
+    setActiveArea(sectionId);
+  };
+
   const primarySectionNav = (
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
-        {STUDIO_MOBILE_SECTIONS.map((section) => (
-          <Button key={section.id} variant={activeMobileSection === section.id ? "default" : "outline"} size="sm" onClick={() => setActiveMobileSection(section.id)}>
+        {STUDIO_MAIN_AREAS.map((section) => (
+          <Button
+            key={section.id}
+            variant={(section.id === "preview" ? previewOpen : activeArea === section.id) ? "default" : "outline"}
+            size="sm"
+            onClick={() => activateArea(section.id)}
+          >
             {section.label}
           </Button>
         ))}
@@ -2047,28 +3122,15 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </div>
   );
 
-  const buildSubnav = activeMobileSection === "message" ? (
-    <div className="overflow-x-auto pb-1">
-      <div className="flex min-w-max gap-2">
-        {STUDIO_BUILD_SECTIONS.map((section) => (
-          <Button key={section.id} variant={activeBuildSection === section.id ? "default" : "outline"} size="sm" onClick={() => setActiveBuildSection(section.id)}>
-            {section.label}
-          </Button>
-        ))}
-      </div>
-    </div>
-  ) : null;
-
   const previewPanel = (
-    <StudioPreview document={draft} viewId={selectedViewId} interactionRows={interactionRows} diagnostics={diagnostics.map((entry) => ({ level: entry.level, message: entry.message }))} mode={previewMode} />
+    <StudioPreview document={draft} viewId={selectedViewId} interactionRows={interactionRows} diagnostics={diagnostics} mode={previewMode} />
   );
 
   if (isMobile) {
     return (
-      <div className="space-y-4 pb-8">
+      <div className="space-y-4 pb-24">
         {topBar}
-        {primarySectionNav}
-        {buildSubnav}
+        {viewChips}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -2090,11 +3152,82 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           <DrawerContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-background/95">
             <DrawerHeader>
               <DrawerTitle>Inspector</DrawerTitle>
-              <DrawerDescription>Edit the selected block, action, or modal without leaving the current workspace.</DrawerDescription>
+              <DrawerDescription>Edit the selected embed, block, action, or modal.</DrawerDescription>
             </DrawerHeader>
             <div className="px-4 pb-6">{inspectorBody}</div>
           </DrawerContent>
         </Drawer>
+
+        <Drawer open={quickAddOpen} onOpenChange={setQuickAddOpen}>
+          <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
+            <DrawerHeader>
+              <DrawerTitle>Add</DrawerTitle>
+              <DrawerDescription>Add parts to this message and view.</DrawerDescription>
+            </DrawerHeader>
+            <div className="space-y-4 px-4 pb-6">
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("text_display"); setQuickAddOpen(false); }}>Text</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("section"); setQuickAddOpen(false); }}>Section</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("action_row"); setQuickAddOpen(false); }}>Action Row</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("button"); setQuickAddOpen(false); }}>Button</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("string_select"); setQuickAddOpen(false); }}>Menu</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("media_gallery"); setQuickAddOpen(false); }}>Media</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("file"); setQuickAddOpen(false); }}>File</Button>
+                <Button variant="outline" onClick={() => { addNodeToCurrentView("divider"); setQuickAddOpen(false); }}>Divider</Button>
+              </div>
+              <Separator className="bg-white/10" />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    touchDraft((document) => {
+                      document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
+                      setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
+                      setSelectedNodeId(null);
+                      setSelectedActionId(null);
+                      setSelectedModalId(null);
+                    });
+                    setQuickAddOpen(false);
+                    setInspectorOpen(true);
+                  }}
+                >
+                  Add Embed
+                </Button>
+                <Button variant="outline" onClick={() => { addAction("reply_message"); setQuickAddOpen(false); }}>
+                  Add Action
+                </Button>
+                <Button variant="outline" onClick={() => { addModal(); setQuickAddOpen(false); }}>
+                  Add Modal
+                </Button>
+              </div>
+            </div>
+          </DrawerContent>
+        </Drawer>
+
+        {activeArea === "build" ? (
+          <Button
+            className="fixed bottom-20 right-4 z-30 gap-2 rounded-full shadow-xl"
+            onClick={() => setQuickAddOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
+        ) : null}
+
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-background/95 backdrop-blur">
+          <div className="grid grid-cols-4 gap-1 p-2">
+            {STUDIO_MAIN_AREAS.map((section) => (
+              <Button
+                key={`mobile-nav-${section.id}`}
+                variant={(section.id === "preview" ? previewOpen : activeArea === section.id) ? "default" : "ghost"}
+                size="sm"
+                onClick={() => activateArea(section.id)}
+              >
+                {section.label}
+              </Button>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -2102,55 +3235,24 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   return (
     <div className="space-y-6">
       {topBar}
+      {viewChips}
       {primarySectionNav}
-      <div className="grid min-h-[70vh] gap-6 xl:grid-cols-[280px,minmax(0,1fr),380px]">
-        <div className="space-y-4">
-          <Card className="glass-card sticky top-4 border-white/10 bg-background/40">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Studio Rail</CardTitle>
-              <CardDescription>Documents, views, and block entry points.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Documents</p>
-                <ScrollArea className="h-48 pr-3">
-                  <div className="space-y-2">
-                    {documents.map((record) => (
-                      <button key={record.id} type="button" onClick={() => loadDocument(record.id)} className={cn("flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition", currentDocumentId === record.id ? "border-primary/40 bg-primary/10" : "border-white/10 bg-background/30 hover:border-white/20")}>
-                        <Library className="h-4 w-4 text-primary" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-white">{record.name}</p>
-                          <p className="truncate text-xs text-muted-foreground">{getDocumentKindLabel(record.kind)}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-              <Separator className="bg-white/10" />
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Views</p>
-                <div className="flex flex-wrap gap-2">
-                  {Object.values(draft.views).map((view) => (
-                    <Button key={view.id} variant={selectedViewId === view.id ? "default" : "outline"} size="sm" onClick={() => setSelectedViewId(view.id)}>{view.name}</Button>
-                  ))}
-                </div>
-              </div>
-              <Separator className="bg-white/10" />
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quick Add</p>
-                <div className="grid gap-2">
-                  {NODE_TYPE_OPTIONS.slice(0, 8).map((option) => (
-                    <Button key={option.type} variant="outline" className="justify-start" onClick={() => addNodeToCurrentView(option.type)}>{option.label}</Button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
+      <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
+        <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
+          <SheetHeader>
+            <SheetTitle>Preview</SheetTitle>
+            <SheetDescription>Mobile, desktop, and compact message render.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 flex gap-2">
+            <Button variant={previewMode === "mobile" ? "default" : "outline"} size="sm" onClick={() => setPreviewMode("mobile")} className="gap-2"><Smartphone className="h-4 w-4" />Mobile</Button>
+            <Button variant={previewMode === "desktop" ? "default" : "outline"} size="sm" onClick={() => setPreviewMode("desktop")} className="gap-2"><Monitor className="h-4 w-4" />Desktop</Button>
+            <Button variant={previewMode === "compact" ? "default" : "outline"} size="sm" onClick={() => setPreviewMode("compact")} className="gap-2"><Bot className="h-4 w-4" />Compact</Button>
+          </div>
+          <div className="mt-4">{previewPanel}</div>
+        </SheetContent>
+      </Sheet>
+      <div className="grid min-h-[70vh] gap-6 xl:grid-cols-[minmax(0,1fr),380px]">
         <div className="space-y-4 min-w-0">
-          {buildSubnav}
           {renderActiveWorkspace()}
           {inspectorBody}
         </div>
