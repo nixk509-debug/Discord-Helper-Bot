@@ -402,6 +402,10 @@ function createNode(type: StudioNodeType, viewId: string): { node: StudioNode; a
   };
 }
 
+function canNodeContainChildren(nodeType: StudioNodeType) {
+  return ["container", "section", "action_row"].includes(nodeType);
+}
+
 function canParentNode(parentType: StudioNodeType, childType: StudioNodeType) {
   if (parentType === "action_row") {
     return ["button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(childType);
@@ -410,6 +414,28 @@ function canParentNode(parentType: StudioNodeType, childType: StudioNodeType) {
     return !["button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(childType);
   }
   return false;
+}
+
+function getAllowedChildNodeTypes(parentType?: StudioNodeType | null): StudioNodeType[] {
+  if (parentType === "action_row") {
+    return ["button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"];
+  }
+
+  if (parentType === "container" || parentType === "section") {
+    return ["container", "section", "text_display", "divider", "style_block", "media_gallery", "file", "action_row"];
+  }
+
+  return NODE_TYPE_OPTIONS.map((option) => option.type);
+}
+
+function getStudioNodeTypeLabel(nodeType: StudioNodeType) {
+  return NODE_TYPE_OPTIONS.find((option) => option.type === nodeType)?.label || nodeType.replace(/_/g, " ");
+}
+
+function getStudioNodeDisplayLabel(node?: StudioNode | null) {
+  if (!node) return "View";
+  const rawLabel = String(node.props.label || node.props.heading || node.props.title || node.props.text || "").trim();
+  return rawLabel || getStudioNodeTypeLabel(node.type);
 }
 
 function ensureInlineResponse(action: StudioAction) {
@@ -601,6 +627,7 @@ function NodeTreeItem({
   selectedNodeId,
   diagnosticsForPrefix,
   onSelect,
+  onAddInside,
 }: {
   document: StudioDocument;
   nodeId: string;
@@ -608,34 +635,48 @@ function NodeTreeItem({
   selectedNodeId: string | null;
   diagnosticsForPrefix?: (prefix: string) => StudioDiagnostic[];
   onSelect: (nodeId: string) => void;
+  onAddInside?: (nodeId: string) => void;
 }) {
   const node = document.nodes[nodeId];
   if (!node) return null;
   const label = String(node.props.label || node.props.heading || node.props.title || node.props.text || node.type).slice(0, 48);
   const issues = diagnosticsForPrefix ? diagnosticsForPrefix(`nodes.${node.id}`) : [];
+  const showAddInside = Boolean(onAddInside && canNodeContainChildren(node.type));
 
   return (
     <div className="space-y-1">
-      <button
-        type="button"
-        onClick={() => onSelect(nodeId)}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition",
-          selectedNodeId === nodeId ? "border-primary/40 bg-primary/10 text-white" : "border-white/10 bg-background/40 text-muted-foreground hover:border-white/20 hover:text-white",
-        )}
-        style={{ marginLeft: depth * 12 }}
-      >
-        <FolderTree className="h-4 w-4 shrink-0" />
-        <span className="truncate">{label}</span>
-        {issues.length > 0 ? (
-          <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"} className="ml-auto shrink-0">
-            {issues.length}
+      <div className="flex items-center gap-2" style={{ marginLeft: depth * 12 }}>
+        <button
+          type="button"
+          onClick={() => onSelect(nodeId)}
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition",
+            selectedNodeId === nodeId ? "border-primary/40 bg-primary/10 text-white" : "border-white/10 bg-background/40 text-muted-foreground hover:border-white/20 hover:text-white",
+          )}
+        >
+          <FolderTree className="h-4 w-4 shrink-0" />
+          <span className="truncate">{label}</span>
+          {issues.length > 0 ? (
+            <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"} className="ml-auto shrink-0">
+              {issues.length}
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className={cn("shrink-0 border-white/10 text-[10px] uppercase", issues.length === 0 ? "ml-auto" : "")}>
+            {node.type.replace(/_/g, " ")}
           </Badge>
+        </button>
+        {showAddInside ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 rounded-full border-white/10 bg-background/30 px-3 text-[11px] text-white/80 hover:bg-background/50"
+            onClick={() => onAddInside?.(nodeId)}
+          >
+            Add Inside
+          </Button>
         ) : null}
-        <Badge variant="outline" className={cn("shrink-0 border-white/10 text-[10px] uppercase", issues.length === 0 ? "ml-auto" : "")}>
-          {node.type.replace(/_/g, " ")}
-        </Badge>
-      </button>
+      </div>
       {node.childIds.map((childId) => (
         <NodeTreeItem
           key={childId}
@@ -645,6 +686,7 @@ function NodeTreeItem({
           selectedNodeId={selectedNodeId}
           diagnosticsForPrefix={diagnosticsForPrefix}
           onSelect={onSelect}
+          onAddInside={onAddInside}
         />
       ))}
     </div>
@@ -805,6 +847,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<ComposerMode>("edit");
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddParentId, setQuickAddParentId] = useState<string | null>(null);
   const [publishChannelId, setPublishChannelId] = useState("");
   const [updateMessageId, setUpdateMessageId] = useState("");
   const [publishViewId, setPublishViewId] = useState("");
@@ -958,6 +1001,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const selectedModal = draft && selectedModalId ? draft.modals[selectedModalId] : null;
   const selectedEmbed = currentView && selectedEmbedIndex !== null ? currentView.embeds[selectedEmbedIndex] : null;
   const selectedPublication = publications.find((entry) => entry.id === selectedPublicationId) || null;
+  const quickAddParentNode = quickAddParentId && draft ? draft.nodes[quickAddParentId] : null;
+  const quickAddNodeOptions = useMemo(
+    () => getAllowedChildNodeTypes(quickAddParentNode?.type ?? null)
+      .map((type) => NODE_TYPE_OPTIONS.find((option) => option.type === type))
+      .filter((option): option is (typeof NODE_TYPE_OPTIONS)[number] => Boolean(option)),
+    [quickAddParentNode],
+  );
   const selectedEditorType = selectedEmbed
     ? "embed"
     : selectedNode
@@ -1039,6 +1089,33 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setSelectedActionId(null);
     setSelectedEmbedIndex(null);
     if (isMobile) setInspectorOpen(true);
+  };
+
+  const openQuickAddDrawer = (parentId?: string | null) => {
+    setActiveArea("build");
+    setBuildFocusId("components");
+    setPreviewOpen(false);
+    setQuickAddParentId(parentId || null);
+    if (parentId && draft?.nodes[parentId]) {
+      setSelectedNodeId(parentId);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(null);
+    }
+    setQuickAddOpen(true);
+  };
+
+  const handleQuickAddOpenChange = (open: boolean) => {
+    setQuickAddOpen(open);
+    if (!open) {
+      setQuickAddParentId(null);
+    }
+  };
+
+  const addNodeFromQuickAdd = (type: StudioNodeType) => {
+    addNodeToCurrentView(type, quickAddParentId);
+    setQuickAddOpen(false);
+    setQuickAddParentId(null);
   };
 
   useEffect(() => {
@@ -2728,7 +2805,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
         <CardTitle className="font-display text-base">Components</CardTitle>
-        <CardDescription>Add, reorder, duplicate, and inspect the view hierarchy.</CardDescription>
+        <CardDescription>Add root blocks, then use Add Inside on containers, sections, and action rows to nest layouts correctly.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2745,7 +2822,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <div className="space-y-2">
           {(currentView?.rootNodeIds || []).length === 0 ? <p className="text-sm text-muted-foreground">No blocks yet. Add a node to start the layout.</p> : null}
           {(currentView?.rootNodeIds || []).map((nodeId) => (
-            <NodeTreeItem key={nodeId} document={draft!} nodeId={nodeId} depth={0} selectedNodeId={selectedNodeId} diagnosticsForPrefix={diagnosticsForPrefix} onSelect={(node) => openNodeEditor(node)} />
+            <NodeTreeItem
+              key={nodeId}
+              document={draft!}
+              nodeId={nodeId}
+              depth={0}
+              selectedNodeId={selectedNodeId}
+              diagnosticsForPrefix={diagnosticsForPrefix}
+              onSelect={(node) => openNodeEditor(node)}
+              onAddInside={(node) => openQuickAddDrawer(node)}
+            />
           ))}
         </div>
       </CardContent>
@@ -3993,6 +4079,70 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const previewPanel = (
     <StudioPreview document={draft} viewId={selectedViewId} interactionRows={interactionRows} diagnostics={diagnostics} mode={previewMode} />
   );
+  const quickAddDrawer = (
+    <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>
+      <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
+        <DrawerHeader>
+          <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add to View"}</DrawerTitle>
+          <DrawerDescription>
+            {quickAddParentNode
+              ? `New blocks will be nested inside ${getStudioNodeDisplayLabel(quickAddParentNode)}.`
+              : "Add parts to this message and view."}
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="space-y-4 px-4 pb-6">
+          {quickAddParentNode ? (
+            <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/45">Target</p>
+              <p className="mt-1 text-sm font-semibold text-white">{getStudioNodeDisplayLabel(quickAddParentNode)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{getStudioNodeTypeLabel(quickAddParentNode.type)}</p>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-2">
+            {quickAddNodeOptions.map((option) => (
+              <Button key={`quick-add-${option.type}`} variant="outline" className="h-auto justify-start py-3" onClick={() => addNodeFromQuickAdd(option.type)}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">{option.label}</div>
+                  <div className="text-xs text-muted-foreground">{option.detail}</div>
+                </div>
+              </Button>
+            ))}
+          </div>
+          {!quickAddParentNode ? (
+            <>
+              <Separator className="bg-white/10" />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    touchDraft((document) => {
+                      document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
+                      setBuildFocusId("embeds");
+                      setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
+                      setSelectedNodeId(null);
+                      setSelectedActionId(null);
+                      setSelectedModalId(null);
+                    });
+                    setQuickAddOpen(false);
+                    setQuickAddParentId(null);
+                    setInspectorOpen(true);
+                  }}
+                >
+                  Add Embed
+                </Button>
+                <Button variant="outline" onClick={() => { addAction("reply_message"); setQuickAddOpen(false); setQuickAddParentId(null); }}>
+                  Add Action
+                </Button>
+                <Button variant="outline" onClick={() => { addModal(); setQuickAddOpen(false); setQuickAddParentId(null); }}>
+                  Add Modal
+                </Button>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
 
   const mobileViewChips = (
     <div className="overflow-x-auto pb-1">
@@ -4136,57 +4286,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </SheetContent>
         </Sheet>
 
-        <Drawer open={quickAddOpen} onOpenChange={setQuickAddOpen}>
-          <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
-            <DrawerHeader>
-              <DrawerTitle>Add</DrawerTitle>
-              <DrawerDescription>Add parts to this message and view.</DrawerDescription>
-            </DrawerHeader>
-            <div className="space-y-4 px-4 pb-6">
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("text_display"); setQuickAddOpen(false); }}>Text</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("section"); setQuickAddOpen(false); }}>Section</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("action_row"); setQuickAddOpen(false); }}>Action Row</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("button"); setQuickAddOpen(false); }}>Button</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("string_select"); setQuickAddOpen(false); }}>Menu</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("media_gallery"); setQuickAddOpen(false); }}>Media</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("file"); setQuickAddOpen(false); }}>File</Button>
-                <Button variant="outline" onClick={() => { addNodeToCurrentView("divider"); setQuickAddOpen(false); }}>Divider</Button>
-              </div>
-              <Separator className="bg-white/10" />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    touchDraft((document) => {
-                      document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
-                      setBuildFocusId("embeds");
-                      setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
-                      setSelectedNodeId(null);
-                      setSelectedActionId(null);
-                      setSelectedModalId(null);
-                    });
-                    setQuickAddOpen(false);
-                    setInspectorOpen(true);
-                  }}
-                >
-                  Add Embed
-                </Button>
-                <Button variant="outline" onClick={() => { addAction("reply_message"); setQuickAddOpen(false); }}>
-                  Add Action
-                </Button>
-                <Button variant="outline" onClick={() => { addModal(); setQuickAddOpen(false); }}>
-                  Add Modal
-                </Button>
-              </div>
-            </div>
-          </DrawerContent>
-        </Drawer>
+        {quickAddDrawer}
 
         {activeArea === "build" && buildFocusId !== "assets" ? (
           <Button
             className="fixed bottom-20 right-4 z-30 gap-2 rounded-full shadow-xl"
-            onClick={() => setQuickAddOpen(true)}
+            onClick={() => openQuickAddDrawer(null)}
           >
             <Plus className="h-4 w-4" />
             Add
@@ -4222,6 +4327,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       {topBar}
       {viewChips}
       {primarySectionNav}
+      {quickAddDrawer}
       <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
         <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
           <SheetHeader>
