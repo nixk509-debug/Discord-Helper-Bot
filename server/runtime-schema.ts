@@ -80,12 +80,28 @@ CREATE TABLE IF NOT EXISTS studio_runtime_events (
   occurred_at timestamp DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS studio_library_items (
+  id serial PRIMARY KEY,
+  server_id integer NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  owner_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+  scope text NOT NULL DEFAULT 'personal',
+  category text NOT NULL,
+  name text NOT NULL,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  tags jsonb DEFAULT '[]'::jsonb,
+  favorite boolean DEFAULT false,
+  created_at timestamp DEFAULT now(),
+  updated_at timestamp DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS studio_documents_server_id_idx ON studio_documents(server_id);
 CREATE INDEX IF NOT EXISTS studio_documents_slug_idx ON studio_documents(slug);
 CREATE INDEX IF NOT EXISTS studio_publications_server_id_idx ON studio_publications(server_id);
 CREATE INDEX IF NOT EXISTS studio_publications_document_id_idx ON studio_publications(document_id);
 CREATE INDEX IF NOT EXISTS studio_publication_snapshots_publication_id_idx ON studio_publication_snapshots(publication_id);
 CREATE INDEX IF NOT EXISTS studio_runtime_events_server_id_idx ON studio_runtime_events(server_id);
+CREATE INDEX IF NOT EXISTS studio_library_items_server_id_idx ON studio_library_items(server_id);
+CREATE INDEX IF NOT EXISTS studio_library_items_scope_idx ON studio_library_items(scope);
 `;
 
 let schemaEnsured = false;

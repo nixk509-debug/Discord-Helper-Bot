@@ -324,6 +324,126 @@ export function useStudioPublications(serverId: number, options?: { enabled?: bo
   });
 }
 
+export interface StudioLibraryQueryOptions {
+  enabled?: boolean;
+  scope?: "all" | "personal" | "server";
+  category?: "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
+  q?: string;
+  favorites?: boolean;
+}
+
+export function useStudioLibraryItems(serverId: number, options?: StudioLibraryQueryOptions) {
+  return useQuery({
+    queryKey: [
+      api.servers.studioLibrary.list.path,
+      serverId,
+      options?.scope || "all",
+      options?.category || "all",
+      options?.q || "",
+      options?.favorites ? "1" : "0",
+    ],
+    queryFn: async () => {
+      const baseUrl = buildApiUrl(buildUrl(api.servers.studioLibrary.list.path, { serverId }));
+      const params = new URLSearchParams();
+      if (options?.scope) params.set("scope", options.scope);
+      if (options?.category) params.set("category", options.category);
+      if (options?.q) params.set("q", options.q);
+      if (options?.favorites) params.set("favorites", "true");
+      const requestUrl = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+      const res = await fetch(requestUrl, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch Studio library");
+      return await res.json();
+    },
+    enabled: !!serverId && (options?.enabled ?? true),
+  });
+}
+
+export function useCreateStudioLibraryItem(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const url = buildUrl(api.servers.studioLibrary.create.path, { serverId });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to create Studio library item");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioLibrary.list.path, serverId] });
+    },
+  });
+}
+
+export function useUpdateStudioLibraryItem(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const url = buildUrl(api.studio.library.update.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to update Studio library item");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioLibrary.list.path, serverId] });
+    },
+  });
+}
+
+export function useDeleteStudioLibraryItem(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.studio.library.delete.path, { id });
+      const res = await fetch(buildApiUrl(url), { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to delete Studio library item");
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioLibrary.list.path, serverId] });
+    },
+  });
+}
+
+export function useToggleStudioLibraryFavorite(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, favorite }: { id: number; favorite: boolean }) => {
+      const url = buildUrl(api.studio.library.favorite.path, { id });
+      const res = await fetch(buildApiUrl(url), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to update favorite state");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioLibrary.list.path, serverId] });
+    },
+  });
+}
+
 export function usePublishStudio(serverId: number) {
   const qc = useQueryClient();
   return useMutation({

@@ -113,8 +113,8 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const [newRoleDelay, setNewRoleDelay] = useState(0);
   const [newRoleType, setNewRoleType] = useState("join");
 
-  const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
+  const openStudio = (documentId: number, intent: "welcome" | "ticket" | "verify" | "template" | "blank" = "welcome") => {
+    navigate(`/dashboard/servers/${serverId}/studio?intent=${intent}&documentId=${documentId}`);
   };
 
   const createSurface = (binding: "welcome" | "welcome_dm" | "leave", field: "welcomeStudioDocumentId" | "welcomeDmStudioDocumentId" | "leaveStudioDocumentId") => {
@@ -132,7 +132,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
           updateSettings.mutate(
             { [field]: created.id },
             {
-              onSuccess: () => openStudio(created.id),
+              onSuccess: () => openStudio(created.id, "welcome"),
             }
           );
         },
@@ -253,7 +253,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
           documentId={settings?.welcomeStudioDocumentId}
           publication={welcomePublication}
           onCreate={() => createSurface("welcome", "welcomeStudioDocumentId")}
-          onOpen={() => settings?.welcomeStudioDocumentId && openStudio(settings.welcomeStudioDocumentId)}
+          onOpen={() => settings?.welcomeStudioDocumentId && openStudio(settings.welcomeStudioDocumentId, "welcome")}
           onPublish={() => publishSurface(settings?.welcomeStudioDocumentId, welcomeChannelId, "Welcome message")}
         />
         <StudioSurfaceCard
@@ -262,7 +262,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
           documentId={settings?.welcomeDmStudioDocumentId}
           publication={welcomeDmPublication}
           onCreate={() => createSurface("welcome_dm", "welcomeDmStudioDocumentId")}
-          onOpen={() => settings?.welcomeDmStudioDocumentId && openStudio(settings.welcomeDmStudioDocumentId)}
+          onOpen={() => settings?.welcomeDmStudioDocumentId && openStudio(settings.welcomeDmStudioDocumentId, "welcome")}
           actionLabel="Create DM Message"
         />
         <StudioSurfaceCard
@@ -271,7 +271,7 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
           documentId={settings?.leaveStudioDocumentId}
           publication={leavePublication}
           onCreate={() => createSurface("leave", "leaveStudioDocumentId")}
-          onOpen={() => settings?.leaveStudioDocumentId && openStudio(settings.leaveStudioDocumentId)}
+          onOpen={() => settings?.leaveStudioDocumentId && openStudio(settings.leaveStudioDocumentId, "welcome")}
           onPublish={() => publishSurface(settings?.leaveStudioDocumentId, leaveChannelId, "Leave message")}
         />
       </div>

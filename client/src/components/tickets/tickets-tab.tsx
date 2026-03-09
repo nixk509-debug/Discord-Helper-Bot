@@ -79,7 +79,7 @@ export function TicketsTab({ serverId }: TicketsTabProps) {
   const [panelEmbedColor, setPanelEmbedColor] = useState("#5865F2");
 
   const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
+    navigate(`/dashboard/servers/${serverId}/studio?intent=ticket&documentId=${documentId}`);
   };
 
   const bindPanelSurface = (panel: any) => {

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { ArrowUpRight, Layers3, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,16 +7,9 @@ import { Badge } from "@/components/ui/badge";
 export function DesignStudioLaunchCard({ serverId }: { serverId: number }) {
   const [, navigate] = useLocation();
 
-  const currentDocumentId = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("documentId") || "";
-  }, []);
-
-  const openStudio = (documentId?: string) => {
+  const openStudio = () => {
     const target = new URL(`/dashboard/servers/${serverId}/studio`, window.location.origin);
-    if (documentId) {
-      target.searchParams.set("documentId", documentId);
-    }
+    target.searchParams.set("intent", "blank");
     navigate(`${target.pathname}${target.search}`);
   };
 
@@ -39,7 +31,7 @@ export function DesignStudioLaunchCard({ serverId }: { serverId: number }) {
                 Design Studio now opens in its own editor so the page scrolls better, loads cleaner, and stays easier to use on mobile.
               </CardDescription>
             </div>
-            <Button onClick={() => openStudio(currentDocumentId || undefined)} className="gap-2">
+            <Button onClick={openStudio} className="gap-2">
               <ArrowUpRight className="h-4 w-4" />
               Open Studio
             </Button>

@@ -18,6 +18,8 @@ import {
   type EmbedComponentType,
   type EmbedComponentOption,
   type InteractiveActionConfig,
+  type StudioLibraryCategory,
+  type StudioLibraryScope,
   type StudioDocument,
 } from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
@@ -47,13 +49,18 @@ import {
   getStudioPublicationByMessage,
   getStudioPublicationSnapshotById,
   listStudioDocuments,
+  listStudioLibraryItems,
   listStudioPublicationSnapshots,
   listStudioPublications,
   listStudioRuntimeEvents,
   normalizeStudioDocument,
   recordStudioRuntimeEvent,
   renderStudioDocumentView,
+  createStudioLibraryItem,
+  deleteStudioLibraryItemRecord,
+  getStudioLibraryItemById,
   updateStudioDocumentRecord,
+  updateStudioLibraryItemRecord,
   updateStudioPublicationRecord,
 } from "./studio-service";
 import { buildStudioDiscordPayload } from "./studio-discord";
@@ -205,6 +212,116 @@ export async function registerRoutes(_server: Server, app: Express) {
       document: parsed.data.document ? normalizeStudioDocument(parsed.data.document, existing.name) : existing.document,
     } as any);
     res.json(updated);
+  });
+
+  app.get(api.servers.studioLibrary.list.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const scopeRaw = String(req.query.scope || "all");
+    const categoryRaw = String(req.query.category || "all");
+    const scope = (["all", "personal", "server"] as const).includes(scopeRaw as any) ? (scopeRaw as "all" | StudioLibraryScope) : "all";
+    const category = ([
+      "all",
+      "divider",
+      "symbol",
+      "emoji",
+      "format",
+      "style_block",
+      "style_pack",
+      "asset_link",
+      "snippet",
+    ] as const).includes(categoryRaw as any)
+      ? (categoryRaw as "all" | StudioLibraryCategory)
+      : "all";
+    const search = typeof req.query.q === "string" ? req.query.q : "";
+    const favoritesOnly = String(req.query.favorites || "").toLowerCase() === "true" || String(req.query.favorites || "") === "1";
+
+    const items = await listStudioLibraryItems(serverId, req.user!.id, {
+      scope,
+      category,
+      search,
+      favoritesOnly,
+    });
+    res.json(items);
+  });
+
+  app.post(api.servers.studioLibrary.create.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioLibrary.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const created = await createStudioLibraryItem({
+      serverId,
+      ownerUserId: req.user!.id,
+      scope: parsed.data.scope,
+      category: parsed.data.category,
+      name: parsed.data.name,
+      payload: parsed.data.payload,
+      tags: parsed.data.tags,
+      favorite: parsed.data.favorite,
+    });
+    res.status(201).json(created);
+  });
+
+  app.patch(api.studio.library.update.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
+    const existing = await getStudioLibraryItemById(id);
+    if (!existing) return res.status(404).json({ message: "Library item not found" });
+    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+      return res.status(403).json({ message: "Not allowed to edit this item" });
+    }
+
+    const parsed = api.studio.library.update.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const patch: any = { ...parsed.data };
+    if (patch.scope === "personal") {
+      patch.ownerUserId = req.user!.id;
+    }
+    if (patch.scope === "server") {
+      patch.ownerUserId = null;
+    }
+
+    const updated = await updateStudioLibraryItemRecord(id, patch);
+    res.json(updated);
+  });
+
+  app.patch(api.studio.library.favorite.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
+    const existing = await getStudioLibraryItemById(id);
+    if (!existing) return res.status(404).json({ message: "Library item not found" });
+    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+      return res.status(403).json({ message: "Not allowed to edit this item" });
+    }
+
+    const parsed = api.studio.library.favorite.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const updated = await updateStudioLibraryItemRecord(id, { favorite: parsed.data.favorite } as any);
+    res.json(updated);
+  });
+
+  app.delete(api.studio.library.delete.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
+    const existing = await getStudioLibraryItemById(id);
+    if (!existing) return res.status(404).json({ message: "Library item not found" });
+    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+      return res.status(403).json({ message: "Not allowed to delete this item" });
+    }
+    await deleteStudioLibraryItemRecord(id);
+    res.status(204).send();
   });
 
   app.get(api.servers.studioPublications.list.path, async (req, res) => {
@@ -2068,7 +2185,7 @@ async function publishStudioMessage(input: {
       } as any);
     }
   } else if (input.documentInput) {
-    document = normalizeStudioDocument(input.documentInput, "Untitled Surface");
+    document = normalizeStudioDocument(input.documentInput, "Untitled Project");
     documentRecord = await createStudioDocumentRecord({
       serverId: input.serverId,
       ownerUserId: input.actorUserId,

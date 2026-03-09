@@ -5,7 +5,7 @@ import {
   insertWarningSchema, insertPunishmentConfigSchema, insertLevelingConfigSchema,
   insertStarboardConfigSchema, insertTicketConfigSchema, insertTicketPanelSchema,
   insertScheduledMessageSchema, insertAuditLogConfigSchema,
-  type Embed, type ServerResponse, type StudioDocumentRecord, type StudioPublication,
+  type Embed, type ServerResponse, type StudioDocumentRecord, type StudioLibraryCategory, type StudioLibraryItem, type StudioLibraryScope, type StudioPublication,
 } from './schema';
 
 export const errorSchemas = {
@@ -106,6 +106,19 @@ const studioPublishSchema = z.object({
   }),
 });
 
+export const studioEntryIntentSchema = z.enum(["blank", "ticket", "welcome", "verify", "template"]);
+
+const studioLibraryItemInputSchema = z.object({
+  scope: z.custom<StudioLibraryScope>().default("personal"),
+  category: z.custom<StudioLibraryCategory>(),
+  name: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({}),
+  tags: z.array(z.string()).default([]),
+  favorite: z.boolean().optional(),
+});
+
+const studioLibraryItemPatchSchema = studioLibraryItemInputSchema.partial();
+
 export const api = {
   stats: {
     get: { method: 'GET' as const, path: '/api/stats' as const, responses: { 200: dashboardStatsSchema } },
@@ -127,10 +140,19 @@ export const api = {
     studioPublish: {
       publish: { method: 'POST' as const, path: '/api/servers/:serverId/studio/publish' as const, input: studioPublishSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
     },
+    studioLibrary: {
+      list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/library' as const, responses: { 200: z.array(z.custom<StudioLibraryItem>()) } },
+      create: { method: 'POST' as const, path: '/api/servers/:serverId/studio/library' as const, input: studioLibraryItemInputSchema, responses: { 201: z.custom<StudioLibraryItem>(), 400: errorSchemas.validation } },
+    },
   },
   studio: {
     documents: {
       update: { method: 'PATCH' as const, path: '/api/studio/documents/:id' as const, input: studioDocumentInputSchema.partial(), responses: { 200: z.custom<StudioDocumentRecord>(), 404: errorSchemas.notFound } },
+    },
+    library: {
+      update: { method: 'PATCH' as const, path: '/api/studio/library/:id' as const, input: studioLibraryItemPatchSchema, responses: { 200: z.custom<StudioLibraryItem>(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
+      delete: { method: 'DELETE' as const, path: '/api/studio/library/:id' as const, responses: { 204: z.void(), 404: errorSchemas.notFound } },
+      favorite: { method: 'PATCH' as const, path: '/api/studio/library/:id/favorite' as const, input: z.object({ favorite: z.boolean() }), responses: { 200: z.custom<StudioLibraryItem>(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
     },
     publications: {
       clone: { method: 'POST' as const, path: '/api/studio/publications/:id/clone' as const, input: z.object({ channelId: z.string().min(1) }), responses: { 200: z.any(), 404: errorSchemas.notFound } },
@@ -239,5 +261,7 @@ export type CreateEmbedInput = z.infer<typeof api.embeds.create.input>;
 export type UpdateEmbedInput = z.infer<typeof api.embeds.update.input>;
 export type SendEmbedInput = z.infer<typeof api.embeds.send.input>;
 export type DiscordContext = z.infer<typeof discordContextSchema>;
+export type StudioEntryIntentQuery = z.infer<typeof studioEntryIntentSchema>;
 export type StudioDocumentInput = z.infer<typeof studioDocumentInputSchema>;
 export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
+export type StudioLibraryItemInput = z.infer<typeof studioLibraryItemInputSchema>;

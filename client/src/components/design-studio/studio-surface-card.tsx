@@ -22,7 +22,7 @@ export function StudioSurfaceCard({
   onCreate,
   onOpen,
   onPublish,
-  actionLabel = "Create Panel",
+  actionLabel = "Create Project",
 }: StudioSurfaceCardProps) {
   const isBound = Boolean(documentId);
   const publicationStatus = publication?.status || (publication?.active ? "published" : "draft");

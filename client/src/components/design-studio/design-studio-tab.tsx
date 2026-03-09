@@ -27,14 +27,18 @@ import type { DiscordContextEmoji } from "@/hooks/use-bot";
 import {
   useArchiveStudioPublication,
   useCloneStudioPublication,
+  useCreateStudioLibraryItem,
   useCreateStudioDocument,
+  useDeleteStudioLibraryItem,
   useDiscordContext,
   usePublishStudio,
   useRollbackStudioPublication,
+  useStudioLibraryItems,
   useTicketConfig,
   useTicketPanels,
   useStudioDocuments,
   useStudioPublications,
+  useToggleStudioLibraryFavorite,
   useUpdateStudioDocument,
   useUpdateStudioPublicationStatus,
 } from "@/hooks/use-bot";
@@ -46,6 +50,8 @@ import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
   createStudioDocument as createStudioDocumentDraft,
   defaultSurfaceName,
+  parseStudioEntryIntent,
+  type StudioEntryIntent,
   STUDIO_MAIN_AREAS,
 } from "@/components/design-studio/studio-defaults";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +83,7 @@ import type {
   InteractiveActionConfig,
   StudioAction,
   StudioDiagnostic,
+  StudioLibraryItemRecord,
   StudioDividerPreset,
   StudioDocument,
   StudioDocumentRecord,
@@ -91,6 +98,9 @@ import type {
 
 type StudioAreaId = (typeof STUDIO_MAIN_AREAS)[number]["id"];
 type PreviewMode = "desktop" | "mobile" | "compact";
+type ComposerMode = "edit" | "preview" | "json";
+type LibraryScopeFilter = "all" | "personal" | "server";
+type LibraryCategoryFilter = "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
 
 type PublicationWithMeta = StudioPublication & {
   documentName?: string;
@@ -170,7 +180,7 @@ function cloneDocument<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function normalizeDocumentDraft(document: any, fallbackName = "Untitled Panel"): StudioDocument {
+function normalizeDocumentDraft(document: any, fallbackName = "Untitled Project"): StudioDocument {
   if (!document || typeof document !== "object") {
     return createStudioDocumentDraft(undefined, fallbackName);
   }
@@ -180,7 +190,7 @@ function normalizeDocumentDraft(document: any, fallbackName = "Untitled Panel"):
       version: 2,
       meta: {
         name: String(document.meta?.name || fallbackName),
-        category: document.meta?.category ? String(document.meta.category) : "panel",
+        category: document.meta?.category ? String(document.meta.category) : "project",
         entryViewId: String(document.meta.entryViewId),
         themePackId: document.meta?.themePackId ? String(document.meta.themePackId) : undefined,
       },
@@ -216,7 +226,7 @@ function ensureDesign(document: StudioDocument) {
 }
 
 function getDocumentKindLabel(kind?: string) {
-  return kind === "template" ? "Template" : "Panel";
+  return kind === "template" ? "Template" : "Project";
 }
 
 function getBindingLabel(binding?: string | null) {
@@ -725,6 +735,9 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const rollbackPublicationMutation = useRollbackStudioPublication(serverId);
   const archivePublicationMutation = useArchiveStudioPublication(serverId);
   const updatePublicationStatusMutation = useUpdateStudioPublicationStatus(serverId);
+  const createLibraryItemMutation = useCreateStudioLibraryItem(serverId);
+  const deleteLibraryItemMutation = useDeleteStudioLibraryItem(serverId);
+  const toggleLibraryFavoriteMutation = useToggleStudioLibraryFavorite(serverId);
 
   const documents = ((studioDocumentsQuery.data || []) as StudioDocumentRecord[]).map((record) => ({
     ...record,
@@ -744,16 +757,35 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<ComposerMode>("edit");
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [publishChannelId, setPublishChannelId] = useState("");
   const [updateMessageId, setUpdateMessageId] = useState("");
   const [publishViewId, setPublishViewId] = useState("");
   const [cloneChannelId, setCloneChannelId] = useState("");
   const [selectedPublicationId, setSelectedPublicationId] = useState<number | null>(null);
+  const [entryIntent, setEntryIntent] = useState<StudioEntryIntent>("blank");
   const [importText, setImportText] = useState("");
   const [emojiState, setEmojiState] = useState<{ recent: string[]; favorites: string[] }>({ recent: [], favorites: [] });
+  const [libraryScopeFilter, setLibraryScopeFilter] = useState<LibraryScopeFilter>("all");
+  const [libraryCategoryFilter, setLibraryCategoryFilter] = useState<LibraryCategoryFilter>("all");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [libraryFavoritesOnly, setLibraryFavoritesOnly] = useState(false);
+  const [librarySaveScope, setLibrarySaveScope] = useState<"personal" | "server">("personal");
+  const [libraryItemName, setLibraryItemName] = useState("");
+  const [libraryAssetName, setLibraryAssetName] = useState("");
+  const [libraryAssetUrl, setLibraryAssetUrl] = useState("");
   const [lastDiagnostics, setLastDiagnostics] = useState<StudioDiagnostic[]>([]);
   const loadedDocumentIdRef = useRef<number | null>(null);
+
+  const studioLibraryQuery = useStudioLibraryItems(serverId, {
+    enabled: activeArea === "library" || Boolean(draft),
+    scope: libraryScopeFilter,
+    category: libraryCategoryFilter,
+    q: librarySearch,
+    favorites: libraryFavoritesOnly,
+  });
+  const libraryItems = (studioLibraryQuery.data || []) as StudioLibraryItemRecord[];
 
   const shouldLoadDiscordContext =
     activeArea !== "build" ||
@@ -789,17 +821,17 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   }, [serverId]);
 
   useEffect(() => {
-    if (documents.length === 0) return;
-    if (currentDocumentId) return;
+    const params = new URLSearchParams(window.location.search);
+    setEntryIntent(parseStudioEntryIntent(params.get("intent")));
+  }, [serverId]);
 
+  useEffect(() => {
+    if (currentDocumentId) return;
     const params = new URLSearchParams(window.location.search);
     const requested = Number(params.get("documentId") || "0");
-    if (requested && documents.some((record) => record.id === requested)) {
+    if (requested > 0 && documents.some((record) => record.id === requested)) {
       setCurrentDocumentId(requested);
-      return;
     }
-
-    setCurrentDocumentId(documents[0].id);
   }, [documents, currentDocumentId]);
 
   useEffect(() => {
@@ -863,6 +895,35 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const selectedModal = draft && selectedModalId ? draft.modals[selectedModalId] : null;
   const selectedEmbed = currentView && selectedEmbedIndex !== null ? currentView.embeds[selectedEmbedIndex] : null;
   const selectedPublication = publications.find((entry) => entry.id === selectedPublicationId) || null;
+  const selectedEditorType = selectedEmbed
+    ? "embed"
+    : selectedNode
+      ? "component"
+      : selectedAction
+        ? "action"
+        : selectedModal
+          ? "modal"
+          : "none";
+
+  const selectedEditorPayload = selectedEmbed
+    ? selectedEmbed
+    : selectedNode
+      ? selectedNode
+      : selectedAction
+        ? selectedAction
+        : selectedModal
+          ? selectedModal
+          : null;
+
+  const selectedEditorDiagnostics = selectedEmbed && selectedEmbedIndex !== null
+    ? diagnosticsForPrefix(`views.${selectedViewId}.embeds[${selectedEmbedIndex}]`)
+    : selectedNode
+      ? diagnosticsForPrefix(`nodes.${selectedNode.id}`)
+      : selectedAction
+        ? diagnosticsForPrefix(`actions.${selectedAction.id}`)
+        : selectedModal
+          ? diagnosticsForPrefix(`modals.${selectedModal.id}`)
+          : [];
 
   const touchDraft = (updater: (document: StudioDocument) => void) => {
     setDraft((previous) => {
@@ -873,6 +934,89 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       setDirty(true);
       return next;
     });
+  };
+
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    setComposerMode("edit");
+  }, [inspectorOpen]);
+
+  const jumpToDiagnosticPath = (path?: string) => {
+    if (!path || !draft) return;
+
+    setActiveArea("build");
+    setPreviewOpen(false);
+
+    const embedMatch = path.match(/^views\.([^.]+)\.embeds\[(\d+)\]/);
+    if (embedMatch) {
+      const [, viewId, rawIndex] = embedMatch;
+      const index = Number(rawIndex);
+      if (draft.views[viewId] && Number.isFinite(index)) {
+        setSelectedViewId(viewId);
+        setSelectedEmbedIndex(index);
+        setSelectedNodeId(null);
+        setSelectedActionId(null);
+        setSelectedModalId(null);
+        if (isMobile) setInspectorOpen(true);
+      }
+      return;
+    }
+
+    const nodeMatch = path.match(/^nodes\.([^.]+)/);
+    if (nodeMatch) {
+      const nodeId = nodeMatch[1];
+      const node = draft.nodes[nodeId];
+      if (node) {
+        setSelectedViewId(node.viewId || selectedViewId);
+        setSelectedNodeId(nodeId);
+        setSelectedEmbedIndex(null);
+        setSelectedActionId(null);
+        setSelectedModalId(null);
+        if (isMobile) setInspectorOpen(true);
+      }
+      return;
+    }
+
+    const actionMatch = path.match(/^actions\.([^.]+)/);
+    if (actionMatch) {
+      const actionId = actionMatch[1];
+      if (draft.actions[actionId]) {
+        setSelectedActionId(actionId);
+        setSelectedEmbedIndex(null);
+        setSelectedNodeId(null);
+        setSelectedModalId(null);
+        if (isMobile) setInspectorOpen(true);
+      }
+      return;
+    }
+
+    const modalMatch = path.match(/^modals\.([^.]+)/);
+    if (modalMatch) {
+      const modalId = modalMatch[1];
+      if (draft.modals[modalId]) {
+        setSelectedModalId(modalId);
+        setSelectedEmbedIndex(null);
+        setSelectedNodeId(null);
+        setSelectedActionId(null);
+        if (isMobile) setInspectorOpen(true);
+      }
+      return;
+    }
+
+    const viewRootMatch = path.match(/^views\.([^.]+)\.rootNodeIds\[(\d+)\]/);
+    if (viewRootMatch) {
+      const [, viewId, rawIndex] = viewRootMatch;
+      const index = Number(rawIndex);
+      const view = draft.views[viewId];
+      if (view && Number.isFinite(index) && view.rootNodeIds[index]) {
+        setSelectedViewId(viewId);
+        setSelectedNodeId(view.rootNodeIds[index]);
+        setSelectedEmbedIndex(null);
+        setSelectedActionId(null);
+        setSelectedModalId(null);
+        if (isMobile) setInspectorOpen(true);
+      }
+    }
   };
 
   const loadDocument = (documentId: number) => {
@@ -907,8 +1051,8 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     );
   };
 
-  const createDocument = (binding?: any, kind: "surface" | "template" = "surface") => {
-    const name = defaultSurfaceName(binding);
+  const createDocument = (binding?: any, kind: "surface" | "template" = "surface", customName?: string) => {
+    const name = customName || defaultSurfaceName(binding);
     const document = createStudioDocumentDraft(binding, name);
     createDocumentMutation.mutate(
       {
@@ -924,7 +1068,10 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
           setDirty(false);
           loadedDocumentIdRef.current = created.id;
-          toast({ title: kind === "template" ? "Template created" : "Panel created", description: `${created.name} is ready in Studio.` });
+          const url = new URL(window.location.href);
+          url.searchParams.set("documentId", String(created.id));
+          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+          toast({ title: kind === "template" ? "Template created" : "Project created", description: `${created.name} is ready in Studio.` });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
       },
@@ -943,11 +1090,14 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
-          toast({ title: asTemplate ? "Template saved" : "Panel duplicated", description: created.name });
+          toast({ title: asTemplate ? "Template saved" : "Project duplicated", description: created.name });
           setCurrentDocumentId(created.id);
           setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
           setDirty(false);
           loadedDocumentIdRef.current = created.id;
+          const url = new URL(window.location.href);
+          url.searchParams.set("documentId", String(created.id));
+          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
         },
         onError: (error: any) => toast({ title: "Duplicate failed", description: error.message, variant: "destructive" }),
       },
@@ -1369,6 +1519,185 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     });
   };
 
+  const saveLibraryItem = (input: {
+    category: Exclude<LibraryCategoryFilter, "all">;
+    name: string;
+    payload: Record<string, unknown>;
+    tags?: string[];
+  }) => {
+    if (!input.name.trim()) {
+      toast({ title: "Name required", description: "Give this library item a name before saving.", variant: "destructive" });
+      return;
+    }
+    createLibraryItemMutation.mutate(
+      {
+        scope: librarySaveScope,
+        category: input.category,
+        name: input.name.trim(),
+        payload: input.payload,
+        tags: input.tags || [],
+      },
+      {
+        onSuccess: () => {
+          setLibraryItemName("");
+          toast({ title: "Saved to Library", description: `${input.name} is now reusable.` });
+          studioLibraryQuery.refetch();
+        },
+        onError: (error: any) => toast({ title: "Save failed", description: error.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const saveSelectedDividerToLibrary = () => {
+    if (!selectedNode || selectedNode.type !== "divider") return;
+    saveLibraryItem({
+      category: "divider",
+      name: libraryItemName || String(selectedNode.props.name || "Divider"),
+      payload: {
+        mode: String(selectedNode.props.mode || "line"),
+        text: selectedNode.props.text ? String(selectedNode.props.text) : "",
+        symbol: selectedNode.props.symbol ? String(selectedNode.props.symbol) : "",
+        emoji: selectedNode.props.emoji ? String(selectedNode.props.emoji) : "",
+        repeat: Number(selectedNode.props.repeat || 1),
+      },
+      tags: ["divider"],
+    });
+  };
+
+  const saveSelectedStyleBlockToLibrary = () => {
+    if (!selectedNode || selectedNode.type !== "style_block") return;
+    saveLibraryItem({
+      category: "style_block",
+      name: libraryItemName || String(selectedNode.props.title || "Style Block"),
+      payload: {
+        variant: String(selectedNode.props.variant || "warning_strip"),
+        title: String(selectedNode.props.title || "Style Block"),
+        description: String(selectedNode.props.description || ""),
+        accentColor: String(selectedNode.props.accentColor || "#B11226"),
+      },
+      tags: ["style"],
+    });
+  };
+
+  const saveCurrentThemeToLibrary = () => {
+    if (!draft) return;
+    const activeThemePack = allThemePacks.find((pack) => pack.id === draft.meta.themePackId) || allThemePacks[0];
+    if (!activeThemePack) return;
+    saveLibraryItem({
+      category: "style_pack",
+      name: libraryItemName || `${draft.meta.name} Theme`,
+      payload: {
+        ...activeThemePack,
+      },
+      tags: ["theme"],
+    });
+  };
+
+  const saveMessageSnippetToLibrary = () => {
+    const snippet = String(currentView?.messageContent || "").trim();
+    if (!snippet) {
+      toast({ title: "Nothing to save", description: "Write message content first.", variant: "destructive" });
+      return;
+    }
+    saveLibraryItem({
+      category: "snippet",
+      name: libraryItemName || `${currentView?.name || "View"} Snippet`,
+      payload: { text: snippet },
+      tags: ["snippet", "message"],
+    });
+  };
+
+  const saveAssetLinkToLibrary = () => {
+    if (!libraryAssetUrl.trim()) {
+      toast({ title: "URL required", description: "Paste an asset URL before saving.", variant: "destructive" });
+      return;
+    }
+    saveLibraryItem({
+      category: "asset_link",
+      name: libraryAssetName || "Asset Link",
+      payload: { url: libraryAssetUrl.trim() },
+      tags: ["asset"],
+    });
+    setLibraryAssetName("");
+    setLibraryAssetUrl("");
+  };
+
+  const insertLibraryItem = (item: StudioLibraryItemRecord) => {
+    const payload = (item.payload || {}) as Record<string, unknown>;
+
+    if (item.category === "divider") {
+      addNodeToCurrentView("divider");
+      setTimeout(() => {
+        touchDraft((document) => {
+          const view = getView(document, selectedViewId);
+          const nodeId = view?.rootNodeIds[view.rootNodeIds.length - 1];
+          if (!nodeId) return;
+          const node = document.nodes[nodeId];
+          if (!node || node.type !== "divider") return;
+          node.props = {
+            mode: String(payload.mode || "line"),
+            text: String(payload.text || ""),
+            symbol: String(payload.symbol || ""),
+            emoji: String(payload.emoji || ""),
+            repeat: Number(payload.repeat || 1),
+          };
+        });
+      }, 0);
+      return;
+    }
+
+    if (item.category === "style_block") {
+      addNodeToCurrentView("style_block");
+      setTimeout(() => {
+        touchDraft((document) => {
+          const view = getView(document, selectedViewId);
+          const nodeId = view?.rootNodeIds[view.rootNodeIds.length - 1];
+          if (!nodeId) return;
+          const node = document.nodes[nodeId];
+          if (!node || node.type !== "style_block") return;
+          node.props.variant = String(payload.variant || "warning_strip");
+          node.props.title = String(payload.title || item.name);
+          node.props.description = String(payload.description || "");
+          node.props.accentColor = String(payload.accentColor || "#B11226");
+        });
+      }, 0);
+      return;
+    }
+
+    if (item.category === "style_pack") {
+      applyThemePack({
+        id: String(payload.id || makeId("theme")),
+        name: String(payload.name || item.name),
+        accentColor: payload.accentColor ? String(payload.accentColor) : undefined,
+        dividerPresetId: payload.dividerPresetId ? String(payload.dividerPresetId) : undefined,
+        borderStyle: payload.borderStyle as any,
+        emojiStyle: payload.emojiStyle as any,
+        spacingFeel: payload.spacingFeel as any,
+      });
+      return;
+    }
+
+    if (item.category === "emoji") {
+      insertEmoji(String(payload.emoji || item.name));
+      return;
+    }
+
+    if (item.category === "asset_link") {
+      touchDraft((document) => {
+        document.assets.push({
+          id: makeId("asset"),
+          name: item.name,
+          type: "image",
+          url: String(payload.url || ""),
+        });
+      });
+      return;
+    }
+
+    const text = String(payload.text || payload.value || "");
+    if (text) insertMacro(text);
+  };
+
   const publishDocument = () => {
     if (!draft) return;
     if (!publishChannelId.trim()) {
@@ -1376,7 +1705,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       return;
     }
     if (diagnostics.some((entry) => entry.level === "error")) {
-      setActiveArea("post");
+      setActiveArea("publish");
       toast({ title: "Fix errors first", description: "Publishing is blocked until validation errors are resolved.", variant: "destructive" });
       return;
     }
@@ -1443,7 +1772,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const archivePublication = (publicationId: number) => {
     archivePublicationMutation.mutate(publicationId, {
       onSuccess: () => {
-        toast({ title: "Publication archived", description: "The live panel is now archived." });
+        toast({ title: "Publication archived", description: "The live message is now archived." });
         studioPublicationsQuery.refetch();
       },
       onError: (error: any) => toast({ title: "Archive failed", description: error.message, variant: "destructive" }),
@@ -1600,7 +1929,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const importFromJson = () => {
     try {
       const parsed = JSON.parse(importText);
-      const normalized = normalizeDocumentDraft(parsed, draft?.meta.name || "Imported Panel");
+      const normalized = normalizeDocumentDraft(parsed, draft?.meta.name || "Imported Project");
       setDraft(normalized);
       setDirty(true);
       setSelectedViewId(normalized.meta.entryViewId);
@@ -1616,26 +1945,17 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     toast({ title: "JSON copied", description: "Studio document JSON is on your clipboard." });
   };
 
-  const openModuleSurface = (binding: string) => {
-    const existing = documents.find((record) => record.moduleBinding === binding && record.kind === "surface" && !record.isArchived);
-    if (existing) {
-      loadDocument(existing.id);
-      return;
-    }
-    createDocument(binding, "surface");
-  };
-
   const renderOverviewSection = () => (
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Message Setup</CardTitle>
+          <CardTitle className="font-display text-base">Project</CardTitle>
           <CardDescription>Keep one message model across embeds, components, actions, and modals.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Panel Name</Label>
+              <Label>Project Name</Label>
               <Input value={draft?.meta.name || ""} onChange={(event) => touchDraft((document) => { document.meta.name = event.target.value; })} />
             </div>
             <div className="space-y-2">
@@ -1822,11 +2142,128 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </Card>
   );
 
+  const renderLibraryShelfSection = () => (
+    <Card className="glass-card border-white/10 bg-background/40">
+      <CardHeader>
+        <CardTitle className="font-display text-base">Library</CardTitle>
+        <CardDescription>Reusable snippets, dividers, blocks, and asset links. Save personal or server-shared items.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <Input value={librarySearch} onChange={(event) => setLibrarySearch(event.target.value)} placeholder="Search library" />
+          <Select value={libraryScopeFilter} onValueChange={(value: LibraryScopeFilter) => setLibraryScopeFilter(value)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Scopes</SelectItem>
+              <SelectItem value="personal">Personal</SelectItem>
+              <SelectItem value="server">Server</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={libraryCategoryFilter} onValueChange={(value: LibraryCategoryFilter) => setLibraryCategoryFilter(value)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              <SelectItem value="divider">Dividers</SelectItem>
+              <SelectItem value="symbol">Symbols</SelectItem>
+              <SelectItem value="emoji">Emoji</SelectItem>
+              <SelectItem value="format">Formatting</SelectItem>
+              <SelectItem value="style_block">Style Blocks</SelectItem>
+              <SelectItem value="style_pack">Style Packs</SelectItem>
+              <SelectItem value="asset_link">Asset Links</SelectItem>
+              <SelectItem value="snippet">Snippets</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant={libraryFavoritesOnly ? "default" : "outline"} onClick={() => setLibraryFavoritesOnly((prev) => !prev)}>
+            {libraryFavoritesOnly ? "Favorites Only" : "Show Favorites"}
+          </Button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {libraryItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground md:col-span-2 xl:col-span-3">No saved items for this filter yet.</p>
+          ) : null}
+          {libraryItems.map((item) => {
+            const payload = (item.payload || {}) as Record<string, unknown>;
+            const preview = String(payload.text || payload.url || payload.symbol || payload.emoji || payload.title || "");
+            return (
+              <div key={item.id} className="rounded-2xl border border-white/10 bg-background/30 p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{item.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{item.category} - {item.scope}</p>
+                  </div>
+                  <Badge variant={item.favorite ? "default" : "outline"}>{item.favorite ? "Fav" : "Saved"}</Badge>
+                </div>
+                <p className="line-clamp-2 min-h-[2.5rem] text-xs text-muted-foreground">{preview || "No preview payload"}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => insertLibraryItem(item)}>Insert</Button>
+                  {preview ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(preview);
+                        toast({ title: "Copied", description: `${item.name} copied.` });
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => toggleLibraryFavoriteMutation.mutate({ id: item.id, favorite: !item.favorite })}
+                  >
+                    {item.favorite ? "Unfavorite" : "Favorite"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => deleteLibraryItemMutation.mutate(item.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <Separator className="bg-white/10" />
+
+        <div className="space-y-3 rounded-2xl border border-white/10 bg-background/25 p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr,160px]">
+            <Input value={libraryItemName} onChange={(event) => setLibraryItemName(event.target.value)} placeholder="New library item name" />
+            <Select value={librarySaveScope} onValueChange={(value: "personal" | "server") => setLibrarySaveScope(value)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personal">Personal</SelectItem>
+                <SelectItem value="server">Server Shared</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={saveSelectedDividerToLibrary} disabled={selectedNode?.type !== "divider"}>Save Divider</Button>
+            <Button variant="outline" size="sm" onClick={saveSelectedStyleBlockToLibrary} disabled={selectedNode?.type !== "style_block"}>Save Style Block</Button>
+            <Button variant="outline" size="sm" onClick={saveCurrentThemeToLibrary}>Save Theme</Button>
+            <Button variant="outline" size="sm" onClick={saveMessageSnippetToLibrary}>Save Snippet</Button>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[180px,1fr,auto]">
+            <Input value={libraryAssetName} onChange={(event) => setLibraryAssetName(event.target.value)} placeholder="Asset name" />
+            <Input value={libraryAssetUrl} onChange={(event) => setLibraryAssetUrl(event.target.value)} placeholder="https://image-or-file-link" />
+            <Button variant="outline" onClick={saveAssetLinkToLibrary}>Save Asset Link</Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   const renderDesignSection = () => (
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Divider Lab</CardTitle>
+          <CardTitle className="font-display text-base">Divider Library</CardTitle>
           <CardDescription>Create reusable line, symbol, emoji, and stacked separators.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1950,12 +2387,12 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Templates and JSON</CardTitle>
-          <CardDescription>Duplicate panels into templates, export JSON, and load another Studio payload into the current draft.</CardDescription>
+          <CardDescription>Duplicate projects into templates, export JSON, and load another Studio payload into the current draft.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => duplicateCurrent(true)} className="gap-2"><Copy className="h-4 w-4" />Save As Template</Button>
-            <Button variant="outline" onClick={() => duplicateCurrent(false)} className="gap-2"><FilePlus2 className="h-4 w-4" />Duplicate Panel</Button>
+            <Button variant="outline" onClick={() => duplicateCurrent(false)} className="gap-2"><FilePlus2 className="h-4 w-4" />Duplicate Project</Button>
             <Button variant="outline" onClick={exportJson}>Export JSON</Button>
           </div>
           <div className="space-y-2">
@@ -1968,8 +2405,8 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Saved Documents</CardTitle>
-          <CardDescription>Switch between panels, messages, and templates without leaving Studio.</CardDescription>
+          <CardTitle className="font-display text-base">Saved Projects</CardTitle>
+          <CardDescription>Switch between projects, messages, and templates without leaving Studio.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {documents.map((record) => (
@@ -2172,7 +2609,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Validation Summary</CardTitle>
-          <CardDescription>Fix errors before posting. Warnings can publish but may degrade output.</CardDescription>
+          <CardDescription>Fix errors before publishing. Warnings can publish but may degrade output.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -2188,11 +2625,16 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
             <div className="space-y-2">
               {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This message is publish-safe.</p> : null}
               {diagnostics.map((entry, index) => (
-                <div key={`${entry.code}-${index}`} className="rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-xs">
+                <button
+                  key={`${entry.code}-${index}`}
+                  type="button"
+                  onClick={() => jumpToDiagnosticPath(entry.path)}
+                  className="w-full rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-left text-xs transition hover:border-primary/30"
+                >
                   <p className={cn("font-medium uppercase", entry.level === "error" ? "text-red-400" : entry.level === "warning" ? "text-amber-300" : "text-muted-foreground")}>{entry.level}</p>
                   <p className="text-muted-foreground">{entry.message}</p>
                   {entry.path ? <p className="text-[10px] text-muted-foreground/80">{entry.path}</p> : null}
-                </div>
+                </button>
               ))}
             </div>
           </ScrollArea>
@@ -2201,7 +2643,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Post</CardTitle>
+          <CardTitle className="font-display text-base">Publish</CardTitle>
           <CardDescription>Pick a channel, publish new, or update an existing message.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -2259,6 +2701,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
 
   const renderDesignWorkspace = () => (
     <div className="space-y-4">
+      {renderLibraryShelfSection()}
       {renderDesignSection()}
       {renderTemplatesSection()}
     </div>
@@ -2266,9 +2709,9 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
 
   const renderActiveWorkspace = () => {
     switch (activeArea) {
-      case "lab":
+      case "library":
         return renderDesignWorkspace();
-      case "post":
+      case "publish":
         return renderPublishSection();
       case "preview":
         return null;
@@ -3030,18 +3473,120 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   }
 
   if (!draft) {
+    const templateRecords = documents.filter((record) => record.kind === "template");
+    const projectRecords = documents.filter((record) => record.kind !== "template");
+    const starterIntentLabel: Record<StudioEntryIntent, string> = {
+      blank: "Blank Project",
+      ticket: "Ticket Starter",
+      welcome: "Welcome Starter",
+      verify: "Verify Starter",
+      template: "Template Starter",
+    };
+
     return (
       <div className="space-y-6">
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
-            <CardTitle className="font-display text-xl">Design Studio</CardTitle>
-            <CardDescription>Build reusable panels, messages, actions, and publish flows for your server.</CardDescription>
+            <CardTitle className="font-display text-xl">Studio Home</CardTitle>
+            <CardDescription>
+              Start from a blank project, templates, or module starters. Current intent: {starterIntentLabel[entryIntent]}.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-3">
-            <Button onClick={() => createDocument(undefined, "surface")} className="gap-2"><Plus className="h-4 w-4" />New Panel</Button>
-            <Button variant="outline" onClick={() => createDocument(undefined, "template")} className="gap-2"><Copy className="h-4 w-4" />New Template</Button>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <Button onClick={() => createDocument(undefined, "surface", "Untitled Project")} className="justify-start gap-2">
+                <Plus className="h-4 w-4" />
+                New Project
+              </Button>
+              <Button
+                variant={entryIntent === "ticket" ? "default" : "outline"}
+                onClick={() => createDocument("ticket_panel", "surface", "Ticket Panel")}
+                className="justify-start gap-2"
+              >
+                <Workflow className="h-4 w-4" />
+                Ticket Starter
+              </Button>
+              <Button
+                variant={entryIntent === "welcome" ? "default" : "outline"}
+                onClick={() => createDocument("welcome", "surface", "Welcome Message")}
+                className="justify-start gap-2"
+              >
+                <Sparkles className="h-4 w-4" />
+                Welcome Starter
+              </Button>
+              <Button
+                variant={entryIntent === "verify" ? "default" : "outline"}
+                onClick={() => createDocument("verify", "surface", "Verification Panel")}
+                className="justify-start gap-2"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Verify Starter
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => createDocument(undefined, "template")} className="gap-2">
+                <Copy className="h-4 w-4" />
+                New Template
+              </Button>
+              {entryIntent === "template" && templateRecords[0] ? (
+                <Button variant="outline" onClick={() => loadDocument(templateRecords[0].id)} className="gap-2">
+                  <Library className="h-4 w-4" />
+                  Open Latest Template
+                </Button>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="glass-card border-white/10 bg-background/40">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Recent Drafts</CardTitle>
+              <CardDescription>Jump back into recent project work.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {projectRecords.slice(0, 6).map((record) => (
+                <button
+                  key={`home-recent-${record.id}`}
+                  type="button"
+                  onClick={() => loadDocument(record.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-background/30 px-3 py-2 text-left hover:border-white/20"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{record.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{record.moduleBinding ? getBindingLabel(record.moduleBinding) : "General project"}</p>
+                  </div>
+                  <Badge variant="outline">#{record.id}</Badge>
+                </button>
+              ))}
+              {projectRecords.length === 0 ? <p className="text-sm text-muted-foreground">No drafts yet.</p> : null}
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-white/10 bg-background/40">
+            <CardHeader>
+              <CardTitle className="font-display text-base">Templates</CardTitle>
+              <CardDescription>Reusable templates for fast starts.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {templateRecords.slice(0, 6).map((record) => (
+                <button
+                  key={`home-template-${record.id}`}
+                  type="button"
+                  onClick={() => loadDocument(record.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-background/30 px-3 py-2 text-left hover:border-white/20"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{record.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">Template</p>
+                  </div>
+                  <Badge variant="outline">#{record.id}</Badge>
+                </button>
+              ))}
+              {templateRecords.length === 0 ? <p className="text-sm text-muted-foreground">No templates saved yet.</p> : null}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -3148,15 +3693,51 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           </SheetContent>
         </Sheet>
 
-        <Drawer open={inspectorOpen} onOpenChange={setInspectorOpen}>
-          <DrawerContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-background/95">
-            <DrawerHeader>
-              <DrawerTitle>Inspector</DrawerTitle>
-              <DrawerDescription>Edit the selected embed, block, action, or modal.</DrawerDescription>
-            </DrawerHeader>
-            <div className="px-4 pb-6">{inspectorBody}</div>
-          </DrawerContent>
-        </Drawer>
+        <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
+          <SheetContent side="bottom" className="h-[96vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
+            <SheetHeader>
+              <SheetTitle>Composer</SheetTitle>
+              <SheetDescription>
+                {selectedEditorType === "none" ? "Pick an embed, component, action, or modal to edit." : `Editing ${selectedEditorType}`}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button variant={composerMode === "edit" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("edit")}>Edit</Button>
+              <Button variant={composerMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("preview")}>Preview</Button>
+              <Button variant={composerMode === "json" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("json")}>JSON</Button>
+              {selectedEditorDiagnostics.length > 0 ? (
+                <Badge variant={selectedEditorDiagnostics.some((diag) => diag.level === "error") ? "destructive" : "secondary"}>
+                  {selectedEditorDiagnostics.length} issue{selectedEditorDiagnostics.length === 1 ? "" : "s"}
+                </Badge>
+              ) : (
+                <Badge variant="outline">No issues</Badge>
+              )}
+            </div>
+            <div className="mt-4 pb-6">
+              {composerMode === "edit" ? inspectorBody : null}
+              {composerMode === "preview" ? previewPanel : null}
+              {composerMode === "json" ? (
+                <div className="space-y-2">
+                  <Textarea
+                    readOnly
+                    value={selectedEditorPayload ? JSON.stringify(selectedEditorPayload, null, 2) : "{}"}
+                    className="min-h-[65vh] font-mono text-xs"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      const json = selectedEditorPayload ? JSON.stringify(selectedEditorPayload, null, 2) : "{}";
+                      await navigator.clipboard.writeText(json);
+                      toast({ title: "JSON copied", description: "Composer JSON copied to clipboard." });
+                    }}
+                  >
+                    Copy JSON
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </SheetContent>
+        </Sheet>
 
         <Drawer open={quickAddOpen} onOpenChange={setQuickAddOpen}>
           <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">

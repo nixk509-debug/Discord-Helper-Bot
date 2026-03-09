@@ -33,7 +33,7 @@ export function VerifyTab({ serverId, settings }: VerifyTabProps) {
   const verifyPublication = (studioPublications as any[]).find((entry) => entry.id === settings?.verifyPublicationId) || null;
 
   const openStudio = (documentId: number) => {
-    navigate(`/dashboard/servers/${serverId}/studio?documentId=${documentId}`);
+    navigate(`/dashboard/servers/${serverId}/studio?intent=verify&documentId=${documentId}`);
   };
 
   const handleCreateSurface = () => {

@@ -1,8 +1,9 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   COMPONENT_TYPES,
   studioDocuments,
+  studioLibraryItems,
   studioPublications,
   studioPublicationSnapshots,
   studioRuntimeEvents,
@@ -19,6 +20,9 @@ import {
   type StudioDocumentRecord,
   type StudioDocumentScope,
   type StudioEmbedDraft,
+  type StudioLibraryCategory,
+  type StudioLibraryItemRecord,
+  type StudioLibraryScope,
   type StudioModalDefinition,
   type StudioNode,
   type StudioPublication,
@@ -62,7 +66,7 @@ export function createDefaultStudioDocument(input?: {
   const detailFieldId = makeId("field");
 
   const binding = input?.moduleBinding || "";
-  const title = input?.name || "Untitled Surface";
+  const title = input?.name || "Untitled Project";
   const introText =
     binding === "verify"
       ? "Read the requirements and use the button below to continue."
@@ -321,7 +325,7 @@ export function legacyStudioPayloadToDocument(payload: any, templateName: string
   };
 }
 
-export function normalizeStudioDocument(document: any, fallbackName = "Untitled Surface"): StudioDocument {
+export function normalizeStudioDocument(document: any, fallbackName = "Untitled Project"): StudioDocument {
   if (document && typeof document === "object" && document.version === 2 && document.meta?.entryViewId) {
     return {
       version: 2,
@@ -427,6 +431,90 @@ export async function updateStudioDocumentRecord(id: number, patch: Partial<Stud
     .where(eq(studioDocuments.id, id))
     .returning();
   return updated;
+}
+
+export async function listStudioLibraryItems(
+  serverId: number,
+  userId: number,
+  options?: {
+    scope?: StudioLibraryScope | "all";
+    category?: StudioLibraryCategory | "all";
+    search?: string;
+    favoritesOnly?: boolean;
+  },
+) {
+  const filters: any[] = [eq(studioLibraryItems.serverId, serverId)];
+
+  if (options?.scope === "server") {
+    filters.push(eq(studioLibraryItems.scope, "server"));
+  } else if (options?.scope === "personal") {
+    filters.push(and(eq(studioLibraryItems.scope, "personal"), eq(studioLibraryItems.ownerUserId, userId)));
+  } else {
+    filters.push(
+      or(
+        eq(studioLibraryItems.scope, "server"),
+        and(eq(studioLibraryItems.scope, "personal"), eq(studioLibraryItems.ownerUserId, userId)),
+      ),
+    );
+  }
+
+  if (options?.category && options.category !== "all") {
+    filters.push(eq(studioLibraryItems.category, options.category));
+  }
+
+  if (options?.favoritesOnly) {
+    filters.push(eq(studioLibraryItems.favorite, true));
+  }
+
+  const search = options?.search?.trim();
+  if (search) {
+    const pattern = `%${search}%`;
+    filters.push(
+      or(
+        ilike(studioLibraryItems.name, pattern),
+        sql`cast(${studioLibraryItems.tags} as text) ilike ${pattern}`,
+      ),
+    );
+  }
+
+  return db.select().from(studioLibraryItems).where(and(...filters)).orderBy(desc(studioLibraryItems.updatedAt));
+}
+
+export async function getStudioLibraryItemById(id: number) {
+  const [item] = await db.select().from(studioLibraryItems).where(eq(studioLibraryItems.id, id));
+  return item;
+}
+
+export async function createStudioLibraryItem(input: {
+  serverId: number;
+  ownerUserId?: number | null;
+  scope: StudioLibraryScope;
+  category: StudioLibraryCategory;
+  name: string;
+  payload: Record<string, unknown>;
+  tags?: string[];
+  favorite?: boolean;
+}) {
+  const [created] = await db.insert(studioLibraryItems).values({
+    ...input,
+    ownerUserId: input.scope === "personal" ? (input.ownerUserId ?? null) : null,
+    tags: input.tags || [],
+    favorite: Boolean(input.favorite),
+    updatedAt: new Date(),
+  } as any).returning();
+  return created;
+}
+
+export async function updateStudioLibraryItemRecord(id: number, patch: Partial<StudioLibraryItemRecord>) {
+  const [updated] = await db.update(studioLibraryItems)
+    .set({ ...patch, updatedAt: new Date() } as any)
+    .where(eq(studioLibraryItems.id, id))
+    .returning();
+  return updated;
+}
+
+export async function deleteStudioLibraryItemRecord(id: number) {
+  await db.delete(studioLibraryItems).where(eq(studioLibraryItems.id, id));
 }
 
 export async function listStudioPublications(serverId: number) {

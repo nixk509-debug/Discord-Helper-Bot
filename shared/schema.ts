@@ -246,6 +246,20 @@ export const studioRuntimeEvents = pgTable("studio_runtime_events", {
   occurredAt: timestamp("occurred_at").defaultNow(),
 });
 
+export const studioLibraryItems = pgTable("studio_library_items", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  ownerUserId: integer("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  scope: text("scope").notNull().default("personal"),
+  category: text("category").notNull(),
+  name: text("name").notNull(),
+  payload: jsonb("payload").notNull(),
+  tags: jsonb("tags").$type<string[]>().default([]),
+  favorite: boolean("favorite").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // --- CUSTOM COMMANDS ---
 export const customCommands = pgTable("custom_commands", {
   id: serial("id").primaryKey(),
@@ -724,6 +738,7 @@ export const serverRelations = relations(servers, ({ one, many }) => ({
   studioDocuments: many(studioDocuments),
   studioPublications: many(studioPublications),
   studioRuntimeEvents: many(studioRuntimeEvents),
+  studioLibraryItems: many(studioLibraryItems),
   customCommands: many(customCommands),
   embeds: many(embeds),
   channelSettings: many(channelSettings),
@@ -815,6 +830,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   templates: many(templates),
   studioDocuments: many(studioDocuments),
   studioPublicationSnapshots: many(studioPublicationSnapshots),
+  studioLibraryItems: many(studioLibraryItems),
 }));
 
 export const templatesRelations = relations(templates, ({ one }) => ({
@@ -845,6 +861,11 @@ export const studioRuntimeEventsRelations = relations(studioRuntimeEvents, ({ on
   server: one(servers, { fields: [studioRuntimeEvents.serverId], references: [servers.id] }),
   document: one(studioDocuments, { fields: [studioRuntimeEvents.documentId], references: [studioDocuments.id] }),
   publication: one(studioPublications, { fields: [studioRuntimeEvents.publicationId], references: [studioPublications.id] }),
+}));
+
+export const studioLibraryItemsRelations = relations(studioLibraryItems, ({ one }) => ({
+  server: one(servers, { fields: [studioLibraryItems.serverId], references: [servers.id] }),
+  owner: one(users, { fields: [studioLibraryItems.ownerUserId], references: [users.id] }),
 }));
 
 export const automationsRelations = relations(automations, ({ one }) => ({
@@ -967,6 +988,16 @@ export interface InteractiveActionConfig {
 
 export type StudioDocumentScope = "server" | "personal" | "starter";
 export type StudioDocumentKind = "surface" | "template" | "divider_preset" | "style_block" | "theme_pack";
+export type StudioLibraryScope = "personal" | "server";
+export type StudioLibraryCategory =
+  | "divider"
+  | "symbol"
+  | "emoji"
+  | "format"
+  | "style_block"
+  | "style_pack"
+  | "asset_link"
+  | "snippet";
 export type StudioModuleBinding =
   | "verify"
   | "welcome"
@@ -990,6 +1021,20 @@ export type StudioNodeType =
   | "divider"
   | "style_block";
 export type StudioPublicationStatus = "draft" | "published" | "archived" | "degraded" | "failed";
+
+export interface StudioLibraryItem {
+  id: number;
+  serverId: number;
+  ownerUserId?: number | null;
+  scope: StudioLibraryScope;
+  category: StudioLibraryCategory;
+  name: string;
+  payload: Record<string, unknown>;
+  tags: string[];
+  favorite: boolean;
+  createdAt: Date | string | null;
+  updatedAt: Date | string | null;
+}
 
 export interface StudioUserState {
   recentEmoji?: string[];
@@ -1409,6 +1454,7 @@ export const insertStudioDocumentSchema = createInsertSchema(studioDocuments).om
 export const insertStudioPublicationSchema = createInsertSchema(studioPublications).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStudioPublicationSnapshotSchema = createInsertSchema(studioPublicationSnapshots).omit({ id: true, createdAt: true });
 export const insertStudioRuntimeEventSchema = createInsertSchema(studioRuntimeEvents).omit({ id: true, occurredAt: true });
+export const insertStudioLibraryItemSchema = createInsertSchema(studioLibraryItems).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAutomationSchema = createInsertSchema(automations).omit({ id: true, createdAt: true, updatedAt: true, serverId: true });
 export const insertServerVariableSchema = createInsertSchema(serverVariables).omit({ id: true, updatedAt: true, serverId: true });
 export const insertEconomySchema = createInsertSchema(economy).omit({ id: true, createdAt: true, serverId: true });
@@ -1450,6 +1496,7 @@ export type StudioDocumentRecord = typeof studioDocuments.$inferSelect;
 export type StudioPublication = typeof studioPublications.$inferSelect;
 export type StudioPublicationSnapshotRecord = typeof studioPublicationSnapshots.$inferSelect;
 export type StudioRuntimeEvent = typeof studioRuntimeEvents.$inferSelect;
+export type StudioLibraryItemRecord = typeof studioLibraryItems.$inferSelect;
 export type Automation = typeof automations.$inferSelect;
 export type ServerVariable = typeof serverVariables.$inferSelect;
 export type EconomyAccount = typeof economy.$inferSelect;
@@ -1475,6 +1522,7 @@ export type InsertStudioDocument = z.infer<typeof insertStudioDocumentSchema>;
 export type InsertStudioPublication = z.infer<typeof insertStudioPublicationSchema>;
 export type InsertStudioPublicationSnapshot = z.infer<typeof insertStudioPublicationSnapshotSchema>;
 export type InsertStudioRuntimeEvent = z.infer<typeof insertStudioRuntimeEventSchema>;
+export type InsertStudioLibraryItem = z.infer<typeof insertStudioLibraryItemSchema>;
 export type InsertAutomation = z.infer<typeof insertAutomationSchema>;
 export type InsertServerVariable = z.infer<typeof insertServerVariableSchema>;
 

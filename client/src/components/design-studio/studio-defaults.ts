@@ -4,6 +4,14 @@ function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export const STUDIO_ENTRY_INTENTS = ["blank", "ticket", "welcome", "verify", "template"] as const;
+export type StudioEntryIntent = (typeof STUDIO_ENTRY_INTENTS)[number];
+
+export function parseStudioEntryIntent(value: string | null | undefined): StudioEntryIntent {
+  if (!value) return "blank";
+  return (STUDIO_ENTRY_INTENTS as readonly string[]).includes(value) ? (value as StudioEntryIntent) : "blank";
+}
+
 export function createStudioDocument(binding?: StudioModuleBinding, name?: string): StudioDocument {
   const entryViewId = "entry";
   const textId = makeId("txt");
@@ -31,7 +39,7 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
     version: 2,
     meta: {
       name: title,
-      category: binding || "panel",
+      category: binding || "project",
       entryViewId,
     },
     views: {
@@ -42,7 +50,7 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
         embeds: [
           {
             title,
-            description: descriptionByBinding[binding || ""] || "Author a reusable Discord panel or message.",
+            description: descriptionByBinding[binding || ""] || "Author a reusable Discord message project.",
             color: "#B11226",
           },
         ],
@@ -175,15 +183,15 @@ export function defaultSurfaceName(binding?: StudioModuleBinding | null) {
     case "ticket_panel":
       return "Ticket Panel";
     default:
-      return "Untitled Panel";
+      return "Untitled Project";
   }
 }
 
 export const STUDIO_MAIN_AREAS = [
   { id: "build", label: "Build" },
   { id: "preview", label: "Preview" },
-  { id: "lab", label: "Lab" },
-  { id: "post", label: "Post" },
+  { id: "library", label: "Library" },
+  { id: "publish", label: "Publish" },
 ] as const;
 
 // Keep these exports for compatibility with existing imports.
