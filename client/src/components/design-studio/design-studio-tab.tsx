@@ -46,11 +46,15 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { DiscordChannelPicker } from "@/components/discord/channel-picker";
+import { DesignStudioMobileHome } from "@/components/design-studio/design-studio-mobile-home";
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
+  createStudioPrimaryDocument,
   createStudioDocument as createStudioDocumentDraft,
+  defaultPrimarySurfaceName,
   defaultSurfaceName,
   parseStudioEntryIntent,
+  type StudioPrimarySurfaceType,
   type StudioEntryIntent,
   STUDIO_MAIN_AREAS,
 } from "@/components/design-studio/studio-defaults";
@@ -101,6 +105,8 @@ type PreviewMode = "desktop" | "mobile" | "compact";
 type ComposerMode = "edit" | "preview" | "json";
 type LibraryScopeFilter = "all" | "personal" | "server";
 type LibraryCategoryFilter = "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
+type BuildFocusId = "project" | "body" | "embeds" | "components" | "actions" | "modals" | "assets";
+type LibraryModeId = "shelf" | "tools" | "templates";
 
 type PublicationWithMeta = StudioPublication & {
   documentName?: string;
@@ -722,7 +728,7 @@ function editorReducer(state: StudioEditorState, action: StudioEditorAction): St
   }
 }
 
-export function DesignStudioTab({ serverId }: { serverId: number; toast?: any }) {
+export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: number; onOpenServerSettings?: () => void; toast?: any }) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
@@ -754,6 +760,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [selectedModalId, setSelectedModalId] = useState<string | null>(null);
   const [selectedEmbedIndex, setSelectedEmbedIndex] = useState<number | null>(null);
   const [activeArea, setActiveArea] = useState<StudioAreaId>("build");
+  const [buildFocusId, setBuildFocusId] = useState<BuildFocusId>("body");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("mobile");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -769,6 +776,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
   const [emojiState, setEmojiState] = useState<{ recent: string[]; favorites: string[] }>({ recent: [], favorites: [] });
   const [libraryScopeFilter, setLibraryScopeFilter] = useState<LibraryScopeFilter>("all");
   const [libraryCategoryFilter, setLibraryCategoryFilter] = useState<LibraryCategoryFilter>("all");
+  const [libraryModeId, setLibraryModeId] = useState<LibraryModeId>("shelf");
   const [librarySearch, setLibrarySearch] = useState("");
   const [libraryFavoritesOnly, setLibraryFavoritesOnly] = useState(false);
   const [librarySaveScope, setLibrarySaveScope] = useState<"personal" | "server">("personal");
@@ -1072,6 +1080,35 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
           url.searchParams.set("documentId", String(created.id));
           window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
           toast({ title: kind === "template" ? "Template created" : "Project created", description: `${created.name} is ready in Studio.` });
+        },
+        onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const createPrimaryDocument = (primaryType: StudioPrimarySurfaceType) => {
+    const name = defaultPrimarySurfaceName(primaryType);
+    const document = createStudioPrimaryDocument(primaryType, name);
+    createDocumentMutation.mutate(
+      {
+        scope: "server",
+        kind: "surface",
+        name,
+        document,
+      },
+      {
+        onSuccess: (created: StudioDocumentRecord) => {
+          setCurrentDocumentId(created.id);
+          setDraft(cloneDocument(normalizeDocumentDraft(created.document, created.name)));
+          setDirty(false);
+          setActiveArea("build");
+          setPreviewOpen(false);
+          setInspectorOpen(false);
+          loadedDocumentIdRef.current = created.id;
+          const url = new URL(window.location.href);
+          url.searchParams.set("documentId", String(created.id));
+          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+          toast({ title: "Project created", description: `${created.name} is ready in Studio.` });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
       },
@@ -3468,7 +3505,7 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
     </div>
   );
 
-  if (!draft && studioDocumentsQuery.isLoading) {
+  if (!draft && studioDocumentsQuery.isLoading && !isMobile) {
     return <Card className="glass-card"><CardContent className="py-12 text-sm text-muted-foreground">Loading Design Studio...</CardContent></Card>;
   }
 
@@ -3482,6 +3519,23 @@ export function DesignStudioTab({ serverId }: { serverId: number; toast?: any })
       verify: "Verify Starter",
       template: "Template Starter",
     };
+
+    if (isMobile) {
+      return (
+        <DesignStudioMobileHome
+          documents={documents}
+          publications={publications}
+          isLoading={studioDocumentsQuery.isLoading}
+          isCreating={createDocumentMutation.isPending}
+          onBack={onOpenServerSettings || (() => window.history.back())}
+          onOpenSettings={onOpenServerSettings || (() => window.history.back())}
+          onOpenDocument={loadDocument}
+          onCreatePrimary={createPrimaryDocument}
+          onCreateTemplate={() => createDocument(undefined, "template")}
+          onCreateModuleTemplate={(binding) => createDocument(binding, "surface")}
+        />
+      );
+    }
 
     return (
       <div className="space-y-6">

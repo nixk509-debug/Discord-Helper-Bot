@@ -1,4 +1,4 @@
-import type { StudioDiagnostic, StudioDocument, StudioNode } from "@shared/schema";
+import type { StudioDiagnostic, StudioDocument, StudioEmbedDraft, StudioNode } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -19,18 +19,136 @@ function dividerText(node: StudioNode) {
   const mode = String(node.props.mode || "line");
   const repeat = Math.max(1, Math.min(12, Number(node.props.repeat || 5)));
   if (mode === "emoji") {
-    const emoji = String(node.props.emoji || "✨");
+    const emoji = String(node.props.emoji || "*");
     return Array.from({ length: repeat }, () => emoji).join(" ");
   }
   if (mode === "symbol") {
-    const symbol = String(node.props.symbol || "•");
+    const symbol = String(node.props.symbol || "*");
     return Array.from({ length: repeat }, () => symbol).join(" ");
   }
   if (mode === "stacked") {
-    const text = String(node.props.text || "────");
+    const text = String(node.props.text || "----");
     return Array.from({ length: Math.min(3, repeat) }, () => text).join("\n");
   }
-  return String(node.props.text || "────────");
+  return String(node.props.text || "--------");
+}
+
+function EmbedPreviewCard({ embed }: { embed: StudioEmbedDraft }) {
+  const fields = Array.isArray(embed.fields) ? embed.fields : [];
+  const hasEmbedContent = Boolean(
+    embed.title ||
+      embed.description ||
+      embed.authorName ||
+      embed.footerText ||
+      embed.imageUrl ||
+      embed.thumbnailUrl ||
+      fields.length > 0,
+  );
+
+  if (!hasEmbedContent) {
+    return (
+      <div className="rounded-xl border border-dashed border-white/10 bg-[#2b2d31]/70 p-4 text-xs text-[#949ba4]">
+        Empty embed
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-white/10 bg-[#2b2d31]"
+      style={{ borderLeft: `4px solid ${embed.color || "#5865F2"}` }}
+    >
+      <div className={cn("gap-4 p-4", embed.thumbnailUrl ? "grid grid-cols-[minmax(0,1fr),84px]" : "block")}>
+        <div className="min-w-0">
+          {embed.authorName ? (
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-white">
+              {embed.authorIconUrl ? (
+                <img
+                  src={embed.authorIconUrl}
+                  alt=""
+                  className="h-6 w-6 rounded-full object-cover"
+                  onError={(event) => {
+                    (event.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : null}
+              <span className={cn(embed.authorUrl ? "text-[#00A8FC]" : "text-white")}>{embed.authorName}</span>
+            </div>
+          ) : null}
+
+          {embed.title ? (
+            <p className={cn("text-sm font-semibold", embed.url ? "text-[#00A8FC]" : "text-white")}>{embed.title}</p>
+          ) : null}
+
+          {embed.description ? (
+            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-[#dbdee1]">{embed.description}</p>
+          ) : null}
+
+          {fields.length > 0 ? (
+            <div
+              className="mt-3 grid gap-2"
+              style={{
+                gridTemplateColumns: fields.some((field) => field.inline) ? "repeat(3, minmax(0, 1fr))" : "1fr",
+              }}
+            >
+              {fields.map((field, index) => (
+                <div key={`preview-field-${index}`} className={field.inline ? "" : "col-span-full"}>
+                  <p className="text-xs font-semibold text-white">{field.name || "\u200B"}</p>
+                  <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">{field.value || "\u200B"}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {embed.imageUrl ? (
+            <div className="mt-3 overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">
+              <img
+                src={embed.imageUrl}
+                alt=""
+                className="max-h-[320px] w-full object-cover"
+                onError={(event) => {
+                  (event.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            </div>
+          ) : null}
+
+          {embed.footerText || embed.timestamp ? (
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-[#949ba4]">
+              {embed.footerIconUrl ? (
+                <img
+                  src={embed.footerIconUrl}
+                  alt=""
+                  className="h-5 w-5 rounded-full object-cover"
+                  onError={(event) => {
+                    (event.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : null}
+              <span>
+                {embed.footerText || ""}
+                {embed.footerText && embed.timestamp ? " - " : ""}
+                {embed.timestamp ? new Date().toLocaleDateString() : ""}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {embed.thumbnailUrl ? (
+          <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">
+            <img
+              src={embed.thumbnailUrl}
+              alt=""
+              className="h-[84px] w-[84px] object-cover"
+              onError={(event) => {
+                (event.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function NodePreview({
@@ -91,8 +209,24 @@ function NodePreview({
         <div className="grid grid-cols-2 gap-2">
           {items.length === 0 ? <div className="rounded border border-dashed border-white/10 p-2 text-xs text-[#949ba4]">No media items</div> : null}
           {items.slice(0, 4).map((item: any, index: number) => (
-            <div key={`media-${index}`} className="rounded border border-white/10 bg-[#1e1f22] p-2 text-xs text-[#dbdee1]">
-              {String(item?.url || "Untitled media")}
+            <div key={`media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">
+              {item?.url ? (
+                <img
+                  src={String(item.url)}
+                  alt={String(item?.description || "")}
+                  className="h-full w-full object-cover"
+                  onError={(event) => {
+                    (event.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-[#949ba4]">Missing image</div>
+              )}
+              {item?.spoiler ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-[10px] font-semibold uppercase tracking-[0.25em] text-white">
+                  Spoiler
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -103,7 +237,8 @@ function NodePreview({
   if (node.type === "file") {
     return (
       <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}>
-        📎 {String(node.props.label || "Attachment")} {node.props.url ? `• ${String(node.props.url)}` : ""}
+        Attachment {String(node.props.label || "File")}
+        {node.props.url ? ` - ${String(node.props.url)}` : ""}
       </div>
     );
   }
@@ -160,10 +295,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
 
   const hasErrors = diagnostics.some((entry) => entry.level === "error");
   const hasWarnings = diagnostics.some((entry) => entry.level === "warning");
-  const hasPreviewOnly = diagnostics.some((entry) =>
-    entry.code.includes("RUNTIME_GATED") ||
-    entry.code.includes("PREVIEW_ONLY"),
-  );
+  const hasPreviewOnly = diagnostics.some((entry) => entry.code.includes("RUNTIME_GATED") || entry.code.includes("PREVIEW_ONLY"));
 
   const statusLabel = hasErrors ? "Invalid" : hasWarnings ? "Degraded" : "Publish-safe";
   const statusVariant = hasErrors ? "destructive" : hasWarnings ? "secondary" : "default";
@@ -185,16 +317,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
           )}
 
           {(view?.embeds || []).map((embed, index) => (
-            <div
-              key={`${embed.title || "embed"}-${index}`}
-              className="rounded-xl border border-white/10 bg-[#2b2d31] p-4"
-              style={{ borderLeft: `4px solid ${embed.color || "#5865F2"}` }}
-            >
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-white">{embed.title || "Untitled embed"}</p>
-                <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">{embed.description || "No description"}</p>
-              </div>
-            </div>
+            <EmbedPreviewCard key={`${embed.title || "embed"}-${index}`} embed={embed} />
           ))}
 
           {(view?.rootNodeIds || []).length > 0 ? (

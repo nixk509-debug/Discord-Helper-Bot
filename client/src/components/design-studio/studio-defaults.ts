@@ -1,4 +1,4 @@
-import type { StudioDocument, StudioModuleBinding } from "@shared/schema";
+import type { StudioDocument, StudioModuleBinding, StudioNodeType } from "@shared/schema";
 
 function makeId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -6,6 +6,8 @@ function makeId(prefix: string) {
 
 export const STUDIO_ENTRY_INTENTS = ["blank", "ticket", "welcome", "verify", "template"] as const;
 export type StudioEntryIntent = (typeof STUDIO_ENTRY_INTENTS)[number];
+export const STUDIO_PRIMARY_SURFACE_TYPES = ["message", "embed", "components"] as const;
+export type StudioPrimarySurfaceType = (typeof STUDIO_PRIMARY_SURFACE_TYPES)[number];
 
 export function parseStudioEntryIntent(value: string | null | undefined): StudioEntryIntent {
   if (!value) return "blank";
@@ -166,6 +168,148 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
       themePacks: [],
     },
   };
+}
+
+function createBaseStudioDocument(name: string): StudioDocument {
+  return {
+    version: 2,
+    meta: {
+      name,
+      category: "project",
+      entryViewId: "entry",
+    },
+    views: {
+      entry: {
+        id: "entry",
+        name: "Entry",
+        messageContent: "",
+        embeds: [],
+        rootNodeIds: [],
+      },
+    },
+    nodes: {},
+    actions: {},
+    modals: {},
+    assets: [],
+    libraries: {
+      dividerPresetIds: [],
+      styleBlockIds: [],
+      themePackIds: [],
+    },
+    design: {
+      dividerPresets: [],
+      styleBlocks: [],
+      themePacks: [],
+    },
+  };
+}
+
+export function defaultPrimarySurfaceName(primaryType: StudioPrimarySurfaceType) {
+  switch (primaryType) {
+    case "message":
+      return "Untitled Message";
+    case "embed":
+      return "Untitled Embed";
+    case "components":
+      return "Untitled Components";
+    default:
+      return "Untitled Project";
+  }
+}
+
+export function createStudioPrimaryDocument(primaryType: StudioPrimarySurfaceType, name?: string): StudioDocument {
+  const title = name || defaultPrimarySurfaceName(primaryType);
+  const document = createBaseStudioDocument(title);
+
+  if (primaryType === "embed") {
+    document.views.entry.embeds = [
+      {
+        title: "",
+        description: "",
+        color: "#B11226",
+      },
+    ];
+    return document;
+  }
+
+  if (primaryType === "components") {
+    const sectionId = makeId("sec");
+    const actionRowId = makeId("row");
+    const buttonId = makeId("btn");
+    const actionId = makeId("act");
+
+    document.nodes[sectionId] = {
+      id: sectionId,
+      type: "section",
+      viewId: "entry",
+      childIds: [],
+      props: {
+        heading: "Components Layout",
+        description: "Start arranging sections, buttons, and menus for this message.",
+      },
+    };
+    document.nodes[actionRowId] = {
+      id: actionRowId,
+      type: "action_row",
+      viewId: "entry",
+      childIds: [buttonId],
+      props: {},
+    };
+    document.nodes[buttonId] = {
+      id: buttonId,
+      type: "button",
+      viewId: "entry",
+      childIds: [],
+      actionId,
+      props: {
+        label: "Primary Action",
+        style: 1,
+      },
+    };
+    document.actions[actionId] = {
+      id: actionId,
+      type: "reply_message",
+      label: "Reply",
+      replyMode: "ephemeral",
+      response: {
+        mode: "inline",
+        inline: {
+          content: "Action received.",
+          embeds: [],
+        },
+      },
+    };
+    document.views.entry.rootNodeIds = [sectionId, actionRowId];
+    return document;
+  }
+
+  return document;
+}
+
+export function inferStudioPrimarySurfaceType(document: StudioDocument): StudioPrimarySurfaceType {
+  const nodes = Object.values(document.nodes || {});
+  const hasAdvancedInteractiveLayout = nodes.some((node) =>
+    [
+      "action_row",
+      "string_select",
+      "role_select",
+      "user_select",
+      "channel_select",
+      "mentionable_select",
+    ].includes(node.type as StudioNodeType),
+  ) || Object.keys(document.modals || {}).length > 0;
+
+  if (hasAdvancedInteractiveLayout) {
+    return "components";
+  }
+
+  const hasEmbeds = Object.values(document.views || {}).some((view) => (view.embeds || []).length > 0);
+  if (hasEmbeds) {
+    return "embed";
+  }
+
+  const hasButtons = nodes.some((node) => node.type === "button");
+  return hasButtons ? "components" : "message";
 }
 
 export function defaultSurfaceName(binding?: StudioModuleBinding | null) {
