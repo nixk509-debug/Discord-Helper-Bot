@@ -127,7 +127,7 @@ const NODE_TYPE_OPTIONS: Array<{ type: StudioNodeType; label: string; detail: st
   { type: "file", label: "File", detail: "Attachment link or downloadable resource." },
   { type: "action_row", label: "Action Row", detail: "Interactive row for buttons or menus." },
   { type: "button", label: "Button", detail: "Link, modal, role, or reply trigger." },
-  { type: "string_select", label: "String Menu", detail: "Option-driven menu with mapped actions." },
+  { type: "string_select", label: "String Menu", detail: "Option-driven menu with mapped behavior." },
   { type: "role_select", label: "Role Menu", detail: "Schema-ready, runtime gated." },
   { type: "user_select", label: "User Menu", detail: "Schema-ready, runtime gated." },
   { type: "channel_select", label: "Channel Menu", detail: "Schema-ready, runtime gated." },
@@ -138,10 +138,10 @@ const ACTION_TYPE_OPTIONS: Array<{ type: InteractiveActionConfig["type"]; label:
   { type: "reply_message", label: "Reply", detail: "Reply to the user with content or embeds." },
   { type: "follow_up_message", label: "Follow Up", detail: "Send a follow-up message after the interaction." },
   { type: "open_modal", label: "Open Modal", detail: "Launch a modal form from this interaction." },
-  { type: "goto_view", label: "Go To View", detail: "Edit the published message to another view." },
-  { type: "back_view", label: "Back", detail: "Return to a configured previous view." },
-  { type: "cancel_view", label: "Cancel", detail: "Return to a safe fallback view." },
-  { type: "confirm", label: "Confirm", detail: "Send a confirmation response and optionally change view." },
+  { type: "goto_view", label: "Go To Screen", detail: "Edit the published message to another screen." },
+  { type: "back_view", label: "Back", detail: "Return to a configured previous screen." },
+  { type: "cancel_view", label: "Cancel", detail: "Return to a safe fallback screen." },
+  { type: "confirm", label: "Confirm", detail: "Send a confirmation response and optionally change screens." },
   { type: "role_add", label: "Give Role", detail: "Grant a role to the acting member." },
   { type: "role_remove", label: "Remove Role", detail: "Remove a role from the acting member." },
   { type: "role_toggle", label: "Toggle Role", detail: "Add or remove a role depending on current state." },
@@ -177,15 +177,15 @@ const QUICK_MACROS = [
   { label: "Role", value: "<@&{role_id}>" },
   { label: "Timestamp", value: "<t:{unix}:f>" },
   { label: "Message Link", value: "https://discord.com/channels/{guild_id}/{channel_id}/{message_id}" },
-  { label: "View Ref", value: "{{view:entry}}" },
-  { label: "Action Ref", value: "{{action:id}}" },
+  { label: "Screen Ref", value: "{{view:entry}}" },
+  { label: "Behavior Ref", value: "{{action:id}}" },
 ];
 
 const MOBILE_BUILD_WORKSPACES = [
-  { id: "content" as const, label: "Content", detail: "Project setup, views, and body copy.", icon: FilePlus2 },
+  { id: "content" as const, label: "Message", detail: "Project setup, screen flow, and body copy.", icon: FilePlus2 },
   { id: "embeds" as const, label: "Embeds", detail: "Cards, images, and rich message styling.", icon: Sparkles },
   { id: "components" as const, label: "Components", detail: "Layout blocks, rows, buttons, and menus.", icon: FolderTree },
-  { id: "actions" as const, label: "Actions", detail: "Replies, modals, routing, and interaction logic.", icon: MousePointer2 },
+  { id: "actions" as const, label: "Behavior", detail: "Replies, modals, routing, and interaction logic.", icon: MousePointer2 },
 ];
 
 const MOBILE_LIBRARY_MODES = [
@@ -203,6 +203,11 @@ const MOBILE_UTILITY_AREAS = [
 
 function formatUnitCount(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function getScreenLabel(document: StudioDocument | null | undefined, viewId: string | null | undefined, fallback = "Main") {
+  if (!document || !viewId || !document.views[viewId]) return fallback;
+  return String(document.views[viewId].name || fallback);
 }
 
 function getBuildFocusFromPrimaryType(primaryType: StudioPrimarySurfaceType): BuildFocusId {
@@ -301,7 +306,7 @@ function createAction(type: InteractiveActionConfig["type"] = "reply_message"): 
   return {
     id: makeId("act"),
     type,
-    label: ACTION_TYPE_OPTIONS.find((entry) => entry.type === type)?.label || "Action",
+    label: ACTION_TYPE_OPTIONS.find((entry) => entry.type === type)?.label || "Behavior",
     replyMode: "ephemeral",
     response: {
       mode: "inline",
@@ -451,6 +456,8 @@ function ensureInlineResponse(action: StudioAction) {
 
 function actionSummary(action: StudioAction | undefined, document?: StudioDocument) {
   if (!action) return "No action bound";
+  const targetScreenName = action.targetViewId ? getScreenLabel(document, action.targetViewId, "another screen") : null;
+  const fallbackScreenName = action.fallbackViewId ? getScreenLabel(document, action.fallbackViewId, "main screen") : null;
   switch (action.type) {
     case "open_url":
       return action.url ? `opens ${action.url}` : "opens a link";
@@ -467,11 +474,11 @@ function actionSummary(action: StudioAction | undefined, document?: StudioDocume
       return modalName ? `opens modal ${modalName}` : "opens a modal";
     }
     case "goto_view":
-      return action.targetViewId ? `goes to ${action.targetViewId}` : "goes to another view";
+      return targetScreenName ? `goes to ${targetScreenName}` : "goes to another screen";
     case "back_view":
-      return action.targetViewId ? `goes back to ${action.targetViewId}` : "goes back";
+      return targetScreenName ? `goes back to ${targetScreenName}` : "goes back";
     case "cancel_view":
-      return action.fallbackViewId ? `cancels to ${action.fallbackViewId}` : "cancels to entry";
+      return fallbackScreenName ? `cancels to ${fallbackScreenName}` : "cancels to the main screen";
     case "channel_message":
       return action.channelId ? `posts in ${action.channelId}` : "posts in a channel";
     case "log_action":
@@ -479,7 +486,7 @@ function actionSummary(action: StudioAction | undefined, document?: StudioDocume
     case "dm_user":
       return "DMs the user";
     case "confirm":
-      return action.targetViewId ? `confirms and goes to ${action.targetViewId}` : "sends confirmation";
+      return targetScreenName ? `confirms and goes to ${targetScreenName}` : "sends confirmation";
     case "follow_up_message":
       return "sends a follow-up message";
     case "reply_message":
@@ -524,11 +531,11 @@ function collectDiagnostics(document: StudioDocument, viewId: string) {
   const diagnostics: StudioDiagnostic[] = [];
   const view = getView(document, viewId);
   if (!view) {
-    return [{ level: "error", code: "VIEW_NOT_FOUND", message: "Selected view no longer exists." }];
+    return [{ level: "error", code: "VIEW_NOT_FOUND", message: "Selected screen no longer exists." }];
   }
 
   if (!view.messageContent?.trim() && view.embeds.length === 0 && view.rootNodeIds.length === 0) {
-    diagnostics.push({ level: "warning", code: "EMPTY_VIEW", message: "This view has no content yet." });
+    diagnostics.push({ level: "warning", code: "EMPTY_VIEW", message: "This screen has no content yet." });
   }
 
   if (view.embeds.length > 10) {
@@ -585,10 +592,10 @@ function collectDiagnostics(document: StudioDocument, viewId: string) {
       diagnostics.push({ level: "warning", code: "MODAL_REFERENCE_MISSING", message: `${action.label || "An action"} points to a missing modal.` });
     }
     if (["goto_view", "back_view"].includes(action.type) && action.targetViewId && !document.views[action.targetViewId]) {
-      diagnostics.push({ level: "warning", code: "VIEW_REFERENCE_MISSING", message: `${action.label || "An action"} points to a missing view.` });
+      diagnostics.push({ level: "warning", code: "VIEW_REFERENCE_MISSING", message: `${action.label || "A behavior"} points to a missing screen.` });
     }
     if (action.type === "cancel_view" && action.fallbackViewId && !document.views[action.fallbackViewId]) {
-      diagnostics.push({ level: "warning", code: "VIEW_FALLBACK_MISSING", message: `${action.label || "An action"} points to a missing fallback view.` });
+      diagnostics.push({ level: "warning", code: "VIEW_FALLBACK_MISSING", message: `${action.label || "A behavior"} points to a missing fallback screen.` });
     }
   });
 
@@ -972,6 +979,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   );
   const actionCount = draft ? Object.keys(draft.actions).length : 0;
   const modalCount = draft ? Object.keys(draft.modals).length : 0;
+  const screenCount = draft ? Object.keys(draft.views).length : 0;
+  const hasMultipleScreens = screenCount > 1;
+  const currentScreenLabel = currentView?.name || "Main";
+  const behaviorCount = actionCount + modalCount;
+  const showBehaviorWorkspace = behaviorCount > 0 || Boolean(selectedActionId) || Boolean(selectedModalId);
 
   const interactionRows = useMemo(() => (draft ? collectInteractionMap(draft, selectedViewId) : []), [draft, selectedViewId]);
   const diagnostics = useMemo(() => {
@@ -1017,6 +1029,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         : selectedModal
           ? "modal"
           : "none";
+  const selectedEditorLabel = selectedEditorType === "action" ? "behavior" : selectedEditorType;
 
   const selectedEditorPayload = selectedEmbed
     ? selectedEmbed
@@ -1122,6 +1135,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     if (!inspectorOpen) return;
     setComposerMode("edit");
   }, [inspectorOpen]);
+
+  useEffect(() => {
+    if (buildFocusId === "actions" && !showBehaviorWorkspace) {
+      setBuildFocusId("content");
+    }
+  }, [buildFocusId, showBehaviorWorkspace]);
 
   const jumpToDiagnosticPath = (path?: string) => {
     if (!path || !draft) return;
@@ -1311,9 +1330,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     if (!draft) return;
     touchDraft((document) => {
       const id = makeId("view");
+      if (Object.keys(document.views).length === 1) {
+        const firstView = document.views[document.meta.entryViewId];
+        if (firstView && (!firstView.name || ["Entry", "View 1"].includes(firstView.name))) {
+          firstView.name = "Main";
+        }
+      }
       document.views[id] = {
         id,
-        name: `View ${Object.keys(document.views).length + 1}`,
+        name: `Screen ${Object.keys(document.views).length + 1}`,
         messageContent: "",
         embeds: [],
         rootNodeIds: [],
@@ -1329,7 +1354,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const removeView = (viewId: string) => {
     if (!draft) return;
     if (viewId === draft.meta.entryViewId) {
-      toast({ title: "Entry view locked", description: "The entry view cannot be removed.", variant: "destructive" });
+      toast({ title: "Start screen locked", description: "The start screen cannot be removed.", variant: "destructive" });
       return;
     }
     touchDraft((document) => {
@@ -2159,84 +2184,110 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Project</CardTitle>
-          <CardDescription>Keep one message model across embeds, components, actions, and modals.</CardDescription>
+          <CardDescription>
+            {hasMultipleScreens
+              ? "Keep one publishable Discord experience across message content, embeds, screens, and behavior."
+              : "Keep this simple: write one message, preview it, and only add another screen if the flow truly needs it."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className={cn("grid gap-4", hasMultipleScreens ? "md:grid-cols-2" : undefined)}>
             <div className="space-y-2">
               <Label>Project Name</Label>
               <Input value={draft?.meta.name || ""} onChange={(event) => touchDraft((document) => { document.meta.name = event.target.value; })} />
             </div>
-            <div className="space-y-2">
-              <Label>View Name</Label>
-              <Input
-                value={currentView?.name || ""}
-                onChange={(event) => renameView(selectedViewId, event.target.value)}
-                placeholder="Entry"
-              />
-            </div>
+            {hasMultipleScreens ? (
+              <div className="space-y-2">
+                <Label>Screen Name</Label>
+                <Input
+                  value={currentView?.name || ""}
+                  onChange={(event) => renameView(selectedViewId, event.target.value)}
+                  placeholder="Main"
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Start View</Label>
-              <Select value={draft?.meta.entryViewId || "entry"} onValueChange={setEntryView}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {draft ? Object.values(draft.views).map((view) => <SelectItem key={view.id} value={view.id}>{view.name}</SelectItem>) : null}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>View Tools</Label>
-              <div className="flex flex-wrap gap-2">
+          {!hasMultipleScreens ? (
+            <div className="rounded-2xl border border-white/10 bg-background/25 p-4">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40">Single screen mode</p>
+              <p className="mt-2 text-sm font-semibold text-white">Studio is keeping structure out of the way.</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                This project is using one hidden main screen. Add another screen only when a button, menu, or flow needs somewhere else to go.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-white/10 bg-background/30 text-white/75">Main screen hidden</Badge>
+                <Badge variant="outline" className="border-white/10 bg-background/30 text-white/75">{`${(currentView?.messageContent || "").length}/2000 chars`}</Badge>
                 <Button variant="outline" size="sm" onClick={addView} className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Add View
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => duplicateView(selectedViewId)} className="gap-2">
-                  <Copy className="h-4 w-4" />
-                  Duplicate
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeView(selectedViewId)}
-                  className="text-destructive"
-                  disabled={selectedViewId === draft?.meta.entryViewId}
-                >
-                  Remove
+                  Add Another Screen
                 </Button>
               </div>
             </div>
-          </div>
-          {!isMobile ? (
-            <div className="flex flex-wrap gap-2">
-              {draft ? Object.values(draft.views).map((view) => (
-                <Button
-                  key={view.id}
-                  variant={selectedViewId === view.id ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setSelectedViewId(view.id);
-                    setSelectedNodeId(null);
-                    setSelectedActionId(null);
-                    setSelectedModalId(null);
-                    setSelectedEmbedIndex(null);
-                  }}
-                >
-                  {view.name}
-                  {draft.meta.entryViewId === view.id ? " - Entry" : ""}
-                </Button>
-              )) : null}
-              <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Set Start
-              </Button>
-            </div>
           ) : (
-            <div className="rounded-2xl border border-white/10 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
-              Quick view switching stays in the rail above. Use the view tools here to add, duplicate, remove, or set the start view.
-            </div>
+            <>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Start Screen</Label>
+                  <Select value={draft?.meta.entryViewId || "entry"} onValueChange={setEntryView}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {draft ? Object.values(draft.views).map((view) => <SelectItem key={view.id} value={view.id}>{view.name}</SelectItem>) : null}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Screen Tools</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={addView} className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      Add Screen
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => duplicateView(selectedViewId)} className="gap-2">
+                      <Copy className="h-4 w-4" />
+                      Duplicate
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeView(selectedViewId)}
+                      className="text-destructive"
+                      disabled={selectedViewId === draft?.meta.entryViewId}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              {!isMobile ? (
+                <div className="flex flex-wrap gap-2">
+                  {draft ? Object.values(draft.views).map((view) => (
+                    <Button
+                      key={view.id}
+                      variant={selectedViewId === view.id ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setSelectedViewId(view.id);
+                        setSelectedNodeId(null);
+                        setSelectedActionId(null);
+                        setSelectedModalId(null);
+                        setSelectedEmbedIndex(null);
+                      }}
+                    >
+                      {view.name}
+                      {draft.meta.entryViewId === view.id ? " - Start" : ""}
+                    </Button>
+                  )) : null}
+                  <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Set Start Screen
+                  </Button>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
+                  Screen switching stays in the rail above. Use the screen tools here to add, duplicate, remove, or set the start screen.
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -2246,8 +2297,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const renderContentSection = () => (
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
-        <CardTitle className="font-display text-base">Body</CardTitle>
-        <CardDescription>Write content for the selected view. Add embeds, components, and actions to the same message.</CardDescription>
+        <CardTitle className="font-display text-base">Message Body</CardTitle>
+        <CardDescription>
+          {hasMultipleScreens
+            ? "Write content for the selected screen. Add embeds, components, and behavior to the same message."
+            : "Write the core message first. Embeds, components, and behavior can layer in after the content is clear."}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <Textarea
@@ -2711,7 +2766,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           {renderContentSection()}
           {renderEmbedsSection()}
           {renderTreeSection()}
-          {renderActionsSection()}
+          {showBehaviorWorkspace ? renderActionsSection() : null}
         </div>
       );
     }
@@ -2723,9 +2778,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             {renderMobileWorkspaceBanner({
               eyebrow: "Embed Workspace",
               title: "Rich message cards",
-              description: "Manage embeds, color accents, media, and field-heavy message layouts for the current view.",
+              description: "Manage embeds, color accents, media, and field-heavy message layouts for the active message.",
               chips: [
-                currentView?.name || "No view",
+                hasMultipleScreens ? currentScreenLabel : "Single screen",
                 formatUnitCount(currentView?.embeds?.length || 0, "embed"),
                 errorCount > 0 ? `${errorCount} error${errorCount === 1 ? "" : "s"}` : "Preview-safe",
               ],
@@ -2739,11 +2794,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             {renderMobileWorkspaceBanner({
               eyebrow: "Component Workspace",
               title: "Layout and interaction blocks",
-              description: "Shape the structure of the active view with sections, buttons, menus, dividers, galleries, and files.",
+              description: "Shape the structure of the active message with sections, buttons, menus, dividers, galleries, and files.",
               chips: [
-                currentView?.name || "No view",
+                hasMultipleScreens ? currentScreenLabel : "Single screen",
                 formatUnitCount(currentViewNodeCount, "block"),
-                actionCount > 0 ? `${actionCount} linked action${actionCount === 1 ? "" : "s"}` : "No linked actions",
+                actionCount > 0 ? `${actionCount} linked behavior${actionCount === 1 ? "" : "s"}` : "No linked behavior",
               ],
             })}
             {renderTreeSection()}
@@ -2753,11 +2808,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         return (
           <div className="space-y-4">
             {renderMobileWorkspaceBanner({
-              eyebrow: "Action Workspace",
+              eyebrow: "Behavior Workspace",
               title: "Responses and modal flow",
-              description: "Wire buttons, menus, and forms into replies, routes, role updates, and operational actions.",
+              description: "Wire buttons, menus, and forms into replies, routes, role updates, and operational behavior.",
               chips: [
-                formatUnitCount(actionCount, "action"),
+                formatUnitCount(actionCount, "behavior"),
                 formatUnitCount(modalCount, "modal"),
                 warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "Runtime ready",
               ],
@@ -2774,7 +2829,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               description: "Keep reusable media references attached to the current project so embeds and layouts stay consistent.",
               chips: [
                 formatUnitCount(draft?.assets?.length || 0, "asset"),
-                currentView?.name || "Project-wide",
+                hasMultipleScreens ? currentScreenLabel : "Project-wide",
               ],
             })}
             {renderAssetsSection()}
@@ -2785,13 +2840,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         return (
           <div className="space-y-4">
             {renderMobileWorkspaceBanner({
-              eyebrow: "Content Workspace",
-              title: "Message surface and view setup",
-              description: "Rename the project, switch views, tune the start point, and write the message body from one focused editing lane.",
+              eyebrow: hasMultipleScreens ? "Message Workspace" : "Compose Workspace",
+              title: hasMultipleScreens ? "Message surface and screen flow" : "Message surface first",
+              description: hasMultipleScreens
+                ? "Rename the project, switch screens, tune the start point, and write the message body from one focused lane."
+                : "Write the message, shape embeds, and keep structure hidden until this project actually needs another screen.",
               chips: [
-                currentView?.name || "No view",
+                hasMultipleScreens ? currentScreenLabel : "Single screen",
                 `${(currentView?.messageContent || "").length}/2000 chars`,
-                draft ? formatUnitCount(Object.keys(draft.views).length, "view") : "0 views",
+                hasMultipleScreens ? formatUnitCount(screenCount, "screen") : "No screen management yet",
               ],
             })}
             {renderOverviewSection()}
@@ -2842,8 +2899,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Actions</CardTitle>
-          <CardDescription>Buttons, menus, and modal submits all resolve through these action definitions.</CardDescription>
+          <CardTitle className="font-display text-base">Behavior</CardTitle>
+          <CardDescription>Buttons, menus, and modal submits all resolve through these behavior definitions.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2858,7 +2915,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </div>
           <Separator className="bg-white/10" />
           <div className="space-y-2">
-            {draft && Object.values(draft.actions).length === 0 ? <p className="text-sm text-muted-foreground">No actions yet.</p> : null}
+            {draft && Object.values(draft.actions).length === 0 ? <p className="text-sm text-muted-foreground">No behavior yet.</p> : null}
             {draft ? Object.values(draft.actions).map((action) => {
               const issues = diagnosticsForPrefix(`actions.${action.id}`);
               return (
@@ -2891,7 +2948,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <Card className="glass-card border-white/10 bg-background/40">
       <CardHeader>
         <CardTitle className="font-display text-base">Modal Builder</CardTitle>
-        <CardDescription>Build modal forms and wire them to button or menu actions.</CardDescription>
+        <CardDescription>Build modal forms and wire them to button or menu behavior.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Button onClick={addModal} className="gap-2">
@@ -2912,7 +2969,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   <Workflow className="h-4 w-4 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white">{modal.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{modal.fields.length} fields - {modal.submitActionIds.length} submit actions</p>
+                    <p className="truncate text-xs text-muted-foreground">{modal.fields.length} fields - {modal.submitActionIds.length} submit behavior</p>
                   </div>
                   {issues.length > 0 ? (
                     <Badge variant={issues.some((entry) => entry.level === "error") ? "destructive" : "secondary"}>{issues.length}</Badge>
@@ -2970,16 +3027,22 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         </CardHeader>
         <CardContent className="space-y-4">
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>View To Publish</Label>
-              <Select value={publishViewId || selectedViewId} onValueChange={setPublishViewId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {draft ? Object.values(draft.views).map((view) => <SelectItem key={view.id} value={view.id}>{view.name}</SelectItem>) : null}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className={cn("grid gap-4", hasMultipleScreens ? "md:grid-cols-2" : undefined)}>
+            {hasMultipleScreens ? (
+              <div className="space-y-2">
+                <Label>Screen To Publish</Label>
+                <Select value={publishViewId || selectedViewId} onValueChange={setPublishViewId}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {draft ? Object.values(draft.views).map((view) => <SelectItem key={view.id} value={view.id}>{view.name}</SelectItem>) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-background/25 px-4 py-3 text-sm text-muted-foreground">
+                Publishing the main screen for this message.
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Existing Message ID (optional)</Label>
               <Input value={updateMessageId} onChange={(event) => setUpdateMessageId(event.target.value)} placeholder="Leave empty to publish new" />
@@ -3574,7 +3637,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       {selectedAction ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
-            <CardTitle className="font-display text-base">Action</CardTitle>
+            <CardTitle className="font-display text-base">Behavior</CardTitle>
             <CardDescription>{actionSummary(selectedAction, draft)}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -3596,7 +3659,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <Input value={selectedAction.label || ""} onChange={(event) => updateSelectedAction((action) => { action.label = event.target.value; })} />
             </div>
             <div className="space-y-2">
-              <Label>Action Type</Label>
+              <Label>Behavior Type</Label>
               <Select value={selectedAction.type} onValueChange={(value: any) => updateSelectedAction((action) => { action.type = value; })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -3686,9 +3749,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             ) : null}
             {["goto_view", "back_view", "confirm"].includes(selectedAction.type) ? (
               <div className="space-y-2">
-                <Label>Target View</Label>
+                <Label>Target Screen</Label>
                 <Select value={selectedAction.targetViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.targetViewId = value === "__none__" ? undefined : value; })}>
-                  <SelectTrigger><SelectValue placeholder="Select view" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select screen" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">No target</SelectItem>
                     {Object.values(draft.views).map((view) => (
@@ -3700,11 +3763,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             ) : null}
             {selectedAction.type === "cancel_view" ? (
               <div className="space-y-2">
-                <Label>Fallback View</Label>
+                <Label>Fallback Screen</Label>
                 <Select value={selectedAction.fallbackViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.fallbackViewId = value === "__none__" ? undefined : value; })}>
                   <SelectTrigger><SelectValue placeholder="Select fallback" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">Use entry view</SelectItem>
+                    <SelectItem value="__none__">Use main screen</SelectItem>
                     {Object.values(draft.views).map((view) => (
                       <SelectItem key={`fallback-${view.id}`} value={view.id}>{view.name}</SelectItem>
                     ))}
@@ -3738,7 +3801,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
             <CardTitle className="font-display text-base">Modal</CardTitle>
-            <CardDescription>Title, custom id, fields, and submit actions.</CardDescription>
+            <CardDescription>Title, custom id, fields, and submit behavior.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-2">
@@ -3790,13 +3853,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </div>
             ))}
             <div className="space-y-2">
-              <Label>Submit Actions</Label>
+              <Label>Submit Behavior</Label>
               {selectedModal.submitActionIds.map((actionId, index) => (
                 <div key={`${selectedModal.id}-submit-${index}`} className="flex items-center gap-2">
                   <Select value={actionId || "__none__"} onValueChange={(value) => updateSelectedModal((modal) => {
                     modal.submitActionIds[index] = value === "__none__" ? "" : value;
                   })}>
-                    <SelectTrigger><SelectValue placeholder="Select action" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select behavior" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">None</SelectItem>
                       {Object.values(draft.actions).map((action) => (
@@ -3822,7 +3885,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 setSelectedModalId(null);
                 setSelectedNodeId(null);
                 setSelectedEmbedIndex(null);
-              }}>Add Submit Action</Button>
+              }}>Add Submit Behavior</Button>
             </div>
           </CardContent>
         </Card>
@@ -3830,7 +3893,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       {!selectedEmbed && !selectedNode && !selectedAction && !selectedModal ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardContent className="py-8 text-sm text-muted-foreground">
-            Select an embed, block, action, or modal to edit it here.
+            Select an embed, block, behavior, or modal to edit it here.
           </CardContent>
         </Card>
       ) : null}
@@ -4017,12 +4080,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             }}
           >
             {view.name}
-            {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+            {draft.meta.entryViewId === view.id ? " - Start" : ""}
           </Button>
         ))}
         <Button variant="outline" size="sm" onClick={addView} className="gap-2">
           <Plus className="h-4 w-4" />
-          + View
+          + Screen
         </Button>
       </div>
     </div>
@@ -4083,11 +4146,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>
       <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
         <DrawerHeader>
-          <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add to View"}</DrawerTitle>
+          <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add to Message"}</DrawerTitle>
           <DrawerDescription>
             {quickAddParentNode
               ? `New blocks will be nested inside ${getStudioNodeDisplayLabel(quickAddParentNode)}.`
-              : "Add parts to this message and view."}
+              : "Add parts to this message without opening a deeper setup flow."}
           </DrawerDescription>
         </DrawerHeader>
         <div className="space-y-4 px-4 pb-6">
@@ -4131,7 +4194,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   Add Embed
                 </Button>
                 <Button variant="outline" onClick={() => { addAction("reply_message"); setQuickAddOpen(false); setQuickAddParentId(null); }}>
-                  Add Action
+                  Add Behavior
                 </Button>
                 <Button variant="outline" onClick={() => { addModal(); setQuickAddOpen(false); setQuickAddParentId(null); }}>
                   Add Modal
@@ -4162,19 +4225,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             }}
           >
             {view.name}
-            {draft.meta.entryViewId === view.id ? " - Entry" : ""}
+            {draft.meta.entryViewId === view.id ? " - Start" : ""}
           </Button>
         ))}
         <Button variant="ghost" size="sm" className="rounded-full border border-white/10 bg-background/25" onClick={() => activateBuildFocus("content")}>
-          Manage Views
+          Manage Screens
         </Button>
       </div>
     </div>
   );
 
+  const visibleMobileBuildWorkspaces = MOBILE_BUILD_WORKSPACES.filter((workspace) => workspace.id !== "actions" || showBehaviorWorkspace);
   const mobileBuildNav = (
-    <div className="grid grid-cols-4 gap-2">
-      {MOBILE_BUILD_WORKSPACES.map(({ id, label, detail, icon: Icon }) => {
+    <div className={cn("grid gap-2", visibleMobileBuildWorkspaces.length >= 4 ? "grid-cols-4" : "grid-cols-3")}>
+      {visibleMobileBuildWorkspaces.map(({ id, label, detail, icon: Icon }) => {
         const isActive = activeArea === "build" && buildFocusId === id;
         const detailText =
           id === "content"
@@ -4183,7 +4247,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               ? formatUnitCount(currentView?.embeds?.length || 0, "embed")
               : id === "components"
                 ? formatUnitCount(currentViewNodeCount, "block")
-                : `${actionCount + modalCount} logic`;
+                : formatUnitCount(behaviorCount, "behavior");
 
         return (
           <button
@@ -4222,7 +4286,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <div className="space-y-4 pb-28">
         {topBar}
         {mobileBuildNav}
-        {activeArea === "build" && buildFocusId !== "assets" ? mobileViewChips : null}
+        {activeArea === "build" && buildFocusId !== "assets" && hasMultipleScreens ? mobileViewChips : null}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -4245,7 +4309,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <SheetHeader>
               <SheetTitle>Composer</SheetTitle>
               <SheetDescription>
-                {selectedEditorType === "none" ? "Pick an embed, component, action, or modal to edit." : `Editing ${selectedEditorType}`}
+                {selectedEditorType === "none" ? "Pick an embed, component, behavior, or modal to edit." : `Editing ${selectedEditorLabel}`}
               </SheetDescription>
             </SheetHeader>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -4325,7 +4389,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   return (
     <div className="space-y-6">
       {topBar}
-      {viewChips}
+      {hasMultipleScreens ? viewChips : null}
       {primarySectionNav}
       {quickAddDrawer}
       <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>

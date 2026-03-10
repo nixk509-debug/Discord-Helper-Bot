@@ -49,7 +49,7 @@ const PRIMARY_TYPE_COPY: Record<StudioPrimarySurfaceType, { title: string; subti
     eyebrow: "Visual payload",
   },
   components: {
-    title: "Components v2",
+    title: "Interactive Message",
     subtitle: "Interactive layouts, buttons, and menus",
     eyebrow: "Interaction layer",
   },
@@ -324,7 +324,7 @@ export function DesignStudioMobileHome({
 
                 {!isLoading && recentDrafts.length === 0 ? (
                   <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-muted-foreground">
-                    No drafts yet. Start with a message, embed, or interactive layout.
+                    No drafts yet. Start with a message, embed, or interactive message.
                   </div>
                 ) : null}
 
@@ -501,7 +501,7 @@ export function DesignStudioMobileHome({
 
                 {existingDrafts.length === 0 ? (
                   <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-muted-foreground">
-                    No drafts match this view yet.
+                    No drafts match this selection yet.
                   </div>
                 ) : null}
 

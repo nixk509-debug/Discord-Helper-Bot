@@ -330,7 +330,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
 
           <div className="flex flex-wrap gap-2">
             {interactionRows.length === 0 ? (
-              <div className="text-xs text-[#949ba4]">No interactive components in this view.</div>
+              <div className="text-xs text-[#949ba4]">No interactive components in this screen.</div>
             ) : (
               interactionRows.map((row, index) => (
                 <Badge key={`${row.label}-${index}`} variant="outline" className="border-white/10 bg-white/5 text-[#dbdee1]">
@@ -365,7 +365,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
       <div className="rounded-2xl border border-white/10 bg-background/40 p-4">
         <h4 className="mb-3 text-sm font-semibold text-white">Validation Hints</h4>
         <div className="space-y-2">
-          {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This view is publish-safe.</p> : null}
+          {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This screen is publish-safe.</p> : null}
           {diagnostics.map((diag, index) => (
             <div key={`${diag.code}-${index}`} className="rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium uppercase text-white/80">{diag.level}</span>
