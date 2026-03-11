@@ -144,10 +144,10 @@ const ACTION_TYPE_OPTIONS: Array<{ type: InteractiveActionConfig["type"]; label:
   { type: "reply_message", label: "Reply", detail: "Reply to the user with content or embeds." },
   { type: "follow_up_message", label: "Follow Up", detail: "Send a follow-up message after the interaction." },
   { type: "open_modal", label: "Open Modal", detail: "Launch a modal form from this interaction." },
-  { type: "goto_view", label: "Go To Screen", detail: "Edit the published message to another screen." },
-  { type: "back_view", label: "Back", detail: "Return to a configured previous screen." },
-  { type: "cancel_view", label: "Cancel", detail: "Return to a safe fallback screen." },
-  { type: "confirm", label: "Confirm", detail: "Send a confirmation response and optionally change screens." },
+  { type: "goto_view", label: "Go To Page", detail: "Edit the published message to another page." },
+  { type: "back_view", label: "Back", detail: "Return to a configured previous page." },
+  { type: "cancel_view", label: "Cancel", detail: "Return to a safe fallback page." },
+  { type: "confirm", label: "Confirm", detail: "Send a confirmation response and optionally change pages." },
   { type: "role_add", label: "Give Role", detail: "Grant a role to the acting member." },
   { type: "role_remove", label: "Remove Role", detail: "Remove a role from the acting member." },
   { type: "role_toggle", label: "Toggle Role", detail: "Add or remove a role depending on current state." },
@@ -178,7 +178,7 @@ const QUICK_EMOJI = ["🔥", "✨", "✅", "📌", "🎯", "⚠️", "📂", "�
 const FEATURED_STUDIO_TOKENS = getStudioFeaturedTokens();
 
 const MOBILE_BUILD_WORKSPACES = [
-  { id: "content" as const, label: "Message", detail: "Project setup, screen flow, and body copy.", icon: FilePlus2 },
+  { id: "content" as const, label: "Message", detail: "Project setup and body copy first.", icon: FilePlus2 },
   { id: "embeds" as const, label: "Embeds", detail: "Cards, images, and rich message styling.", icon: Sparkles },
   { id: "components" as const, label: "Components", detail: "Layout blocks, rows, buttons, and menus.", icon: FolderTree },
   { id: "actions" as const, label: "Behavior", detail: "Replies, modals, routing, and interaction logic.", icon: MousePointer2 },
@@ -201,7 +201,7 @@ function formatUnitCount(count: number, singular: string, plural = `${singular}s
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function getScreenLabel(document: StudioDocument | null | undefined, viewId: string | null | undefined, fallback = "Main") {
+function getPageLabel(document: StudioDocument | null | undefined, viewId: string | null | undefined, fallback = "Main") {
   if (!document || !viewId || !document.views[viewId]) return fallback;
   return String(document.views[viewId].name || fallback);
 }
@@ -434,7 +434,7 @@ function getStudioNodeTypeLabel(nodeType: StudioNodeType) {
 }
 
 function getStudioNodeDisplayLabel(node?: StudioNode | null) {
-  if (!node) return "View";
+  if (!node) return "Page";
   const rawLabel = String(node.props.label || node.props.heading || node.props.title || node.props.text || "").trim();
   return rawLabel || getStudioNodeTypeLabel(node.type);
 }
@@ -452,8 +452,8 @@ function ensureInlineResponse(action: StudioAction) {
 
 function actionSummary(action: StudioAction | undefined, document?: StudioDocument) {
   if (!action) return "No action bound";
-  const targetScreenName = action.targetViewId ? getScreenLabel(document, action.targetViewId, "another screen") : null;
-  const fallbackScreenName = action.fallbackViewId ? getScreenLabel(document, action.fallbackViewId, "main screen") : null;
+  const targetScreenName = action.targetViewId ? getPageLabel(document, action.targetViewId, "another page") : null;
+  const fallbackScreenName = action.fallbackViewId ? getPageLabel(document, action.fallbackViewId, "main page") : null;
   switch (action.type) {
     case "open_url":
       return action.url ? `opens ${action.url}` : "opens a link";
@@ -470,11 +470,11 @@ function actionSummary(action: StudioAction | undefined, document?: StudioDocume
       return modalName ? `opens modal ${modalName}` : "opens a modal";
     }
     case "goto_view":
-      return targetScreenName ? `goes to ${targetScreenName}` : "goes to another screen";
+      return targetScreenName ? `goes to ${targetScreenName}` : "goes to another page";
     case "back_view":
       return targetScreenName ? `goes back to ${targetScreenName}` : "goes back";
     case "cancel_view":
-      return fallbackScreenName ? `cancels to ${fallbackScreenName}` : "cancels to the main screen";
+      return fallbackScreenName ? `cancels to ${fallbackScreenName}` : "cancels to the main page";
     case "channel_message":
       return action.channelId ? `posts in ${action.channelId}` : "posts in a channel";
     case "log_action":
@@ -527,11 +527,11 @@ function collectDiagnostics(document: StudioDocument, viewId: string) {
   const diagnostics: StudioDiagnostic[] = [];
   const view = getView(document, viewId);
   if (!view) {
-    return [{ level: "error", code: "VIEW_NOT_FOUND", message: "Selected screen no longer exists." }];
+    return [{ level: "error", code: "VIEW_NOT_FOUND", message: "Selected page no longer exists." }];
   }
 
   if (!view.messageContent?.trim() && view.embeds.length === 0 && view.rootNodeIds.length === 0) {
-    diagnostics.push({ level: "warning", code: "EMPTY_VIEW", message: "This screen has no content yet." });
+    diagnostics.push({ level: "warning", code: "EMPTY_VIEW", message: "This page has no content yet." });
   }
 
   if (view.embeds.length > 10) {
@@ -588,10 +588,10 @@ function collectDiagnostics(document: StudioDocument, viewId: string) {
       diagnostics.push({ level: "warning", code: "MODAL_REFERENCE_MISSING", message: `${action.label || "An action"} points to a missing modal.` });
     }
     if (["goto_view", "back_view"].includes(action.type) && action.targetViewId && !document.views[action.targetViewId]) {
-      diagnostics.push({ level: "warning", code: "VIEW_REFERENCE_MISSING", message: `${action.label || "A behavior"} points to a missing screen.` });
+      diagnostics.push({ level: "warning", code: "VIEW_REFERENCE_MISSING", message: `${action.label || "A behavior"} points to a missing page.` });
     }
     if (action.type === "cancel_view" && action.fallbackViewId && !document.views[action.fallbackViewId]) {
-      diagnostics.push({ level: "warning", code: "VIEW_FALLBACK_MISSING", message: `${action.label || "A behavior"} points to a missing fallback screen.` });
+      diagnostics.push({ level: "warning", code: "VIEW_FALLBACK_MISSING", message: `${action.label || "A behavior"} points to a missing fallback page.` });
     }
   });
 
@@ -1014,9 +1014,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   );
   const actionCount = draft ? Object.keys(draft.actions).length : 0;
   const modalCount = draft ? Object.keys(draft.modals).length : 0;
-  const screenCount = draft ? Object.keys(draft.views).length : 0;
-  const hasMultipleScreens = screenCount > 1;
-  const currentScreenLabel = currentView?.name || "Main";
+  const pageCount = draft ? Object.keys(draft.views).length : 0;
+  const hasMultiplePages = pageCount > 1;
+  const currentPageLabel = currentView?.name || "Main";
   const behaviorCount = actionCount + modalCount;
   const showBehaviorWorkspace = behaviorCount > 0 || Boolean(selectedActionId) || Boolean(selectedModalId);
 
@@ -1413,7 +1413,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       }
       document.views[id] = {
         id,
-        name: `Screen ${Object.keys(document.views).length + 1}`,
+        name: `Page ${Object.keys(document.views).length + 1}`,
         messageContent: "",
         embeds: [],
         rootNodeIds: [],
@@ -1429,7 +1429,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const removeView = (viewId: string) => {
     if (!draft) return;
     if (viewId === draft.meta.entryViewId) {
-      toast({ title: "Start screen locked", description: "The start screen cannot be removed.", variant: "destructive" });
+      toast({ title: "Main page locked", description: "The main page cannot be removed.", variant: "destructive" });
       return;
     }
     touchDraft((document) => {
@@ -2371,20 +2371,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <CardHeader>
           <CardTitle className="font-display text-base">Project</CardTitle>
           <CardDescription>
-            {hasMultipleScreens
-              ? "Keep one publishable Discord experience across message content, embeds, screens, and behavior."
-              : "Keep this simple: write one message, preview it, and only add another screen if the flow truly needs it."}
+            {hasMultiplePages
+              ? "Keep one publishable Discord experience across message content, embeds, pages, and behavior."
+              : "Keep this simple: write one message, preview it, and only add another page if the flow truly needs it."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className={cn("grid gap-4", hasMultipleScreens ? "md:grid-cols-2" : undefined)}>
+          <div className={cn("grid gap-4", hasMultiplePages ? "md:grid-cols-2" : undefined)}>
             <div className="space-y-2">
               <Label>Project Name</Label>
               <Input value={draft?.meta.name || ""} onChange={(event) => touchDraft((document) => { document.meta.name = event.target.value; })} />
             </div>
-            {hasMultipleScreens ? (
+            {hasMultiplePages ? (
               <div className="space-y-2">
-                <Label>Screen Name</Label>
+                <Label>Page Name</Label>
                 <Input
                   value={currentView?.name || ""}
                   onChange={(event) => renameView(selectedViewId, event.target.value)}
@@ -2393,19 +2393,19 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </div>
             ) : null}
           </div>
-          {!hasMultipleScreens ? (
+          {!hasMultiplePages ? (
             <div className="rounded-2xl border border-white/10 bg-background/25 p-4">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40">Single screen mode</p>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40">Single page mode</p>
               <p className="mt-2 text-sm font-semibold text-white">Studio is keeping structure out of the way.</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                This project is using one hidden main screen. Add another screen only when a button, menu, or flow needs somewhere else to go.
+                This project is using one hidden main page. Add another page only when a button, menu, or flow needs somewhere else to go.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-white/10 bg-background/30 text-white/75">Main screen hidden</Badge>
+                <Badge variant="outline" className="border-white/10 bg-background/30 text-white/75">Main page hidden</Badge>
                 <Badge variant="outline" className="border-white/10 bg-background/30 text-white/75">{`${(currentView?.messageContent || "").length}/2000 chars`}</Badge>
                 <Button variant="outline" size="sm" onClick={addView} className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Add Another Screen
+                  Add Another Page
                 </Button>
               </div>
             </div>
@@ -2413,7 +2413,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Start Screen</Label>
+                  <Label>Start Page</Label>
                   <Select value={draft?.meta.entryViewId || "entry"} onValueChange={setEntryView}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -2422,11 +2422,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Screen Tools</Label>
+                  <Label>Page Tools</Label>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={addView} className="gap-2">
                       <Plus className="h-4 w-4" />
-                      Add Screen
+                      Add Page
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => duplicateView(selectedViewId)} className="gap-2">
                       <Copy className="h-4 w-4" />
@@ -2465,12 +2465,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   )) : null}
                   <Button variant="ghost" size="sm" onClick={() => setEntryView(selectedViewId)} className="gap-2">
                     <Plus className="h-4 w-4" />
-                    Set Start Screen
+                    Set Start Page
                   </Button>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-white/10 bg-background/25 px-3 py-2 text-xs text-muted-foreground">
-                  Screen switching stays in the rail above. Use the screen tools here to add, duplicate, remove, or set the start screen.
+                  Page switching stays in the rail above. Use the page tools here to add, duplicate, remove, or set the start page.
                 </div>
               )}
             </>
@@ -2485,8 +2485,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <CardHeader>
         <CardTitle className="font-display text-base">Message Body</CardTitle>
         <CardDescription>
-          {hasMultipleScreens
-            ? "Write content for the selected screen. Add embeds, components, and behavior to the same message."
+          {hasMultiplePages
+            ? "Write content for the selected page. Add embeds, components, and behavior to the same message."
             : "Write the core message first. Embeds, components, and behavior can layer in after the content is clear."}
         </CardDescription>
       </CardHeader>
@@ -2995,7 +2995,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               title: "Rich message cards",
               description: "Manage embeds, color accents, media, and field-heavy message layouts for the active message.",
               chips: [
-                hasMultipleScreens ? currentScreenLabel : "Single screen",
+                hasMultiplePages ? currentPageLabel : "Single page",
                 formatUnitCount(currentView?.embeds?.length || 0, "embed"),
                 errorCount > 0 ? `${errorCount} error${errorCount === 1 ? "" : "s"}` : "Preview-safe",
               ],
@@ -3011,7 +3011,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               title: "Layout and interaction blocks",
               description: "Shape the structure of the active message with sections, buttons, menus, dividers, galleries, and files.",
               chips: [
-                hasMultipleScreens ? currentScreenLabel : "Single screen",
+                hasMultiplePages ? currentPageLabel : "Single page",
                 formatUnitCount(currentViewNodeCount, "block"),
                 actionCount > 0 ? `${actionCount} linked behavior${actionCount === 1 ? "" : "s"}` : "No linked behavior",
               ],
@@ -3044,7 +3044,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               description: "Keep reusable media references attached to the current project so embeds and layouts stay consistent.",
               chips: [
                 formatUnitCount(draft?.assets?.length || 0, "asset"),
-                hasMultipleScreens ? currentScreenLabel : "Project-wide",
+                hasMultiplePages ? currentPageLabel : "Project-wide",
               ],
             })}
             {renderAssetsSection()}
@@ -3055,15 +3055,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         return (
           <div className="space-y-4">
             {renderMobileWorkspaceBanner({
-              eyebrow: hasMultipleScreens ? "Message Workspace" : "Compose Workspace",
-              title: hasMultipleScreens ? "Message surface and screen flow" : "Message surface first",
-              description: hasMultipleScreens
-                ? "Rename the project, switch screens, tune the start point, and write the message body from one focused lane."
-                : "Write the message, shape embeds, and keep structure hidden until this project actually needs another screen.",
+              eyebrow: hasMultiplePages ? "Message Workspace" : "Compose Workspace",
+              title: hasMultiplePages ? "Message surface and page flow" : "Message surface first",
+              description: hasMultiplePages
+                ? "Rename the project, switch pages, tune the start point, and write the message body from one focused lane."
+                : "Write the message, shape embeds, and keep structure hidden until this project actually needs another page.",
               chips: [
-                hasMultipleScreens ? currentScreenLabel : "Single screen",
+                hasMultiplePages ? currentPageLabel : "Single page",
                 `${(currentView?.messageContent || "").length}/2000 chars`,
-                hasMultipleScreens ? formatUnitCount(screenCount, "screen") : "No screen management yet",
+                hasMultiplePages ? formatUnitCount(pageCount, "page") : "No page management yet",
               ],
             })}
             {renderOverviewSection()}
@@ -3242,10 +3242,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         </CardHeader>
         <CardContent className="space-y-4">
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
-          <div className={cn("grid gap-4", hasMultipleScreens ? "md:grid-cols-2" : undefined)}>
-            {hasMultipleScreens ? (
+          <div className={cn("grid gap-4", hasMultiplePages ? "md:grid-cols-2" : undefined)}>
+            {hasMultiplePages ? (
               <div className="space-y-2">
-                <Label>Screen To Publish</Label>
+                <Label>Page To Publish</Label>
                 <Select value={publishViewId || selectedViewId} onValueChange={setPublishViewId}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -3255,7 +3255,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </div>
             ) : (
               <div className="rounded-2xl border border-white/10 bg-background/25 px-4 py-3 text-sm text-muted-foreground">
-                Publishing the main screen for this message.
+                Publishing the main page for this message.
               </div>
             )}
             <div className="space-y-2">
@@ -3975,9 +3975,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             ) : null}
             {["goto_view", "back_view", "confirm"].includes(selectedAction.type) ? (
               <div className="space-y-2">
-                <Label>Target Screen</Label>
+                <Label>Target Page</Label>
                 <Select value={selectedAction.targetViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.targetViewId = value === "__none__" ? undefined : value; })}>
-                  <SelectTrigger><SelectValue placeholder="Select screen" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select page" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">No target</SelectItem>
                     {Object.values(draft.views).map((view) => (
@@ -3989,11 +3989,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             ) : null}
             {selectedAction.type === "cancel_view" ? (
               <div className="space-y-2">
-                <Label>Fallback Screen</Label>
+                <Label>Fallback Page</Label>
                 <Select value={selectedAction.fallbackViewId || "__none__"} onValueChange={(value) => updateSelectedAction((action) => { action.fallbackViewId = value === "__none__" ? undefined : value; })}>
                   <SelectTrigger><SelectValue placeholder="Select fallback" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">Use main screen</SelectItem>
+                    <SelectItem value="__none__">Use main page</SelectItem>
                     {Object.values(draft.views).map((view) => (
                       <SelectItem key={`fallback-${view.id}`} value={view.id}>{view.name}</SelectItem>
                     ))}
@@ -4187,7 +4187,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         ))}
         <Button variant="outline" size="sm" onClick={addView} className="gap-2">
           <Plus className="h-4 w-4" />
-          + Screen
+          + Page
         </Button>
       </div>
     </div>
@@ -4331,7 +4331,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </Button>
         ))}
         <Button variant="ghost" size="sm" className="rounded-full border border-white/10 bg-background/25" onClick={() => activateBuildFocus("content")}>
-          Manage Screens
+          Manage Pages
         </Button>
       </div>
     </div>
@@ -4388,7 +4388,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <div className="space-y-4 pb-28">
         {topBar}
         {mobileBuildNav}
-        {activeArea === "build" && buildFocusId !== "assets" && hasMultipleScreens ? mobileViewChips : null}
+        {activeArea === "build" && buildFocusId !== "assets" && hasMultiplePages ? mobileViewChips : null}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -4491,7 +4491,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   return (
     <div className="space-y-6">
       {topBar}
-      {hasMultipleScreens ? viewChips : null}
+      {hasMultiplePages ? viewChips : null}
       {primarySectionNav}
       {quickAddDrawer}
       <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
