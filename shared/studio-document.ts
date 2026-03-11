@@ -511,7 +511,7 @@ export function collectStudioDiagnostics(
   }
 
   if (!safeText(view.messageContent) && (view.embeds || []).length === 0 && (view.rootNodeIds || []).length === 0) {
-    pushDiagnostic(diagnostics, "warning", "EMPTY_MESSAGE", "This view has no publishable content yet.", viewPath);
+    pushDiagnostic(diagnostics, "info", "EMPTY_MESSAGE", "This view has no publishable content yet.", viewPath);
   }
 
   if ((view.embeds || []).length > DISCORD_LIMITS.embedsPerMessage) {

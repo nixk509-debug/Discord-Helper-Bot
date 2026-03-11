@@ -894,7 +894,7 @@ export function buildStudioPublishPlan(
             ? "This page will publish in a simplified form unless you change the downgraded nodes."
             : publishPath === "v2"
               ? "This page can publish as an exact Components V2 message."
-              : "This page publishes cleanly through the legacy message path.",
+              : "This page publishes cleanly as a standard Discord message.",
       path: `views.${view.id}`,
     },
   ];
@@ -937,7 +937,7 @@ export function buildStudioPublishPlan(
           : "Downgraded publish. Live output will simplify some visual details."
         : publishPath === "v2"
           ? "Exact V2 publish. Preview and live payload can match."
-          : "Exact publish through the legacy message path.";
+          : "Exact publish in the standard Discord message format.";
 
   return {
     viewId: view.id,

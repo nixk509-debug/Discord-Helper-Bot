@@ -76,7 +76,7 @@ function formatPublishPathLabel(publishPlan?: StudioPublishPlan | null) {
     case "v2":
       return "Components V2";
     case "legacy":
-      return "Legacy message";
+      return "Standard message";
     case "downgraded":
       return "Simplified";
     case "blocked":

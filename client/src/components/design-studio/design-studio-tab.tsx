@@ -393,7 +393,7 @@ function createNode(type: StudioNodeType, viewId: string): { node: StudioNode; a
         viewId,
         childIds: [],
         actionId: action.id,
-        props: { label: "Button", style: 1, emoji: "" },
+        props: { label: "", style: 1, emoji: "" },
       },
       actions,
     };
@@ -410,9 +410,9 @@ function createNode(type: StudioNodeType, viewId: string): { node: StudioNode; a
         childIds: [],
         optionActionIds: { option_1: optionAction.id },
         props: {
-          label: "Select Menu",
-          placeholder: "Choose an option",
-          options: [{ label: "Option 1", value: "option_1", description: "First option" }],
+          label: "",
+          placeholder: "",
+          options: [{ label: "Option 1", value: "option_1", description: "" }],
         },
       },
       actions,
@@ -420,18 +420,18 @@ function createNode(type: StudioNodeType, viewId: string): { node: StudioNode; a
   }
 
   const defaults: Record<StudioNodeType, Record<string, unknown>> = {
-    container: { heading: "Container", description: "Group related content." },
-    section: { heading: "Section", description: "Add section copy here." },
-    text_display: { text: "Add message copy, rules, instructions, or labels here." },
-    media_gallery: { title: "Gallery", accentColor: "#5865F2", items: [] },
-    file: { label: "Attachment", url: "" },
+    container: { heading: "", description: "" },
+    section: { heading: "", description: "" },
+    text_display: { text: "" },
+    media_gallery: { title: "", accentColor: "#5865F2", items: [] },
+    file: { label: "", url: "" },
     action_row: {},
     divider: { mode: "line", text: "----------", repeat: 1 },
-    style_block: { variant: "warning_strip", title: "Notice", description: "Style block copy.", accentColor: "#B11226" },
-    role_select: { label: "Role Menu", placeholder: "Choose a role" },
-    user_select: { label: "User Menu", placeholder: "Choose a user" },
-    channel_select: { label: "Channel Menu", placeholder: "Choose a channel" },
-    mentionable_select: { label: "Mentionable Menu", placeholder: "Choose a target" },
+    style_block: { variant: "warning_strip", title: "", description: "", accentColor: "#B11226" },
+    role_select: { label: "", placeholder: "" },
+    user_select: { label: "", placeholder: "" },
+    channel_select: { label: "", placeholder: "" },
+    mentionable_select: { label: "", placeholder: "" },
     button: {},
     string_select: {},
   };
@@ -1139,7 +1139,49 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }, [boundTicketPanel, draft, lastDiagnostics, publishPlan, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length, tokenAvailability]);
   const errorCount = diagnostics.filter((entry) => entry.level === "error").length;
   const warningCount = diagnostics.filter((entry) => entry.level === "warning").length;
+  const firstErrorDiagnostic = diagnostics.find((entry) => entry.level === "error") || null;
   const diagnosticsForPrefix = (prefix: string) => diagnostics.filter((entry) => typeof entry.path === "string" && entry.path.startsWith(prefix));
+  const publishGuard = useMemo(() => {
+    if (!publishChannelId.trim()) {
+      return {
+        tone: "blocked" as const,
+        title: "Choose a target channel",
+        description: "Pick where this message should go before publishing it live.",
+      };
+    }
+
+    if (!publishPlan?.payloadReady) {
+      return {
+        tone: "blocked" as const,
+        title: "Nothing to publish yet",
+        description: "Add message text, an embed, or visible message parts before sending.",
+      };
+    }
+
+    if (publishPlan.mode === "blocked") {
+      return {
+        tone: "blocked" as const,
+        title: "Publish is blocked",
+        description: firstErrorDiagnostic?.message || publishPlan.summary,
+      };
+    }
+
+    if (publishPlan.mode === "downgraded" && !publishSimplifiedArmed) {
+      return {
+        tone: "warning" as const,
+        title: publishPlan.requiresStructuralConfirmation ? "Review simplified publish" : "Simplified publish needs confirmation",
+        description: publishPlan.summary,
+      };
+    }
+
+    return {
+      tone: "ready" as const,
+      title: "Ready to publish",
+      description: updateMessageId.trim()
+        ? "This will update the selected live message."
+        : "This will send a new message to the selected channel.",
+    };
+  }, [firstErrorDiagnostic, publishChannelId, publishPlan, publishSimplifiedArmed, updateMessageId]);
   const previewDocument = useMemo(
     () => (draft ? resolveStudioTokensInValue(draft, previewTokenContext) : null),
     [draft, previewTokenContext],
@@ -3624,6 +3666,30 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div
+            className={cn(
+              "rounded-2xl border px-4 py-4",
+              publishGuard.tone === "blocked"
+                ? "border-red-400/20 bg-red-500/10"
+                : publishGuard.tone === "warning"
+                  ? "border-amber-400/20 bg-amber-500/10"
+                  : "border-emerald-400/20 bg-emerald-500/10",
+            )}
+          >
+            <p className="text-sm font-semibold text-white">{publishGuard.title}</p>
+            <p
+              className={cn(
+                "mt-1 text-xs",
+                publishGuard.tone === "blocked"
+                  ? "text-red-100/85"
+                  : publishGuard.tone === "warning"
+                    ? "text-amber-100/85"
+                    : "text-emerald-100/85",
+              )}
+            >
+              {publishGuard.description}
+            </p>
+          </div>
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
           <div className={cn("grid gap-4", hasMultiplePages ? "md:grid-cols-2" : undefined)}>
             {hasMultiplePages ? (
@@ -3662,7 +3728,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={publishDocument}
-              disabled={publishMutation.isPending || publishPlan?.mode === "blocked"}
+              disabled={publishMutation.isPending || !publishChannelId.trim() || !publishPlan?.payloadReady || publishPlan?.mode === "blocked"}
               className="gap-2"
             >
               <Rocket className="h-4 w-4" />
@@ -3903,7 +3969,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}>
-                {errorCount > 0 ? `${errorCount} blocked` : warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "No issues"}
+                {errorCount > 0 ? `${errorCount} blocked` : warningCount > 0 ? "Review in Issues" : "Ready"}
               </Badge>
               {canvasSummaryChips.length > 0 ? canvasSummaryChips.map((chip) => (
                 <Badge key={`canvas-chip-${chip}`} variant="outline">{chip}</Badge>
@@ -4871,7 +4937,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           onClick={() => setActiveArea("preview")}
         >
           <CircleAlert className="h-4 w-4" />
-          {errorCount > 0 ? "Blocked" : warningCount > 0 ? "Warning" : "No issues"}
+          {errorCount > 0 ? "Blocked" : warningCount > 0 ? "Review" : "Ready"}
         </Button>
         <Button variant="outline" size="icon" onClick={() => setPreviewOpen(true)}>
           <Eye className="h-4 w-4" />
