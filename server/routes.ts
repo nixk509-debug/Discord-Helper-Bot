@@ -2,6 +2,9 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
+import { promises as fs } from "fs";
+import path from "path";
+import crypto from "crypto";
 import { storage } from "./storage";
 import {
   servers,
@@ -66,6 +69,25 @@ import {
 import { buildStudioDiscordPayload } from "./studio-discord";
 import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import type { StudioTokenContext } from "@shared/studio-tokens";
+
+const STUDIO_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "studio");
+
+function sanitizeStudioUploadName(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  const stem = trimmed.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return stem.slice(0, 40) || "studio-asset";
+}
+
+function parseStudioImageDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=]+)$/i);
+  if (!match) return null;
+
+  const mimeType = match[1].toLowerCase();
+  const buffer = Buffer.from(match[2], "base64");
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.replace("image/", "");
+
+  return { mimeType, buffer, extension };
+}
 
 export async function registerRoutes(_server: Server, app: Express) {
 
@@ -268,6 +290,61 @@ export async function registerRoutes(_server: Server, app: Express) {
       favorite: parsed.data.favorite,
     });
     res.status(201).json(created);
+  });
+
+  app.post(api.servers.studioUploads.create.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioUploads.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const decoded = parseStudioImageDataUrl(parsed.data.dataUrl);
+    if (!decoded) {
+      return res.status(400).json({ message: "Upload must be a PNG, JPG, GIF, or WEBP image." });
+    }
+
+    if (decoded.buffer.byteLength > 8 * 1024 * 1024) {
+      return res.status(400).json({ message: "Upload is too large. Keep images under 8 MB." });
+    }
+
+    const safeName = sanitizeStudioUploadName(parsed.data.name);
+    const fileName = `${safeName}-${crypto.randomUUID().slice(0, 8)}.${decoded.extension}`;
+    const serverFolder = path.join(STUDIO_UPLOAD_ROOT, String(serverId));
+    await fs.mkdir(serverFolder, { recursive: true });
+
+    const filePath = path.join(serverFolder, fileName);
+    await fs.writeFile(filePath, decoded.buffer);
+
+    const relativePath = `/uploads/studio/${serverId}/${fileName}`;
+    const origin =
+      process.env.PUBLIC_BASE_URL ||
+      process.env.APP_URL ||
+      `${req.protocol}://${req.get("host")}`;
+    const publicUrl = new URL(relativePath, origin).toString();
+
+    const libraryItem = await createStudioLibraryItem({
+      serverId,
+      ownerUserId: parsed.data.scope === "server" ? null : req.user!.id,
+      scope: parsed.data.scope,
+      category: "asset_link",
+      name: parsed.data.name.trim(),
+      payload: {
+        url: publicUrl,
+        mimeType: decoded.mimeType,
+        source: "upload",
+      },
+      tags: ["asset", "uploaded", "image"],
+      favorite: false,
+    });
+
+    res.status(201).json({
+      url: publicUrl,
+      name: parsed.data.name.trim(),
+      libraryItem,
+    });
   });
 
   app.patch(api.studio.library.update.path, async (req, res) => {

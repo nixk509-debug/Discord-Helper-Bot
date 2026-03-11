@@ -381,6 +381,29 @@ export function useCreateStudioLibraryItem(serverId: number) {
   });
 }
 
+export function useUploadStudioAsset(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { name: string; dataUrl: string; scope?: "personal" | "server" }) => {
+      const url = buildUrl(api.servers.studioUploads.create.path, { serverId });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to upload Studio asset");
+      }
+      return await res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [api.servers.studioLibrary.list.path, serverId] });
+    },
+  });
+}
+
 export function useUpdateStudioLibraryItem(serverId: number) {
   const qc = useQueryClient();
   return useMutation({

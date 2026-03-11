@@ -130,6 +130,12 @@ const studioLibraryItemInputSchema = z.object({
 
 const studioLibraryItemPatchSchema = studioLibraryItemInputSchema.partial();
 
+const studioUploadAssetSchema = z.object({
+  name: z.string().min(1).max(120),
+  dataUrl: z.string().min(1),
+  scope: z.enum(["personal", "server"]).default("personal"),
+});
+
 export const api = {
   stats: {
     get: { method: 'GET' as const, path: '/api/stats' as const, responses: { 200: dashboardStatsSchema } },
@@ -155,6 +161,21 @@ export const api = {
     studioLibrary: {
       list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/library' as const, responses: { 200: z.array(z.custom<StudioLibraryItem>()) } },
       create: { method: 'POST' as const, path: '/api/servers/:serverId/studio/library' as const, input: studioLibraryItemInputSchema, responses: { 201: z.custom<StudioLibraryItem>(), 400: errorSchemas.validation } },
+    },
+    studioUploads: {
+      create: {
+        method: 'POST' as const,
+        path: '/api/servers/:serverId/studio/uploads' as const,
+        input: studioUploadAssetSchema,
+        responses: {
+          201: z.object({
+            url: z.string().url(),
+            name: z.string(),
+            libraryItem: z.custom<StudioLibraryItem>(),
+          }),
+          400: errorSchemas.validation,
+        },
+      },
     },
   },
   studio: {
@@ -278,3 +299,4 @@ export type StudioDocumentInput = z.infer<typeof studioDocumentInputSchema>;
 export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
 export type StudioTestInput = z.infer<typeof studioTestSchema>;
 export type StudioLibraryItemInput = z.infer<typeof studioLibraryItemInputSchema>;
+export type StudioUploadAssetInput = z.infer<typeof studioUploadAssetSchema>;

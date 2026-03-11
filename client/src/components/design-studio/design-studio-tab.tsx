@@ -35,6 +35,7 @@ import {
   usePublishStudio,
   useRollbackStudioPublication,
   useStudioLibraryItems,
+  useUploadStudioAsset,
   useTicketConfig,
   useTicketPanels,
   useStudioDocuments,
@@ -57,7 +58,6 @@ import {
   defaultSurfaceName,
   inferStudioPrimarySurfaceType,
   type StudioPrimarySurfaceType,
-  STUDIO_MAIN_AREAS,
 } from "@/components/design-studio/studio-defaults";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { collectStudioDiagnostics } from "@shared/studio-document";
 import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import { getDiscordEmojiAssetUrl, parseDiscordEmojiToken } from "@shared/discord-emoji";
@@ -110,9 +111,9 @@ import type {
   StudioThemePack,
 } from "@shared/schema";
 
-type StudioAreaId = (typeof STUDIO_MAIN_AREAS)[number]["id"];
+type StudioAreaId = "build" | "library" | "preview" | "publish";
 type PreviewMode = "desktop" | "mobile" | "compact";
-type ComposerMode = "edit" | "preview" | "json";
+type ComposerMode = "edit" | "preview" | "code";
 type LibraryScopeFilter = "all" | "personal" | "server";
 type LibraryCategoryFilter = "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
 type BuildFocusId = "content" | "embeds" | "components" | "actions" | "assets";
@@ -124,6 +125,28 @@ type PublicationWithMeta = StudioPublication & {
   snapshots?: Array<{ id: number; version: number; createdAt: string }>;
   recentEvents?: Array<{ id: number; severity: string; summary: string; occurredAt: string }>;
 };
+
+type InlineInsertTarget =
+  | { kind: "message" }
+  | { kind: "embed_title"; embedIndex: number }
+  | { kind: "embed_description"; embedIndex: number }
+  | { kind: "embed_author"; embedIndex: number }
+  | { kind: "embed_footer"; embedIndex: number }
+  | { kind: "embed_field_name"; embedIndex: number; fieldIndex: number }
+  | { kind: "embed_field_value"; embedIndex: number; fieldIndex: number }
+  | { kind: "node_text"; nodeId: string }
+  | { kind: "button_emoji"; nodeId: string }
+  | { kind: "select_placeholder"; nodeId: string }
+  | { kind: "select_option_label"; nodeId: string; optionIndex: number }
+  | { kind: "select_option_description"; nodeId: string; optionIndex: number }
+  | { kind: "select_option_emoji"; nodeId: string; optionIndex: number };
+
+const STUDIO_EDITOR_AREAS: Array<{ id: StudioAreaId; label: string; icon: typeof Eye }> = [
+  { id: "build", label: "Build", icon: FilePlus2 },
+  { id: "library", label: "Assets", icon: ImageIcon },
+  { id: "preview", label: "Issues", icon: CircleAlert },
+  { id: "publish", label: "Publish", icon: Rocket },
+];
 
 const NODE_TYPE_OPTIONS: Array<{ type: StudioNodeType; label: string; detail: string }> = [
   { type: "container", label: "Container", detail: "Group content and nested sections." },
@@ -193,9 +216,9 @@ const MOBILE_LIBRARY_MODES = [
 ];
 
 const MOBILE_UTILITY_AREAS = [
-  { id: "preview" as const, label: "Preview", icon: Eye },
-  { id: "library" as const, label: "Library", icon: Library },
-  { id: "assets" as const, label: "Assets", icon: ImageIcon },
+  { id: "build" as const, label: "Build", icon: FilePlus2 },
+  { id: "library" as const, label: "Assets", icon: ImageIcon },
+  { id: "preview" as const, label: "Issues", icon: CircleAlert },
   { id: "publish" as const, label: "Publish", icon: Rocket },
 ];
 
@@ -620,6 +643,16 @@ function toggleFavoriteEmoji(serverId: number, emoji: string) {
   return next;
 }
 
+function upsertRecentColor(serverId: number, color: string) {
+  const normalized = color.trim().toUpperCase();
+  if (!normalized) return [];
+  const key = `studio:${serverId}:recent-colors`;
+  const existing = JSON.parse(window.localStorage.getItem(key) || "[]");
+  const next = [normalized, ...((Array.isArray(existing) ? existing : []) as string[]).filter((entry) => entry !== normalized)].slice(0, 12);
+  window.localStorage.setItem(key, JSON.stringify(next));
+  return next;
+}
+
 function emojiToToken(emoji: DiscordContextEmoji) {
   if (!emoji.id) return emoji.name;
   return `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
@@ -860,6 +893,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const createLibraryItemMutation = useCreateStudioLibraryItem(serverId);
   const deleteLibraryItemMutation = useDeleteStudioLibraryItem(serverId);
   const toggleLibraryFavoriteMutation = useToggleStudioLibraryFavorite(serverId);
+  const uploadStudioAssetMutation = useUploadStudioAsset(serverId);
 
   const documents = ((studioDocumentsQuery.data || []) as StudioDocumentRecord[]).map((record) => ({
     ...record,
@@ -881,6 +915,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [previewOpen, setPreviewOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<ComposerMode>("edit");
+  const [messageEditorOpen, setMessageEditorOpen] = useState(false);
+  const [editorFocusLabel, setEditorFocusLabel] = useState("message");
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddParentId, setQuickAddParentId] = useState<string | null>(null);
   const [publishChannelId, setPublishChannelId] = useState("");
@@ -891,6 +927,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [selectedPublicationId, setSelectedPublicationId] = useState<number | null>(null);
   const [importText, setImportText] = useState("");
   const [emojiState, setEmojiState] = useState<{ recent: string[]; favorites: string[] }>({ recent: [], favorites: [] });
+  const [emojiSearch, setEmojiSearch] = useState("");
+  const [activeInsertTarget, setActiveInsertTarget] = useState<InlineInsertTarget | null>(null);
   const [libraryScopeFilter, setLibraryScopeFilter] = useState<LibraryScopeFilter>("all");
   const [libraryCategoryFilter, setLibraryCategoryFilter] = useState<LibraryCategoryFilter>("all");
   const [libraryModeId, setLibraryModeId] = useState<LibraryModeId>("shelf");
@@ -900,8 +938,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [libraryItemName, setLibraryItemName] = useState("");
   const [libraryAssetName, setLibraryAssetName] = useState("");
   const [libraryAssetUrl, setLibraryAssetUrl] = useState("");
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [lastDiagnostics, setLastDiagnostics] = useState<StudioDiagnostic[]>([]);
   const loadedDocumentIdRef = useRef<number | null>(null);
+  const mediaUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const studioLibraryQuery = useStudioLibraryItems(serverId, {
     enabled: activeArea === "library" || Boolean(draft),
@@ -946,6 +986,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }, [serverId]);
 
   useEffect(() => {
+    const key = `studio:${serverId}:recent-colors`;
+    const saved = JSON.parse(window.localStorage.getItem(key) || "[]");
+    setRecentColors(Array.isArray(saved) ? saved.slice(0, 12) : []);
+  }, [serverId]);
+
+  useEffect(() => {
     if (currentDocumentId) return;
     const params = new URLSearchParams(window.location.search);
     const requested = Number(params.get("documentId") || "0");
@@ -969,6 +1015,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setSelectedActionId(null);
     setSelectedModalId(null);
     setSelectedEmbedIndex(nextPrimaryType === "embed" && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("message");
+    setActiveInsertTarget(null);
     setLastDiagnostics([]);
     if (isNewDocument) {
       setActiveArea("build");
@@ -1008,6 +1057,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     () => Array.from(new Set([...favoriteEmojiOptions, ...recentEmojiOptions, ...serverEmojiOptions, ...QUICK_EMOJI])).slice(0, 18),
     [favoriteEmojiOptions, recentEmojiOptions, serverEmojiOptions],
   );
+  const filteredEmojiOptions = useMemo(() => {
+    const query = emojiSearch.trim().toLowerCase();
+    if (!query) return emojiQuickPickOptions;
+    return Array.from(new Set([...favoriteEmojiOptions, ...recentEmojiOptions, ...serverEmojiOptions, ...QUICK_EMOJI])).filter((emoji) => {
+      const parsed = parseDiscordEmojiToken(emoji);
+      const label = parsed?.custom ? `${parsed.name} ${emoji}` : emoji;
+      return label.toLowerCase().includes(query);
+    }).slice(0, 30);
+  }, [emojiQuickPickOptions, emojiSearch, favoriteEmojiOptions, recentEmojiOptions, serverEmojiOptions]);
   const allDividerPresets = useMemo(() => [...(draft?.design?.dividerPresets || [])], [draft]);
   const allStyleBlocks = useMemo(() => [...STYLE_BLOCK_STARTERS, ...(draft?.design?.styleBlocks || [])], [draft]);
   const allThemePacks = useMemo(() => [...THEME_PACK_STARTERS, ...(draft?.design?.themePacks || [])], [draft]);
@@ -1074,36 +1132,42 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       .filter((option): option is (typeof NODE_TYPE_OPTIONS)[number] => Boolean(option)),
     [quickAddParentNode],
   );
-  const selectedEditorType = selectedEmbed
-    ? "embed"
-    : selectedNode
-      ? "component"
-      : selectedAction
-        ? "action"
-        : selectedModal
-          ? "modal"
-          : "none";
+  const selectedEditorType = messageEditorOpen
+    ? "message"
+    : selectedEmbed
+      ? "embed"
+      : selectedNode
+        ? "component"
+        : selectedAction
+          ? "action"
+          : selectedModal
+            ? "modal"
+            : "none";
   const selectedEditorLabel = selectedEditorType === "action" ? "behavior" : selectedEditorType;
 
-  const selectedEditorPayload = selectedEmbed
-    ? selectedEmbed
-    : selectedNode
-      ? selectedNode
-      : selectedAction
-        ? selectedAction
-        : selectedModal
-          ? selectedModal
-          : null;
+  const selectedEditorPayload = messageEditorOpen
+    ? currentView?.messageContent || ""
+    : selectedEmbed
+      ? selectedEmbed
+      : selectedNode
+        ? selectedNode
+        : selectedAction
+          ? selectedAction
+          : selectedModal
+            ? selectedModal
+            : null;
 
-  const selectedEditorDiagnostics = selectedEmbed && selectedEmbedIndex !== null
-    ? diagnosticsForPrefix(`views.${selectedViewId}.embeds[${selectedEmbedIndex}]`)
-    : selectedNode
-      ? diagnosticsForPrefix(`nodes.${selectedNode.id}`)
-      : selectedAction
-        ? diagnosticsForPrefix(`actions.${selectedAction.id}`)
-        : selectedModal
-          ? diagnosticsForPrefix(`modals.${selectedModal.id}`)
-          : [];
+  const selectedEditorDiagnostics = messageEditorOpen
+    ? diagnosticsForPrefix(`views.${selectedViewId}`)
+    : selectedEmbed && selectedEmbedIndex !== null
+      ? diagnosticsForPrefix(`views.${selectedViewId}.embeds[${selectedEmbedIndex}]`)
+      : selectedNode
+        ? diagnosticsForPrefix(`nodes.${selectedNode.id}`)
+        : selectedAction
+          ? diagnosticsForPrefix(`actions.${selectedAction.id}`)
+          : selectedModal
+            ? diagnosticsForPrefix(`modals.${selectedModal.id}`)
+            : [];
 
   const touchDraft = (updater: (document: StudioDocument) => void) => {
     setDraft((previous) => {
@@ -1116,46 +1180,66 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     });
   };
 
+  const openMessageEditor = (focusLabel = "message") => {
+    setActiveArea("build");
+    setBuildFocusId("content");
+    setMessageEditorOpen(true);
+    setEditorFocusLabel(focusLabel);
+    setSelectedEmbedIndex(null);
+    setSelectedNodeId(null);
+    setSelectedActionId(null);
+    setSelectedModalId(null);
+    setInspectorOpen(true);
+  };
+
   const openEmbedEditor = (index: number, viewId = selectedViewId) => {
     setActiveArea("build");
     setBuildFocusId("embeds");
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("embed");
     setSelectedViewId(viewId);
     setSelectedEmbedIndex(index);
     setSelectedNodeId(null);
     setSelectedActionId(null);
     setSelectedModalId(null);
-    if (isMobile) setInspectorOpen(true);
+    setInspectorOpen(true);
   };
 
   const openNodeEditor = (nodeId: string, viewId = selectedViewId) => {
     setActiveArea("build");
     setBuildFocusId("components");
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("component");
     setSelectedViewId(viewId);
     setSelectedNodeId(nodeId);
     setSelectedActionId(null);
     setSelectedModalId(null);
     setSelectedEmbedIndex(null);
-    if (isMobile) setInspectorOpen(true);
+    setInspectorOpen(true);
   };
 
   const openActionEditor = (actionId: string) => {
     setActiveArea("build");
     setBuildFocusId("actions");
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("behavior");
     setSelectedActionId(actionId);
     setSelectedNodeId(null);
     setSelectedModalId(null);
     setSelectedEmbedIndex(null);
-    if (isMobile) setInspectorOpen(true);
+    setInspectorOpen(true);
   };
 
   const openModalEditor = (modalId: string) => {
     setActiveArea("build");
     setBuildFocusId("actions");
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("modal");
     setSelectedModalId(modalId);
     setSelectedNodeId(null);
     setSelectedActionId(null);
     setSelectedEmbedIndex(null);
-    if (isMobile) setInspectorOpen(true);
+    setInspectorOpen(true);
   };
 
   const openQuickAddDrawer = (parentId?: string | null) => {
@@ -1281,6 +1365,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setSelectedActionId(null);
     setSelectedModalId(null);
     setSelectedEmbedIndex(options?.selectFirstEmbed && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("message");
+    setActiveInsertTarget(null);
     loadedDocumentIdRef.current = created.id;
 
     const url = new URL(window.location.href);
@@ -1713,19 +1800,58 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const insertEmoji = (emoji: string) => {
     if (!draft) return;
     touchDraft((document) => {
-      const node = selectedNodeId ? document.nodes[selectedNodeId] : undefined;
-      if (node?.type === "text_display") {
-        node.props.text = `${String(node.props.text || "")}${emoji}`;
-      } else if (node?.type === "button") {
-        node.props.emoji = emoji;
-      } else if (node?.type === "divider") {
-        node.props.mode = "emoji";
-        node.props.emoji = emoji;
-      } else if (node?.type === "string_select") {
-        const options = Array.isArray(node.props.options) ? node.props.options : [];
+      const target = activeInsertTarget;
+      const selectedNode = selectedNodeId ? document.nodes[selectedNodeId] : undefined;
+
+      if (target?.kind === "message" && document.views[selectedViewId]) {
+        document.views[selectedViewId].messageContent = `${document.views[selectedViewId].messageContent || ""}${emoji}`;
+      } else if (target?.kind === "embed_title" && document.views[selectedViewId]?.embeds[target.embedIndex]) {
+        document.views[selectedViewId].embeds[target.embedIndex].title = `${String(document.views[selectedViewId].embeds[target.embedIndex].title || "")}${emoji}`;
+      } else if (target?.kind === "embed_description" && document.views[selectedViewId]?.embeds[target.embedIndex]) {
+        document.views[selectedViewId].embeds[target.embedIndex].description = `${String(document.views[selectedViewId].embeds[target.embedIndex].description || "")}${emoji}`;
+      } else if (target?.kind === "embed_author" && document.views[selectedViewId]?.embeds[target.embedIndex]) {
+        document.views[selectedViewId].embeds[target.embedIndex].authorName = `${String(document.views[selectedViewId].embeds[target.embedIndex].authorName || "")}${emoji}`;
+      } else if (target?.kind === "embed_footer" && document.views[selectedViewId]?.embeds[target.embedIndex]) {
+        document.views[selectedViewId].embeds[target.embedIndex].footerText = `${String(document.views[selectedViewId].embeds[target.embedIndex].footerText || "")}${emoji}`;
+      } else if (target?.kind === "embed_field_name" && document.views[selectedViewId]?.embeds[target.embedIndex]?.fields?.[target.fieldIndex]) {
+        const field = document.views[selectedViewId].embeds[target.embedIndex].fields![target.fieldIndex];
+        field.name = `${String(field.name || "")}${emoji}`;
+      } else if (target?.kind === "embed_field_value" && document.views[selectedViewId]?.embeds[target.embedIndex]?.fields?.[target.fieldIndex]) {
+        const field = document.views[selectedViewId].embeds[target.embedIndex].fields![target.fieldIndex];
+        field.value = `${String(field.value || "")}${emoji}`;
+      } else if (target?.kind === "node_text" && document.nodes[target.nodeId]) {
+        document.nodes[target.nodeId].props.text = `${String(document.nodes[target.nodeId].props.text || "")}${emoji}`;
+      } else if (target?.kind === "button_emoji" && document.nodes[target.nodeId]) {
+        document.nodes[target.nodeId].props.emoji = emoji;
+      } else if (target?.kind === "select_placeholder" && document.nodes[target.nodeId]) {
+        document.nodes[target.nodeId].props.placeholder = `${String(document.nodes[target.nodeId].props.placeholder || "")}${emoji}`;
+      } else if (target?.kind === "select_option_label" && document.nodes[target.nodeId]) {
+        const options = Array.isArray(document.nodes[target.nodeId].props.options) ? [...(document.nodes[target.nodeId].props.options as any[])] : [];
+        const option = options[target.optionIndex];
+        if (option) option.label = `${String(option.label || "")}${emoji}`;
+        document.nodes[target.nodeId].props.options = options;
+      } else if (target?.kind === "select_option_description" && document.nodes[target.nodeId]) {
+        const options = Array.isArray(document.nodes[target.nodeId].props.options) ? [...(document.nodes[target.nodeId].props.options as any[])] : [];
+        const option = options[target.optionIndex];
+        if (option) option.description = `${String(option.description || "")}${emoji}`;
+        document.nodes[target.nodeId].props.options = options;
+      } else if (target?.kind === "select_option_emoji" && document.nodes[target.nodeId]) {
+        const options = Array.isArray(document.nodes[target.nodeId].props.options) ? [...(document.nodes[target.nodeId].props.options as any[])] : [];
+        const option = options[target.optionIndex];
+        if (option) option.emoji = emoji;
+        document.nodes[target.nodeId].props.options = options;
+      } else if (selectedNode?.type === "text_display") {
+        selectedNode.props.text = `${String(selectedNode.props.text || "")}${emoji}`;
+      } else if (selectedNode?.type === "button") {
+        selectedNode.props.emoji = emoji;
+      } else if (selectedNode?.type === "divider") {
+        selectedNode.props.mode = "emoji";
+        selectedNode.props.emoji = emoji;
+      } else if (selectedNode?.type === "string_select") {
+        const options = Array.isArray(selectedNode.props.options) ? selectedNode.props.options : [];
         if (options[0]) {
           (options[0] as any).emoji = emoji;
-          node.props.options = options;
+          selectedNode.props.options = options;
         }
       } else if (document.views[selectedViewId]) {
         document.views[selectedViewId].messageContent = `${document.views[selectedViewId].messageContent || ""}${emoji}`;
@@ -2099,6 +2225,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
         />
+        <Input
+          value={emojiSearch}
+          onChange={(event) => setEmojiSearch(event.target.value)}
+          placeholder="Search emoji"
+        />
 
         <div className="space-y-2">
           {favoriteEmojiOptions.length > 0 ? (
@@ -2112,15 +2243,176 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             </div>
           ) : null}
 
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Quick Picks</p>
+            <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">{emojiSearch ? "Search Results" : "Quick Picks"}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {emojiQuickPickOptions.slice(0, 9).map((emoji) =>
+              {filteredEmojiOptions.slice(0, 12).map((emoji) =>
                 renderEmojiTokenButton(emoji, () => applyEmojiFieldValue(emoji, onChange), { compact: true, muted: true }),
               )}
             </div>
           </div>
+
+          {serverEmojiOptions.length > 0 ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Server Emoji</p>
+                <p className="text-[11px] text-muted-foreground">Favorites and recents are remembered here.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {serverEmojiOptions.slice(0, 16).map((emoji) => (
+                  <div key={`server-emoji-field-${emoji}`} className="rounded-2xl border border-white/10 bg-background/25 p-2">
+                    {renderEmojiTokenButton(emoji, () => applyEmojiFieldValue(emoji, onChange), { compact: true })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
+      </div>
+    );
+  };
+
+  const applyColorValue = (color: string, onChange: (value: string) => void) => {
+    onChange(color);
+    setRecentColors(upsertRecentColor(serverId, color));
+  };
+
+  const renderColorField = ({
+    label,
+    value,
+    onChange,
+    helperText,
+  }: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    helperText: string;
+  }) => (
+    <div className="space-y-3 rounded-2xl border border-white/10 bg-background/25 p-3">
+      <div className="space-y-1">
+        <Label>{label}</Label>
+        <p className="text-xs text-muted-foreground">{helperText}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="color"
+          value={(value || "#5865F2").startsWith("#") ? value || "#5865F2" : "#5865F2"}
+          onChange={(event) => applyColorValue(event.target.value, onChange)}
+          className="h-12 w-16 rounded-xl border border-white/10 bg-transparent"
+        />
+        <Input value={value || "#5865F2"} onChange={(event) => onChange(event.target.value)} placeholder="#5865F2" className="max-w-[180px]" />
+      </div>
+      {recentColors.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Recent swatches</p>
+          <div className="flex flex-wrap gap-2">
+            {recentColors.map((color) => (
+              <button
+                key={`recent-color-${color}`}
+                type="button"
+                className="h-9 w-9 rounded-full border border-white/10"
+                style={{ backgroundColor: color }}
+                onClick={() => applyColorValue(color, onChange)}
+                aria-label={`Use color ${color}`}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderMediaField = ({
+    label,
+    value,
+    onChange,
+    helperText,
+  }: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    helperText: string;
+  }) => {
+    const assetChoices = [
+      ...(draft?.assets || []).filter((asset) => asset.type === "image"),
+      ...libraryItems
+        .filter((item) => item.category === "asset_link" && typeof item.payload?.url === "string")
+        .map((item) => ({ id: `lib-${item.id}`, name: item.name, url: String(item.payload.url), type: "image" as const })),
+    ].slice(0, 18);
+
+    return (
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-background/25 p-3">
+        <div className="space-y-1">
+          <Label>{label}</Label>
+          <p className="text-xs text-muted-foreground">{helperText}</p>
+        </div>
+        {value ? (
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-black/20">
+            <img src={value} alt="" className="max-h-44 w-full object-cover" />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-xs text-muted-foreground">
+            No media selected yet.
+          </div>
+        )}
+        <Tabs defaultValue="upload" className="space-y-3">
+          <TabsList className="grid w-full grid-cols-3 bg-background/40">
+            <TabsTrigger value="upload">Upload</TabsTrigger>
+            <TabsTrigger value="library">Library</TabsTrigger>
+            <TabsTrigger value="url">URL</TabsTrigger>
+          </TabsList>
+          <TabsContent value="upload" className="space-y-3">
+            <input ref={mediaUploadInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                const dataUrl = String(reader.result || "");
+                uploadStudioAssetMutation.mutate(
+                  { name: file.name.replace(/\.[^.]+$/, ""), dataUrl, scope: librarySaveScope },
+                  {
+                    onSuccess: (payload: any) => {
+                      onChange(String(payload.url || ""));
+                      touchDraft((document) => {
+                        document.assets.push({
+                          id: makeId("asset"),
+                          name: String(payload.name || file.name),
+                          type: "image",
+                          url: String(payload.url || ""),
+                        });
+                      });
+                      toast({ title: "Image uploaded", description: "The media is now available in your Studio library." });
+                    },
+                    onError: (error: any) => toast({ title: "Upload failed", description: error.message, variant: "destructive" }),
+                  },
+                );
+              };
+              reader.readAsDataURL(file);
+            }} />
+            <Button type="button" variant="outline" onClick={() => mediaUploadInputRef.current?.click()} disabled={uploadStudioAssetMutation.isPending}>
+              {uploadStudioAssetMutation.isPending ? "Uploading..." : "Upload image"}
+            </Button>
+          </TabsContent>
+          <TabsContent value="library" className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {assetChoices.length === 0 ? <p className="text-xs text-muted-foreground">No saved media yet. Upload one or save an asset URL first.</p> : null}
+              {assetChoices.map((asset) => (
+                <button
+                  key={`media-choice-${asset.id}`}
+                  type="button"
+                  onClick={() => onChange(asset.url)}
+                  className="overflow-hidden rounded-2xl border border-white/10 bg-background/30 text-left transition hover:border-primary/35"
+                >
+                  <div className="aspect-[4/3] bg-black/20">{asset.url ? <img src={asset.url} alt="" className="h-full w-full object-cover" /> : null}</div>
+                  <div className="px-3 py-2 text-xs text-white/75">{asset.name}</div>
+                </button>
+              ))}
+            </div>
+          </TabsContent>
+          <TabsContent value="url" className="space-y-2">
+            <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder="https://image-link" />
+          </TabsContent>
+        </Tabs>
       </div>
     );
   };
@@ -2378,16 +2670,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       setActiveArea("build");
       setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
       setSelectedViewId(normalized.meta.entryViewId);
-      toast({ title: "JSON imported", description: "Review and save before publishing." });
+      toast({ title: "Code imported", description: "Review and save before publishing." });
     } catch (error: any) {
-      toast({ title: "Invalid JSON", description: error.message || "Could not parse Studio JSON.", variant: "destructive" });
+      toast({ title: "Invalid code", description: error.message || "Could not parse Studio code.", variant: "destructive" });
     }
   };
 
   const exportJson = async () => {
     if (!draft) return;
     await navigator.clipboard.writeText(JSON.stringify(draft, null, 2));
-    toast({ title: "JSON copied", description: "Studio document JSON is on your clipboard." });
+    toast({ title: "Code copied", description: "Studio document code is on your clipboard." });
   };
 
   const renderOverviewSection = () => (
@@ -2887,19 +3179,19 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <div className="space-y-4">
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Templates and JSON</CardTitle>
-          <CardDescription>Duplicate projects into templates, export JSON, and load another Studio payload into the current draft.</CardDescription>
+          <CardTitle className="font-display text-base">Templates and Code</CardTitle>
+          <CardDescription>Duplicate projects into templates, export code, and load another Studio payload into the current draft.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => duplicateCurrent(true)} className="gap-2"><Copy className="h-4 w-4" />Save As Template</Button>
             <Button variant="outline" onClick={() => duplicateCurrent(false)} className="gap-2"><FilePlus2 className="h-4 w-4" />Duplicate Project</Button>
-            <Button variant="outline" onClick={exportJson}>Export JSON</Button>
+            <Button variant="outline" onClick={exportJson}>Export Code</Button>
           </div>
           <div className="space-y-2">
-            <Label>Import JSON Into Current Draft</Label>
-            <Textarea value={importText} onChange={(event) => setImportText(event.target.value)} className="min-h-[180px] font-mono text-xs" placeholder="Paste a Studio document JSON payload here." />
-            <Button variant="outline" onClick={importFromJson}>Load JSON</Button>
+            <Label>Import Code Into Current Draft</Label>
+            <Textarea value={importText} onChange={(event) => setImportText(event.target.value)} className="min-h-[180px] font-mono text-xs" placeholder="Paste a Studio document code payload here." />
+            <Button variant="outline" onClick={importFromJson}>Load Code</Button>
           </div>
         </CardContent>
       </Card>
@@ -3355,7 +3647,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <Button variant="outline" onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2"><Save className="h-4 w-4" />Save Draft</Button>
             <Button variant="outline" onClick={exportJson} className="gap-2">
               <Copy className="h-4 w-4" />
-              Export JSON
+              Export Code
             </Button>
           </div>
         </CardContent>
@@ -3402,7 +3694,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         {renderMobileWorkspaceBanner({
           eyebrow: "Studio Library",
           title: "Assets, presets, and reusable parts",
-          description: "Browse saved pieces, build new visual helpers, or jump into templates and JSON tools without leaving the editor.",
+          description: "Browse saved pieces, build new visual helpers, or jump into templates and code tools without leaving the editor.",
           chips: [
             formatUnitCount(libraryItems.length, "saved item"),
             librarySearch ? `Search: ${librarySearch}` : "Browse mode",
@@ -3427,6 +3719,188 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     );
   };
 
+  const currentPrimaryType = draft ? inferStudioPrimarySurfaceType(draft) : "message";
+
+  const openEmbedRegionEditor = (index: number, region: string, fieldIndex?: number) => {
+    setEditorFocusLabel(fieldIndex !== undefined ? `${region} ${fieldIndex + 1}` : region);
+    openEmbedEditor(index);
+  };
+
+  const ensureEditableEmbed = () => {
+    if (!draft) return 0;
+    const existingIndex = selectedEmbedIndex !== null ? selectedEmbedIndex : 0;
+    if ((currentView?.embeds?.length || 0) > 0) return existingIndex;
+    touchDraft((document) => {
+      document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
+    });
+    return currentView?.embeds?.length || 0;
+  };
+
+  const addEmbedCanvasPart = (part: "field" | "image" | "thumbnail" | "footer" | "author" | "embed") => {
+    const embedIndex = ensureEditableEmbed();
+    touchDraft((document) => {
+      document.views[selectedViewId].embeds ||= [];
+      if (!document.views[selectedViewId].embeds[embedIndex]) {
+        document.views[selectedViewId].embeds[embedIndex] = { title: "", description: "", color: "#5865F2" };
+      }
+      if (part === "field") {
+        document.views[selectedViewId].embeds[embedIndex].fields ||= [];
+        document.views[selectedViewId].embeds[embedIndex].fields!.push({ name: "", value: "", inline: false });
+      }
+      if (part === "embed") {
+        document.views[selectedViewId].embeds.push({ title: "", description: "", color: document.views[selectedViewId].embeds[0]?.color || "#5865F2" });
+      }
+    });
+    const targetIndex = part === "embed" ? Math.max(0, (currentView?.embeds?.length || 0)) : embedIndex;
+    openEmbedRegionEditor(targetIndex, part === "field" ? "field" : part);
+  };
+
+  const addInteractiveCanvasPart = (part: "button_row" | "dropdown" | "gallery" | "section" | "notice" | "image") => {
+    if (part === "button_row") {
+      addNodeToCurrentView("action_row");
+      return;
+    }
+    if (part === "dropdown") {
+      const rowId = makeId("row");
+      const selectPayload = createNode("string_select", selectedViewId);
+      touchDraft((document) => {
+        document.nodes[rowId] = { id: rowId, type: "action_row", viewId: selectedViewId, childIds: [selectPayload.node.id], props: {} };
+        document.nodes[selectPayload.node.id] = { ...selectPayload.node, parentId: rowId };
+        for (const action of selectPayload.actions) document.actions[action.id] = action;
+        document.views[selectedViewId].rootNodeIds.push(rowId);
+      });
+      openNodeEditor(selectPayload.node.id);
+      return;
+    }
+    if (part === "gallery" || part === "image") {
+      addNodeToCurrentView("media_gallery");
+      return;
+    }
+    if (part === "section") {
+      addNodeToCurrentView("section");
+      return;
+    }
+    addNodeToCurrentView("style_block");
+  };
+
+  const renderCanvasAddActions = () => {
+    if (currentPrimaryType === "embed") {
+      return (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("field")}>Add field</Button>
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("image")}>Add image</Button>
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("thumbnail")}>Add thumbnail</Button>
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("footer")}>Add footer</Button>
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("author")}>Add author</Button>
+          <Button variant="outline" onClick={() => addEmbedCanvasPart("embed")}>Add another embed</Button>
+        </div>
+      );
+    }
+
+    if (currentPrimaryType === "components") {
+      return (
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("button_row")}>Add button row</Button>
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("dropdown")}>Add dropdown</Button>
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("image")}>Add image</Button>
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("gallery")}>Add gallery</Button>
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("section")}>Add section</Button>
+          <Button variant="outline" onClick={() => addInteractiveCanvasPart("notice")}>Add notice panel</Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <Button variant="outline" onClick={() => openMessageEditor("message body")}>Edit message</Button>
+        <Button variant="outline" onClick={() => addEmbedCanvasPart("embed")}>Add embed</Button>
+        <Button variant="outline" onClick={() => addInteractiveCanvasPart("button_row")}>Add button row</Button>
+      </div>
+    );
+  };
+
+  const renderLiveCanvasWorkspace = () => (
+    <div className="space-y-4">
+      <Card className="glass-card border-white/10 bg-background/40">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="font-display text-base">Message Canvas</CardTitle>
+              <CardDescription>Tap the live Discord message to edit the exact part you want to change.</CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}>
+                {errorCount > 0 ? `${errorCount} blocked` : warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "No issues"}
+              </Badge>
+              <Badge variant="outline">{currentPrimaryType === "components" ? "Interactive Message" : currentPrimaryType === "embed" ? "Embed Message" : "Plain Message"}</Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {hasMultiplePages ? viewChips : null}
+          <StudioPreview
+            document={previewDocument || draft!}
+            viewId={selectedViewId}
+            interactionRows={previewInteractionRows}
+            diagnostics={diagnostics}
+            mode={previewMode}
+            publishPlan={publishPlan}
+            surface="editor"
+            onEditMessage={() => openMessageEditor("message body")}
+            onEditEmbed={(embedIndex, region, fieldIndex) => openEmbedRegionEditor(embedIndex, region || "embed", fieldIndex)}
+            onEditNode={(nodeId) => openNodeEditor(nodeId)}
+            selectedMessage={messageEditorOpen}
+            selectedEmbedIndex={selectedEmbedIndex}
+            selectedNodeId={selectedNodeId}
+          />
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-background/25 p-4">
+            <div>
+              <p className="text-sm font-semibold text-white">Add parts to this message</p>
+              <p className="text-xs text-muted-foreground">Stay practical and message-oriented instead of adding abstract blocks first.</p>
+            </div>
+            {renderCanvasAddActions()}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderIssuesWorkspace = () => (
+    <div className="space-y-4">
+      <Card className="glass-card border-white/10 bg-background/40">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Issues</CardTitle>
+          <CardDescription>Review publish truth, warnings, and exact live output without cluttering the build screen.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
+            <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
+            {publishPlan ? <Badge variant={publishPlan.mode === "blocked" ? "destructive" : publishPlan.mode === "downgraded" ? "secondary" : "default"}>{publishPlan.label}</Badge> : null}
+          </div>
+          {previewPanel}
+          <ScrollArea className="max-h-72 rounded-xl border border-white/10 bg-background/30 p-3">
+            <div className="space-y-2">
+              {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This message is publish-safe.</p> : null}
+              {diagnostics.map((entry, index) => (
+                <button
+                  key={`${entry.code}-${index}`}
+                  type="button"
+                  onClick={() => jumpToDiagnosticPath(entry.path)}
+                  className="w-full rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-left text-xs transition hover:border-primary/30"
+                >
+                  <p className={cn("font-medium uppercase", entry.level === "error" ? "text-red-400" : entry.level === "warning" ? "text-amber-300" : "text-muted-foreground")}>{entry.level}</p>
+                  <p className="text-muted-foreground">{entry.message}</p>
+                  {entry.path ? <p className="text-[10px] text-muted-foreground/80">{entry.path}</p> : null}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderActiveWorkspace = () => {
     switch (activeArea) {
       case "library":
@@ -3448,20 +3922,52 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           </div>
         ) : renderPublishSection();
       case "preview":
-        return null;
+        return renderIssuesWorkspace();
       case "build":
       default:
-        return renderBuildWorkspace();
+        return renderLiveCanvasWorkspace();
     }
   };
 
   const inspectorBody = !draft ? null : (
     <div className="space-y-4">
+      {messageEditorOpen ? (
+        <Card className="glass-card border-white/10 bg-background/40">
+          <CardHeader>
+            <CardTitle className="font-display text-base">Message</CardTitle>
+            <CardDescription>Editing {editorFocusLabel}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={selectedEditorDiagnostics.some((entry) => entry.level === "error") ? "destructive" : selectedEditorDiagnostics.length > 0 ? "secondary" : "outline"}>
+                {selectedEditorDiagnostics.length > 0 ? `${selectedEditorDiagnostics.length} issue${selectedEditorDiagnostics.length === 1 ? "" : "s"}` : "No issues"}
+              </Badge>
+              <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)} className="gap-2">
+                <Eye className="h-4 w-4" />
+                Preview
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label>Message body</Label>
+              <Textarea
+                value={String(currentView?.messageContent || "")}
+                onFocus={() => setActiveInsertTarget({ kind: "message" })}
+                onChange={(event) => touchDraft((document) => {
+                  document.views[selectedViewId].messageContent = event.target.value;
+                })}
+                className="min-h-[220px]"
+              />
+              {renderTokenButtons("Use tokens or random text inline, then preview the actual Discord-style result as you build.")}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {selectedEmbed && selectedEmbedIndex !== null ? (
         <Card className="glass-card border-white/10 bg-background/40">
           <CardHeader>
             <CardTitle className="font-display text-base">Embed</CardTitle>
-            <CardDescription>Embed {selectedEmbedIndex + 1}</CardDescription>
+            <CardDescription>Embed {selectedEmbedIndex + 1} - editing {editorFocusLabel}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -3483,7 +3989,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Title</Label>
-                <Input value={selectedEmbed.title || ""} onChange={(event) => touchDraft((document) => {
+                <Input value={selectedEmbed.title || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_title", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => {
                   document.views[selectedViewId].embeds[selectedEmbedIndex].title = event.target.value;
                 })} />
                 <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.title || "").length}/256</p>
@@ -3498,7 +4004,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
             <div className="space-y-2">
               <Label>Description</Label>
-              <Textarea value={selectedEmbed.description || ""} onChange={(event) => touchDraft((document) => {
+              <Textarea value={selectedEmbed.description || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_description", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => {
                 document.views[selectedViewId].embeds[selectedEmbedIndex].description = event.target.value;
               })} className="min-h-[120px]" />
               {renderTokenButtons("Embed preview uses sample values, but member-only tokens still stay raw in normal static publishes.")}
@@ -3506,13 +4012,17 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Color</Label>
-                <Input value={selectedEmbed.color || "#5865F2"} onChange={(event) => touchDraft((document) => {
-                  document.views[selectedViewId].embeds[selectedEmbedIndex].color = event.target.value;
-                })} />
+              <div>
+                {renderColorField({
+                  label: "Color",
+                  value: selectedEmbed.color || "#5865F2",
+                  onChange: (value) => touchDraft((document) => {
+                    document.views[selectedViewId].embeds[selectedEmbedIndex].color = value;
+                  }),
+                  helperText: "Use the color wheel, keep the hex, and Studio will remember your recent swatches.",
+                })}
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
+              <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-background/25 px-4 py-3">
                 <Label>Timestamp</Label>
                 <Switch checked={Boolean(selectedEmbed.timestamp)} onCheckedChange={(checked) => touchDraft((document) => {
                   document.views[selectedViewId].embeds[selectedEmbedIndex].timestamp = checked;
@@ -3521,43 +4031,60 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label>Author</Label>
-                <Input value={selectedEmbed.authorName || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorName = event.target.value; })} placeholder="Author name" />
+                <Input value={selectedEmbed.authorName || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_author", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorName = event.target.value; })} placeholder="Author name" />
                 <Input value={selectedEmbed.authorUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorUrl = event.target.value; })} placeholder="Author URL" />
-                <Input value={selectedEmbed.authorIconUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorIconUrl = event.target.value; })} placeholder="Author icon URL" />
-                <Input value={selectedEmbed.authorId || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorId = event.target.value; })} placeholder="Author ID (metadata)" />
+                {renderMediaField({
+                  label: "Author icon",
+                  value: selectedEmbed.authorIconUrl || "",
+                  onChange: (value) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].authorIconUrl = value; }),
+                  helperText: "Upload, reuse a saved image, or paste a URL.",
+                })}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label>Footer</Label>
-                <Input value={selectedEmbed.footerText || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerText = event.target.value; })} placeholder="Footer text" />
-                <Input value={selectedEmbed.footerIconUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerIconUrl = event.target.value; })} placeholder="Footer icon URL" />
+                <Input value={selectedEmbed.footerText || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_footer", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerText = event.target.value; })} placeholder="Footer text" />
+                {renderMediaField({
+                  label: "Footer icon",
+                  value: selectedEmbed.footerIconUrl || "",
+                  onChange: (value) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].footerIconUrl = value; }),
+                  helperText: "Upload, reuse a saved image, or paste a URL.",
+                })}
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Image URL</Label>
-                <Input value={selectedEmbed.imageUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].imageUrl = event.target.value; })} />
+              <div>
+                {renderMediaField({
+                  label: "Embed image",
+                  value: selectedEmbed.imageUrl || "",
+                  onChange: (value) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].imageUrl = value; }),
+                  helperText: "Pick the main image from upload, saved media, or a URL.",
+                })}
               </div>
-              <div className="space-y-2">
-                <Label>Thumbnail URL</Label>
-                <Input value={selectedEmbed.thumbnailUrl || ""} onChange={(event) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].thumbnailUrl = event.target.value; })} />
+              <div>
+                {renderMediaField({
+                  label: "Thumbnail",
+                  value: selectedEmbed.thumbnailUrl || "",
+                  onChange: (value) => touchDraft((document) => { document.views[selectedViewId].embeds[selectedEmbedIndex].thumbnailUrl = value; }),
+                  helperText: "Pick the thumbnail from upload, saved media, or a URL.",
+                })}
               </div>
             </div>
 
             <div className="space-y-2">
               <Label>Fields</Label>
               {(selectedEmbed.fields || []).map((field, fieldIndex) => (
-                <div key={`embed-field-${selectedEmbedIndex}-${fieldIndex}`} className="rounded-lg border border-white/10 bg-background/50 p-3 space-y-2">
-                  <Input value={field.name || ""} onChange={(event) => touchDraft((document) => {
+                <div key={`embed-field-${selectedEmbedIndex}-${fieldIndex}`} className="rounded-2xl border border-white/10 bg-background/50 p-3 space-y-3">
+                  <Input value={field.name || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_field_name", embedIndex: selectedEmbedIndex, fieldIndex })} onChange={(event) => touchDraft((document) => {
                     document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
                     document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] = {
                       ...(document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] || {}),
                       name: event.target.value,
                     };
                   })} placeholder="Field name" />
-                  <Textarea value={field.value || ""} onChange={(event) => touchDraft((document) => {
+                  <Textarea value={field.value || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_field_value", embedIndex: selectedEmbedIndex, fieldIndex })} onChange={(event) => touchDraft((document) => {
                     document.views[selectedViewId].embeds[selectedEmbedIndex].fields ||= [];
                     document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] = {
                       ...(document.views[selectedViewId].embeds[selectedEmbedIndex].fields![fieldIndex] || {}),
@@ -3582,6 +4109,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               })}>
                 Add Field
               </Button>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-2">
+              <Button variant="outline" onClick={() => duplicateEmbed(selectedEmbedIndex)} className="gap-2"><Copy className="h-4 w-4" />Duplicate Embed</Button>
+              <Button variant="ghost" onClick={() => deleteEmbed(selectedEmbedIndex)} className="gap-2 text-destructive"><Trash2 className="h-4 w-4" />Delete Embed</Button>
             </div>
           </CardContent>
         </Card>
@@ -3613,7 +4145,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             {selectedNode.type === "text_display" ? (
               <div className="space-y-2">
                 <Label>Text</Label>
-                <Textarea value={String(selectedNode.props.text || "")} onChange={(event) => updateSelectedNode((node) => { node.props.text = event.target.value; })} className="min-h-[180px]" />
+                <Textarea value={String(selectedNode.props.text || "")} onFocus={() => setActiveInsertTarget({ kind: "node_text", nodeId: selectedNode.id })} onChange={(event) => updateSelectedNode((node) => { node.props.text = event.target.value; })} className="min-h-[180px]" />
                 {renderTokenButtons("Text blocks use the same Studio token system as the main message and embeds.")}
               </div>
             ) : null}
@@ -3678,10 +4210,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   <Label>Description</Label>
                   <Textarea value={String(selectedNode.props.description || "")} onChange={(event) => updateSelectedNode((node) => { node.props.description = event.target.value; })} className="min-h-[100px]" />
                 </div>
-                <div className="space-y-2">
-                  <Label>Accent Color</Label>
-                  <Input value={String(selectedNode.props.accentColor || "#B11226")} onChange={(event) => updateSelectedNode((node) => { node.props.accentColor = event.target.value; })} />
-                </div>
+                {renderColorField({
+                  label: "Accent Color",
+                  value: String(selectedNode.props.accentColor || "#B11226"),
+                  onChange: (value) => updateSelectedNode((node) => { node.props.accentColor = value; }),
+                  helperText: "Use a visual swatch first, then fine-tune the hex if you need it.",
+                })}
               </>
             ) : null}
 
@@ -3694,11 +4228,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 <div className="space-y-3">
                   {((selectedNode.props.items as any[]) || []).map((item, index) => (
                     <div key={`${selectedNode.id}-media-${index}`} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
-                      <Input value={String(item?.url || "")} placeholder="https://..." onChange={(event) => updateSelectedNode((node) => {
-                        const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
-                        items[index] = { ...(items[index] || {}), url: event.target.value };
-                        node.props.items = items;
-                      })} />
+                      {renderMediaField({
+                        label: `Gallery media ${index + 1}`,
+                        value: String(item?.url || ""),
+                        onChange: (value) => updateSelectedNode((node) => {
+                          const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
+                          items[index] = { ...(items[index] || {}), url: value };
+                          node.props.items = items;
+                        }),
+                        helperText: "Upload a file, pick a saved asset, or paste a URL.",
+                      })}
                       <Input value={String(item?.description || "")} placeholder="Description" onChange={(event) => updateSelectedNode((node) => {
                         const items = Array.isArray(node.props.items) ? [...(node.props.items as any[])] : [];
                         items[index] = { ...(items[index] || {}), description: event.target.value };
@@ -3730,10 +4269,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                   <Label>Label</Label>
                   <Input value={String(selectedNode.props.label || "")} onChange={(event) => updateSelectedNode((node) => { node.props.label = event.target.value; })} />
                 </div>
-                <div className="space-y-2">
-                  <Label>URL</Label>
-                  <Input value={String(selectedNode.props.url || "")} onChange={(event) => updateSelectedNode((node) => { node.props.url = event.target.value; })} />
-                </div>
+                {renderMediaField({
+                  label: "File URL",
+                  value: String(selectedNode.props.url || ""),
+                  onChange: (value) => updateSelectedNode((node) => { node.props.url = value; }),
+                  helperText: "Use upload, saved assets, or a direct URL for this file block.",
+                })}
               </>
             ) : null}
 
@@ -3753,7 +4294,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                       {renderEmojiField({
                         label: "Emoji",
                         value: String(selectedNode.props.emoji || ""),
-                        onChange: (value) => updateSelectedNode((node) => { node.props.emoji = value; }),
+                        onChange: (value) => {
+                          setActiveInsertTarget({ kind: "button_emoji", nodeId: selectedNode.id });
+                          updateSelectedNode((node) => { node.props.emoji = value; });
+                        },
                         helperText: "Pick a server emoji or paste a Discord token like <:archivist:123>.",
                       })}
                       <div className="space-y-2">
@@ -3786,7 +4330,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
                         <Label>Placeholder</Label>
-                        <Input value={String(selectedNode.props.placeholder || "")} onChange={(event) => updateSelectedNode((node) => { node.props.placeholder = event.target.value; })} />
+                        <Input value={String(selectedNode.props.placeholder || "")} onFocus={() => setActiveInsertTarget({ kind: "select_placeholder", nodeId: selectedNode.id })} onChange={(event) => updateSelectedNode((node) => { node.props.placeholder = event.target.value; })} />
                       </div>
                       <div className="space-y-2">
                         <Label>Custom ID</Label>
@@ -3853,7 +4397,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                     <div className="space-y-3">
                   {((selectedNode.props.options as any[]) || []).map((option, index) => (
                     <div key={`${selectedNode.id}-option-${index}`} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
-                      <Input value={String(option.label || "")} onChange={(event) => updateSelectedNode((node) => {
+                      <Input value={String(option.label || "")} onFocus={() => setActiveInsertTarget({ kind: "select_option_label", nodeId: selectedNode.id, optionIndex: index })} onChange={(event) => updateSelectedNode((node) => {
                         const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
                         options[index] = { ...options[index], label: event.target.value };
                         node.props.options = options;
@@ -3863,7 +4407,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                         options[index] = { ...options[index], value: event.target.value };
                         node.props.options = options;
                       })} placeholder="Option value" />
-                      <Input value={String(option.description || "")} onChange={(event) => updateSelectedNode((node) => {
+                      <Input value={String(option.description || "")} onFocus={() => setActiveInsertTarget({ kind: "select_option_description", nodeId: selectedNode.id, optionIndex: index })} onChange={(event) => updateSelectedNode((node) => {
                         const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
                         options[index] = { ...options[index], description: event.target.value };
                         node.props.options = options;
@@ -3871,11 +4415,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                       {renderEmojiField({
                         label: "Option Emoji",
                         value: String(option.emoji || ""),
-                        onChange: (value) => updateSelectedNode((node) => {
+                        onChange: (value) => {
+                          setActiveInsertTarget({ kind: "select_option_emoji", nodeId: selectedNode.id, optionIndex: index });
+                          updateSelectedNode((node) => {
                           const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
                           options[index] = { ...options[index], emoji: value };
                           node.props.options = options;
-                        }),
+                          });
+                        },
                         helperText: "This appears beside the option inside the Discord menu.",
                       })}
                       <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
@@ -4241,12 +4788,25 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             {dirty ? "Unsaved" : "Saved"} - {currentRecord?.moduleBinding ? getBindingLabel(currentRecord.moduleBinding) : getDocumentKindLabel(currentRecord?.kind)}
           </p>
         </div>
+        <Button
+          variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}
+          size="sm"
+          className="gap-2 rounded-full"
+          onClick={() => setActiveArea("preview")}
+        >
+          <CircleAlert className="h-4 w-4" />
+          {errorCount > 0 ? "Blocked" : warningCount > 0 ? "Warning" : "No issues"}
+        </Button>
         <Button variant="outline" size="icon" onClick={() => setPreviewOpen(true)}>
           <Eye className="h-4 w-4" />
         </Button>
         <Button onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2">
           <Save className="h-4 w-4" />
           {!isMobile ? "Save" : null}
+        </Button>
+        <Button variant="default" onClick={() => setActiveArea("publish")} className="gap-2">
+          <Rocket className="h-4 w-4" />
+          {!isMobile ? "Publish" : null}
         </Button>
       </CardContent>
     </Card>
@@ -4287,37 +4847,28 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   };
 
   const activateMobileUtility = (utilityId: (typeof MOBILE_UTILITY_AREAS)[number]["id"]) => {
-    if (utilityId === "preview") {
-      setPreviewOpen(true);
+    if (utilityId === "build") {
+      setActiveArea("build");
+      setPreviewOpen(false);
       return;
     }
 
     setPreviewOpen(false);
 
-    if (utilityId === "assets") {
-      setActiveArea("build");
-      setBuildFocusId("assets");
-      return;
-    }
-
     setActiveArea(utilityId);
   };
 
   const activateArea = (sectionId: StudioAreaId) => {
-    if (sectionId === "preview") {
-      setPreviewOpen(true);
-      return;
-    }
     setActiveArea(sectionId);
   };
 
   const primarySectionNav = (
     <div className="overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
-        {STUDIO_MAIN_AREAS.map((section) => (
+        {STUDIO_EDITOR_AREAS.map((section) => (
           <Button
             key={section.id}
-            variant={(section.id === "preview" ? previewOpen : activeArea === section.id) ? "default" : "outline"}
+            variant={activeArea === section.id ? "default" : "outline"}
             size="sm"
             onClick={() => activateArea(section.id)}
           >
@@ -4467,22 +5018,21 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </div>
   );
 
-  const mobileActiveUtilityId = previewOpen
-    ? "preview"
+  const mobileActiveUtilityId = activeArea === "build"
+    ? "build"
     : activeArea === "library"
       ? "library"
-      : activeArea === "publish"
-        ? "publish"
-        : activeArea === "build" && buildFocusId === "assets"
-          ? "assets"
+      : activeArea === "preview"
+        ? "preview"
+        : activeArea === "publish"
+          ? "publish"
           : null;
 
   if (isMobile) {
     return (
       <div className="space-y-4 pb-28">
         {topBar}
-        {mobileBuildNav}
-        {activeArea === "build" && buildFocusId !== "assets" && hasMultiplePages ? mobileViewChips : null}
+        {activeArea === "build" && hasMultiplePages ? mobileViewChips : null}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
@@ -4503,7 +5053,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
           <SheetContent side="bottom" className="h-[96vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
             <SheetHeader>
-              <SheetTitle>Composer</SheetTitle>
+              <SheetTitle>Editor</SheetTitle>
               <SheetDescription>
                 {selectedEditorType === "none" ? "Pick an embed, component, behavior, or modal to edit." : `Editing ${selectedEditorLabel}`}
               </SheetDescription>
@@ -4511,7 +5061,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button variant={composerMode === "edit" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("edit")}>Edit</Button>
               <Button variant={composerMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("preview")}>Preview</Button>
-              <Button variant={composerMode === "json" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("json")}>JSON</Button>
+              <Button variant={composerMode === "code" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("code")}>Code</Button>
               {selectedEditorDiagnostics.length > 0 ? (
                 <Badge variant={selectedEditorDiagnostics.some((diag) => diag.level === "error") ? "destructive" : "secondary"}>
                   {selectedEditorDiagnostics.length} issue{selectedEditorDiagnostics.length === 1 ? "" : "s"}
@@ -4523,7 +5073,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             <div className="mt-4 pb-6">
               {composerMode === "edit" ? inspectorBody : null}
               {composerMode === "preview" ? previewPanel : null}
-              {composerMode === "json" ? (
+              {composerMode === "code" ? (
                 <div className="space-y-2">
                   <Textarea
                     readOnly
@@ -4535,10 +5085,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                     onClick={async () => {
                       const json = selectedEditorPayload ? JSON.stringify(selectedEditorPayload, null, 2) : "{}";
                       await navigator.clipboard.writeText(json);
-                      toast({ title: "JSON copied", description: "Composer JSON copied to clipboard." });
+                      toast({ title: "Code copied", description: "Raw editor payload copied to clipboard." });
                     }}
                   >
-                    Copy JSON
+                    Copy Code
                   </Button>
                 </div>
               ) : null}
@@ -4548,7 +5098,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
         {quickAddDrawer}
 
-        {activeArea === "build" && buildFocusId !== "assets" ? (
+        {activeArea === "build" ? (
           <Button
             className="fixed bottom-20 right-4 z-30 gap-2 rounded-full shadow-xl"
             onClick={() => openQuickAddDrawer(null)}
@@ -4588,6 +5138,51 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       {hasMultiplePages ? viewChips : null}
       {primarySectionNav}
       {quickAddDrawer}
+      <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
+        <SheetContent side="right" className="w-full max-w-[540px] overflow-y-auto border-white/10 bg-background/95 px-4">
+          <SheetHeader>
+            <SheetTitle>Editor</SheetTitle>
+            <SheetDescription>
+              {selectedEditorType === "none" ? "Pick a visible message part to edit it directly." : `Editing ${selectedEditorLabel}`}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant={composerMode === "edit" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("edit")}>Edit</Button>
+            <Button variant={composerMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("preview")}>Preview</Button>
+            <Button variant={composerMode === "code" ? "default" : "outline"} size="sm" onClick={() => setComposerMode("code")}>Code</Button>
+            {selectedEditorDiagnostics.length > 0 ? (
+              <Badge variant={selectedEditorDiagnostics.some((diag) => diag.level === "error") ? "destructive" : "secondary"}>
+                {selectedEditorDiagnostics.length} issue{selectedEditorDiagnostics.length === 1 ? "" : "s"}
+              </Badge>
+            ) : (
+              <Badge variant="outline">No issues</Badge>
+            )}
+          </div>
+          <div className="mt-4 pb-6">
+            {composerMode === "edit" ? inspectorBody : null}
+            {composerMode === "preview" ? previewPanel : null}
+            {composerMode === "code" ? (
+              <div className="space-y-2">
+                <Textarea
+                  readOnly
+                  value={selectedEditorPayload ? JSON.stringify(selectedEditorPayload, null, 2) : "{}"}
+                  className="min-h-[65vh] font-mono text-xs"
+                />
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const json = selectedEditorPayload ? JSON.stringify(selectedEditorPayload, null, 2) : "{}";
+                    await navigator.clipboard.writeText(json);
+                    toast({ title: "Code copied", description: "Raw editor payload copied to clipboard." });
+                  }}
+                >
+                  Copy Code
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
       <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
         <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
           <SheetHeader>
@@ -4602,30 +5197,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           <div className="mt-4">{previewPanel}</div>
         </SheetContent>
       </Sheet>
-      <div className="grid min-h-[70vh] gap-6 xl:grid-cols-[minmax(0,1fr),380px]">
-        <div className="space-y-4 min-w-0">
-          {renderActiveWorkspace()}
-          {inspectorBody}
-        </div>
-
-        <div className="space-y-4">
-          <Card className="glass-card sticky top-4 border-white/10 bg-background/40">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="font-display text-base">Live Preview</CardTitle>
-                  <CardDescription>Discord-style preview plus interaction map and diagnostics.</CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant={previewMode === "mobile" ? "default" : "outline"} size="icon" onClick={() => setPreviewMode("mobile")}><Smartphone className="h-4 w-4" /></Button>
-                  <Button variant={previewMode === "desktop" ? "default" : "outline"} size="icon" onClick={() => setPreviewMode("desktop")}><Monitor className="h-4 w-4" /></Button>
-                  <Button variant={previewMode === "compact" ? "default" : "outline"} size="icon" onClick={() => setPreviewMode("compact")}><Bot className="h-4 w-4" /></Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>{previewPanel}</CardContent>
-          </Card>
-        </div>
+      <div className="grid min-h-[70vh] gap-6">
+        <div className="space-y-4 min-w-0">{renderActiveWorkspace()}</div>
       </div>
     </div>
   );

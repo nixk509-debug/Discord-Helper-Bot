@@ -8,7 +8,6 @@ import {
   Plus,
   Settings2,
   Sparkles,
-  UsersRound,
   Workflow,
 } from "lucide-react";
 import archivistAvatar from "@assets/archivist-avatar.png";
@@ -218,35 +217,28 @@ export function DesignStudioHome({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2">
             <StudioEntryCard
-              title="New"
-              subtitle="Start a fresh message flow"
+              title="New Design"
+              subtitle="Start a fresh Discord message"
               active={activeSection === "new"}
               icon={Plus}
               onClick={() => setActiveSection("new")}
             />
             <StudioEntryCard
-              title="Recents"
-              subtitle="Reopen recent drafts fast"
+              title="Continue Design / Saved"
+              subtitle="Reopen drafts and keep building"
               active={activeSection === "recents"}
               icon={FileClock}
               onClick={() => setActiveSection("recents")}
-            />
-            <StudioEntryCard
-              title="Community Shared"
-              subtitle="Import a polished starter"
-              active={activeSection === "community"}
-              icon={UsersRound}
-              onClick={() => setActiveSection("community")}
             />
           </div>
 
           {showNew ? (
             <div className="space-y-3">
               <div>
-                <p className="text-sm font-semibold text-white">Choose what to create</p>
-                <p className="text-xs text-muted-foreground">Jump directly into the editor built for that message type.</p>
+                <p className="text-sm font-semibold text-white">Choose your message type</p>
+                <p className="text-xs text-muted-foreground">Open the right editor immediately instead of walking through a generic setup flow.</p>
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 {(Object.entries(PRIMARY_TYPE_COPY) as Array<[StudioPrimarySurfaceType, (typeof PRIMARY_TYPE_COPY)[StudioPrimarySurfaceType]]>).map(
@@ -276,6 +268,23 @@ export function DesignStudioHome({
                   },
                 )}
               </div>
+              <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Starter Gallery</p>
+                    <p className="text-xs text-muted-foreground">Import a polished community starter when you want a faster head start.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full border border-white/10 bg-white/[0.04] px-3 text-white/75 hover:bg-white/[0.08]"
+                    onClick={() => setActiveSection("community")}
+                  >
+                    Browse starters
+                  </Button>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -283,8 +292,8 @@ export function DesignStudioHome({
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-white">Recent Drafts</p>
-                  <p className="text-xs text-muted-foreground">Open the draft you were just working on.</p>
+                  <p className="text-sm font-semibold text-white">Continue Design / Saved</p>
+                  <p className="text-xs text-muted-foreground">Open the draft you were just working on and keep the message live on screen.</p>
                 </div>
                 {activeSection !== "recents" ? (
                   <Button
@@ -346,7 +355,7 @@ export function DesignStudioHome({
           {showCommunity ? (
             <div className="space-y-3">
               <div>
-                <p className="text-sm font-semibold text-white">Community Shared</p>
+                <p className="text-sm font-semibold text-white">Starter Gallery</p>
                 <p className="text-xs text-muted-foreground">Import a curated starter and customize it in your own Studio draft.</p>
               </div>
               <div className="grid gap-3 md:grid-cols-3">

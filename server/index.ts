@@ -10,6 +10,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { configEvents } from "./configService";
 import { pool } from "./db";
 import { ensureRuntimeSchema } from "./runtime-schema";
+import path from "path";
 
 const app = express();
 const trustProxy = process.env.TRUST_PROXY ?? "1";
@@ -53,6 +54,7 @@ if (
 
 app.use(
   express.json({
+    limit: "15mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -60,6 +62,7 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
