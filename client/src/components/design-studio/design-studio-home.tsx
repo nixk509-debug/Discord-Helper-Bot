@@ -26,6 +26,11 @@ interface DesignStudioHomeProps {
   publications: StudioPublication[];
   isLoading: boolean;
   isWorking?: boolean;
+  statusBanner?: {
+    tone: "working" | "error";
+    title: string;
+    description: string;
+  } | null;
   onBack?: () => void;
   onOpenSettings?: () => void;
   onOpenDocument: (documentId: number) => void;
@@ -120,6 +125,7 @@ export function DesignStudioHome({
   publications,
   isLoading,
   isWorking = false,
+  statusBanner = null,
   onBack,
   onOpenSettings,
   onOpenDocument,
@@ -207,7 +213,7 @@ export function DesignStudioHome({
           <div className="grid gap-3 md:grid-cols-2">
             <StudioEntryCard
               title="New Design"
-              subtitle="Open one blank live message canvas"
+              subtitle={isWorking ? "Creating your blank live message canvas..." : "Open one blank live message canvas"}
               active={activeSection === "home"}
               disabled={isWorking}
               icon={Plus}
@@ -221,6 +227,22 @@ export function DesignStudioHome({
               onClick={() => setActiveSection("recents")}
             />
           </div>
+
+          {statusBanner ? (
+            <div
+              className={cn(
+                "rounded-[24px] border px-4 py-4",
+                statusBanner.tone === "error"
+                  ? "border-red-400/20 bg-red-500/10"
+                  : "border-primary/20 bg-primary/10",
+              )}
+            >
+              <p className="text-sm font-semibold text-white">{statusBanner.title}</p>
+              <p className={cn("mt-1 text-xs", statusBanner.tone === "error" ? "text-red-100/85" : "text-white/70")}>
+                {statusBanner.description}
+              </p>
+            </div>
+          ) : null}
 
           {showRecents ? (
             <div className="space-y-3">

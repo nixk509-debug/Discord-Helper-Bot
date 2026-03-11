@@ -960,6 +960,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [libraryAssetUrl, setLibraryAssetUrl] = useState("");
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [lastDiagnostics, setLastDiagnostics] = useState<StudioDiagnostic[]>([]);
+  const [homeStatusBanner, setHomeStatusBanner] = useState<{
+    tone: "working" | "error";
+    title: string;
+    description: string;
+  } | null>(null);
   const loadedDocumentIdRef = useRef<number | null>(null);
   const mediaUploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1481,6 +1486,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   };
 
   const createDocument = (binding?: any, kind: "surface" | "template" = "surface", customName?: string) => {
+    setHomeStatusBanner(null);
     const name = customName || defaultSurfaceName(binding);
     const document = createStudioDocumentDraft(binding, name);
     createDocumentMutation.mutate(
@@ -1493,16 +1499,29 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          setHomeStatusBanner(null);
           openCreatedRecord(created, {
             noticeTitle: kind === "template" ? "Template created" : "Project created",
           });
         },
-        onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
+        onError: (error: any) => {
+          setHomeStatusBanner({
+            tone: "error",
+            title: "Could not create that design",
+            description: error.message || "Studio hit an issue before the new design could open.",
+          });
+          toast({ title: "Create failed", description: error.message, variant: "destructive" });
+        },
       },
     );
   };
 
   const createNewDesign = () => {
+    setHomeStatusBanner({
+      tone: "working",
+      title: "Creating new design...",
+      description: "Studio is opening a blank live message canvas for you.",
+    });
     const name = defaultStudioDesignName();
     const document = createStudioBlankDocument(name);
     createDocumentMutation.mutate(
@@ -1514,12 +1533,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          setHomeStatusBanner(null);
           openCreatedRecord(created, {
             noticeTitle: "New design ready",
             noticeDescription: "Your live message canvas is ready. Tap any visible part to start editing.",
           });
         },
-        onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
+        onError: (error: any) => {
+          setHomeStatusBanner({
+            tone: "error",
+            title: "New design could not open",
+            description: error.message || "Studio could not create the blank design.",
+          });
+          toast({ title: "Create failed", description: error.message, variant: "destructive" });
+        },
       },
     );
   };
@@ -1541,6 +1568,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
+          setHomeStatusBanner(null);
           openCreatedRecord(created, {
             focus: getBuildFocusFromPrimaryType(starter.primaryType),
             selectFirstEmbed: starter.primaryType === "embed",
@@ -1548,7 +1576,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             noticeDescription: `${created.name} is ready to customize.`,
           });
         },
-        onError: (error: any) => toast({ title: "Import failed", description: error.message, variant: "destructive" }),
+        onError: (error: any) => {
+          setHomeStatusBanner({
+            tone: "error",
+            title: "Starter import failed",
+            description: error.message || "Studio could not import that starter right now.",
+          });
+          toast({ title: "Import failed", description: error.message, variant: "destructive" });
+        },
       },
     );
   };
@@ -4909,6 +4944,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         publications={publications}
         isLoading={studioDocumentsQuery.isLoading}
         isWorking={createDocumentMutation.isPending}
+        statusBanner={homeStatusBanner}
         onBack={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
         onOpenSettings={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
         onOpenDocument={loadDocument}
