@@ -215,6 +215,14 @@ function createBaseStudioDocument(name: string): StudioDocument {
   };
 }
 
+export function defaultStudioDesignName() {
+  return "Untitled Design";
+}
+
+export function createStudioBlankDocument(name = defaultStudioDesignName()): StudioDocument {
+  return createBaseStudioDocument(name);
+}
+
 export function defaultPrimarySurfaceName(primaryType: StudioPrimarySurfaceType) {
   switch (primaryType) {
     case "message":

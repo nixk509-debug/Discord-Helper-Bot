@@ -942,7 +942,14 @@ export function buildStudioPublishPlan(
   return {
     viewId: view.id,
     mode,
-    label: mode === "blocked" ? "Blocked publish" : mode === "downgraded" ? "Downgraded publish" : "Exact V2 publish",
+    label:
+      mode === "blocked"
+        ? "Blocked publish"
+        : mode === "downgraded"
+          ? "Downgraded publish"
+          : publishPath === "v2"
+            ? "Exact V2 publish"
+            : "Exact publish",
     summary,
     publishPath,
     usesComponentsV2,

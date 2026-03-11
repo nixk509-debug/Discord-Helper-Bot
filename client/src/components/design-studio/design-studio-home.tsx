@@ -7,8 +7,6 @@ import {
   Library,
   Plus,
   Settings2,
-  Sparkles,
-  Workflow,
 } from "lucide-react";
 import archivistAvatar from "@assets/archivist-avatar.png";
 import { Badge } from "@/components/ui/badge";
@@ -18,11 +16,10 @@ import { cn } from "@/lib/utils";
 import {
   STUDIO_COMMUNITY_STARTERS,
   inferStudioPrimarySurfaceType,
-  type StudioPrimarySurfaceType,
 } from "@/components/design-studio/studio-defaults";
 import type { StudioDocumentRecord, StudioPublication } from "@shared/schema";
 
-type StudioHomeSection = "home" | "new" | "recents" | "community";
+type StudioHomeSection = "home" | "recents" | "community";
 
 interface DesignStudioHomeProps {
   documents: StudioDocumentRecord[];
@@ -32,29 +29,17 @@ interface DesignStudioHomeProps {
   onBack?: () => void;
   onOpenSettings?: () => void;
   onOpenDocument: (documentId: number) => void;
-  onCreatePrimary: (primaryType: StudioPrimarySurfaceType) => void;
+  onCreateNewDesign: () => void;
   onImportCommunityStarter: (starterId: string) => void;
   initialSection?: StudioHomeSection;
   embedded?: boolean;
 }
 
-const PRIMARY_TYPE_COPY: Record<StudioPrimarySurfaceType, { title: string; subtitle: string; eyebrow: string }> = {
-  message: {
-    title: "Plain Message",
-    subtitle: "Write a clean Discord message from top to bottom.",
-    eyebrow: "Compose",
-  },
-  embed: {
-    title: "Embed Message",
-    subtitle: "Build a rich embed with fields, media, and color.",
-    eyebrow: "Embed",
-  },
-  components: {
-    title: "Interactive Message",
-    subtitle: "Add layouts, buttons, menus, and follow-up behavior when you need it.",
-    eyebrow: "Interactive",
-  },
-};
+const SURFACE_TYPE_LABELS = {
+  message: "Message-first",
+  embed: "Embed-rich",
+  components: "Interactive",
+} as const;
 
 function parseDate(value: unknown) {
   if (value instanceof Date) return value;
@@ -92,12 +77,14 @@ function StudioEntryCard({
   title,
   subtitle,
   active,
+  disabled = false,
   icon: Icon,
   onClick,
 }: {
   title: string;
   subtitle: string;
   active: boolean;
+  disabled?: boolean;
   icon: typeof FilePlus2;
   onClick: () => void;
 }) {
@@ -105,8 +92,9 @@ function StudioEntryCard({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "group relative overflow-hidden rounded-[26px] border px-4 py-4 text-left transition",
+        "group relative overflow-hidden rounded-[26px] border px-4 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
         active
           ? "border-primary/45 bg-[linear-gradient(180deg,rgba(177,18,38,0.22),rgba(15,16,18,0.96))]"
           : "border-white/10 bg-[linear-gradient(180deg,rgba(21,24,29,0.94),rgba(10,11,13,0.98))] hover:border-primary/35",
@@ -135,7 +123,7 @@ export function DesignStudioHome({
   onBack,
   onOpenSettings,
   onOpenDocument,
-  onCreatePrimary,
+  onCreateNewDesign,
   onImportCommunityStarter,
   initialSection = "home",
   embedded = false,
@@ -153,8 +141,7 @@ export function DesignStudioHome({
   const recentDrafts = drafts.slice(0, activeSection === "home" ? 3 : 12);
 
   const showRecents = activeSection === "home" || activeSection === "recents";
-  const showCommunity = activeSection === "community";
-  const showNew = activeSection === "new";
+  const showCommunity = activeSection === "home" || activeSection === "community";
 
   return (
     <div className={cn(embedded ? "space-y-6" : "-mx-4 min-h-[calc(100vh-5rem)] px-4 pb-16 pt-2")}>
@@ -220,10 +207,11 @@ export function DesignStudioHome({
           <div className="grid gap-3 md:grid-cols-2">
             <StudioEntryCard
               title="New Design"
-              subtitle="Start a fresh Discord message"
-              active={activeSection === "new"}
+              subtitle="Open one blank live message canvas"
+              active={activeSection === "home"}
+              disabled={isWorking}
               icon={Plus}
-              onClick={() => setActiveSection("new")}
+              onClick={onCreateNewDesign}
             />
             <StudioEntryCard
               title="Continue Design / Saved"
@@ -233,60 +221,6 @@ export function DesignStudioHome({
               onClick={() => setActiveSection("recents")}
             />
           </div>
-
-          {showNew ? (
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-white">Choose your message type</p>
-                <p className="text-xs text-muted-foreground">Open the right editor immediately instead of walking through a generic setup flow.</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                {(Object.entries(PRIMARY_TYPE_COPY) as Array<[StudioPrimarySurfaceType, (typeof PRIMARY_TYPE_COPY)[StudioPrimarySurfaceType]]>).map(
-                  ([type, copy]) => {
-                    const Icon = type === "message" ? FilePlus2 : type === "embed" ? Sparkles : Workflow;
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => onCreatePrimary(type)}
-                        disabled={isWorking}
-                        className="group relative overflow-hidden rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(21,24,29,0.94),rgba(10,11,13,0.98))] px-4 py-4 text-left transition hover:-translate-y-0.5 hover:border-primary/45 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <div className="absolute inset-y-0 right-0 w-20 bg-[radial-gradient(circle_at_center,rgba(255,45,77,0.14),transparent_72%)] opacity-75 transition group-hover:opacity-100" />
-                        <div className="relative space-y-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] border border-white/10 bg-white/[0.04] text-primary shadow-[0_12px_24px_rgba(177,18,38,0.18)]">
-                            <Icon className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] uppercase tracking-[0.32em] text-white/40">{copy.eyebrow}</p>
-                            <p className="mt-1 text-base font-semibold text-white">{copy.title}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{copy.subtitle}</p>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  },
-                )}
-              </div>
-              <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Starter Gallery</p>
-                    <p className="text-xs text-muted-foreground">Import a polished community starter when you want a faster head start.</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full border border-white/10 bg-white/[0.04] px-3 text-white/75 hover:bg-white/[0.08]"
-                    onClick={() => setActiveSection("community")}
-                  >
-                    Browse starters
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
           {showRecents ? (
             <div className="space-y-3">
@@ -320,7 +254,7 @@ export function DesignStudioHome({
 
                 {!isLoading && recentDrafts.length === 0 ? (
                   <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-muted-foreground">
-                    No drafts yet. Start with a plain message, embed, or interactive message.
+                    No saved designs yet. Start a new design and build directly on the live message canvas.
                   </div>
                 ) : null}
 
@@ -342,7 +276,7 @@ export function DesignStudioHome({
                             <p className="truncate text-xs text-muted-foreground">{formatDraftMeta(statusLabel, relativeEdit)}</p>
                           </div>
                           <Badge variant="outline" className="border-white/10 bg-white/[0.03] text-white/70">
-                            {PRIMARY_TYPE_COPY[primaryType].title}
+                            {SURFACE_TYPE_LABELS[primaryType]}
                           </Badge>
                         </button>
                       );
@@ -354,9 +288,22 @@ export function DesignStudioHome({
 
           {showCommunity ? (
             <div className="space-y-3">
-              <div>
-                <p className="text-sm font-semibold text-white">Starter Gallery</p>
-                <p className="text-xs text-muted-foreground">Import a curated starter and customize it in your own Studio draft.</p>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Community Shared</p>
+                  <p className="text-xs text-muted-foreground">Import a curated starter, then edit the live message directly in your own draft.</p>
+                </div>
+                {activeSection !== "community" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-3 text-white/75 hover:bg-white/[0.06]"
+                    onClick={() => setActiveSection("community")}
+                  >
+                    View all
+                  </Button>
+                ) : null}
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 {STUDIO_COMMUNITY_STARTERS.map((starter) => (
@@ -367,7 +314,7 @@ export function DesignStudioHome({
                           {starter.eyebrow}
                         </Badge>
                         <Badge className="border-none bg-primary/15 text-white">
-                          {PRIMARY_TYPE_COPY[starter.primaryType].title}
+                          {SURFACE_TYPE_LABELS[starter.primaryType]}
                         </Badge>
                       </div>
                       <div>

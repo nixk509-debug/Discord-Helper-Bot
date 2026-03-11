@@ -52,9 +52,9 @@ import { DesignStudioHome } from "@/components/design-studio/design-studio-home"
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
   STUDIO_COMMUNITY_STARTERS,
-  createStudioPrimaryDocument,
+  createStudioBlankDocument,
   createStudioDocument as createStudioDocumentDraft,
-  defaultPrimarySurfaceName,
+  defaultStudioDesignName,
   defaultSurfaceName,
   inferStudioPrimarySurfaceType,
   type StudioPrimarySurfaceType,
@@ -220,6 +220,26 @@ const MOBILE_UTILITY_AREAS = [
   { id: "library" as const, label: "Assets", icon: ImageIcon },
   { id: "preview" as const, label: "Issues", icon: CircleAlert },
   { id: "publish" as const, label: "Publish", icon: Rocket },
+];
+
+const INTERACTIVE_NODE_TYPES: StudioNodeType[] = [
+  "action_row",
+  "button",
+  "string_select",
+  "role_select",
+  "user_select",
+  "channel_select",
+  "mentionable_select",
+];
+
+const LAYOUT_NODE_TYPES: StudioNodeType[] = [
+  "container",
+  "section",
+  "text_display",
+  "divider",
+  "style_block",
+  "media_gallery",
+  "file",
 ];
 
 function formatUnitCount(count: number, singular: string, plural = `${singular}s`) {
@@ -1073,6 +1093,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     () => (draft ? Object.values(draft.nodes).filter((node) => node.viewId === selectedViewId).length : 0),
     [draft, selectedViewId],
   );
+  const currentViewLayoutNodeCount = useMemo(
+    () => (draft ? Object.values(draft.nodes).filter((node) => node.viewId === selectedViewId && LAYOUT_NODE_TYPES.includes(node.type)).length : 0),
+    [draft, selectedViewId],
+  );
+  const currentViewInteractiveNodeCount = useMemo(
+    () => (draft ? Object.values(draft.nodes).filter((node) => node.viewId === selectedViewId && INTERACTIVE_NODE_TYPES.includes(node.type)).length : 0),
+    [draft, selectedViewId],
+  );
   const actionCount = draft ? Object.keys(draft.actions).length : 0;
   const modalCount = draft ? Object.keys(draft.modals).length : 0;
   const pageCount = draft ? Object.keys(draft.views).length : 0;
@@ -1427,9 +1455,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     );
   };
 
-  const createPrimaryDocument = (primaryType: StudioPrimarySurfaceType) => {
-    const name = defaultPrimarySurfaceName(primaryType);
-    const document = createStudioPrimaryDocument(primaryType, name);
+  const createNewDesign = () => {
+    const name = defaultStudioDesignName();
+    const document = createStudioBlankDocument(name);
     createDocumentMutation.mutate(
       {
         scope: "server",
@@ -1440,9 +1468,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       {
         onSuccess: (created: StudioDocumentRecord) => {
           openCreatedRecord(created, {
-            focus: getBuildFocusFromPrimaryType(primaryType),
-            selectFirstEmbed: primaryType === "embed",
-            noticeTitle: "Project created",
+            noticeTitle: "New design ready",
+            noticeDescription: "Your live message canvas is ready. Tap any visible part to start editing.",
           });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
@@ -3719,7 +3746,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     );
   };
 
-  const currentPrimaryType = draft ? inferStudioPrimarySurfaceType(draft) : "message";
+  const canvasSummaryChips = [
+    currentView?.messageContent?.trim() ? "Message text" : null,
+    (currentView?.embeds?.length || 0) > 0 ? formatUnitCount(currentView?.embeds?.length || 0, "embed") : null,
+    currentViewLayoutNodeCount > 0 ? formatUnitCount(currentViewLayoutNodeCount, "layout part") : null,
+    currentViewInteractiveNodeCount > 0 ? formatUnitCount(currentViewInteractiveNodeCount, "interactive part") : null,
+  ].filter((value): value is string => Boolean(value));
 
   const openEmbedRegionEditor = (index: number, region: string, fieldIndex?: number) => {
     setEditorFocusLabel(fieldIndex !== undefined ? `${region} ${fieldIndex + 1}` : region);
@@ -3755,69 +3787,105 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     openEmbedRegionEditor(targetIndex, part === "field" ? "field" : part);
   };
 
-  const addInteractiveCanvasPart = (part: "button_row" | "dropdown" | "gallery" | "section" | "notice" | "image") => {
+  const addButtonRowCanvasPart = () => {
+    const rowId = makeId("row");
+    const buttonPayload = createNode("button", selectedViewId);
+    touchDraft((document) => {
+      document.nodes[rowId] = { id: rowId, type: "action_row", viewId: selectedViewId, childIds: [buttonPayload.node.id], props: {} };
+      document.nodes[buttonPayload.node.id] = { ...buttonPayload.node, parentId: rowId };
+      for (const action of buttonPayload.actions) document.actions[action.id] = action;
+      document.views[selectedViewId].rootNodeIds.push(rowId);
+    });
+    openNodeEditor(buttonPayload.node.id);
+  };
+
+  const addDropdownCanvasPart = () => {
+    const rowId = makeId("row");
+    const selectPayload = createNode("string_select", selectedViewId);
+    touchDraft((document) => {
+      document.nodes[rowId] = { id: rowId, type: "action_row", viewId: selectedViewId, childIds: [selectPayload.node.id], props: {} };
+      document.nodes[selectPayload.node.id] = { ...selectPayload.node, parentId: rowId };
+      for (const action of selectPayload.actions) document.actions[action.id] = action;
+      document.views[selectedViewId].rootNodeIds.push(rowId);
+    });
+    openNodeEditor(selectPayload.node.id);
+  };
+
+  const addMediaCanvasPart = (kind: "image" | "gallery") => {
+    const galleryPayload = createNode("media_gallery", selectedViewId);
+    touchDraft((document) => {
+      document.nodes[galleryPayload.node.id] = {
+        ...galleryPayload.node,
+        props: {
+          ...galleryPayload.node.props,
+          title: kind === "image" ? "Image" : "Gallery",
+          items: kind === "image" ? [{ url: "", description: "" }] : [],
+        },
+      };
+      document.views[selectedViewId].rootNodeIds.push(galleryPayload.node.id);
+    });
+    openNodeEditor(galleryPayload.node.id);
+  };
+
+  const addCanvasPart = (part: "text" | "embed" | "button_row" | "dropdown" | "image" | "gallery" | "divider" | "notice") => {
+    if (part === "text") {
+      if (!(currentView?.messageContent || "").trim() && (currentView?.embeds?.length || 0) === 0 && currentViewNodeCount === 0) {
+        openMessageEditor("message body");
+        return;
+      }
+      addNodeToCurrentView("text_display");
+      return;
+    }
+
+    if (part === "embed") {
+      addEmbedCanvasPart("embed");
+      return;
+    }
+
     if (part === "button_row") {
-      addNodeToCurrentView("action_row");
+      addButtonRowCanvasPart();
       return;
     }
+
     if (part === "dropdown") {
-      const rowId = makeId("row");
-      const selectPayload = createNode("string_select", selectedViewId);
-      touchDraft((document) => {
-        document.nodes[rowId] = { id: rowId, type: "action_row", viewId: selectedViewId, childIds: [selectPayload.node.id], props: {} };
-        document.nodes[selectPayload.node.id] = { ...selectPayload.node, parentId: rowId };
-        for (const action of selectPayload.actions) document.actions[action.id] = action;
-        document.views[selectedViewId].rootNodeIds.push(rowId);
-      });
-      openNodeEditor(selectPayload.node.id);
+      addDropdownCanvasPart();
       return;
     }
-    if (part === "gallery" || part === "image") {
-      addNodeToCurrentView("media_gallery");
+
+    if (part === "image") {
+      if ((currentView?.embeds?.length || 0) > 0 || selectedEmbedIndex !== null) {
+        addEmbedCanvasPart("image");
+        return;
+      }
+      addMediaCanvasPart("image");
       return;
     }
-    if (part === "section") {
-      addNodeToCurrentView("section");
+
+    if (part === "gallery") {
+      addMediaCanvasPart("gallery");
       return;
     }
+
+    if (part === "divider") {
+      addNodeToCurrentView("divider");
+      return;
+    }
+
     addNodeToCurrentView("style_block");
   };
 
-  const renderCanvasAddActions = () => {
-    if (currentPrimaryType === "embed") {
-      return (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("field")}>Add field</Button>
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("image")}>Add image</Button>
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("thumbnail")}>Add thumbnail</Button>
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("footer")}>Add footer</Button>
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("author")}>Add author</Button>
-          <Button variant="outline" onClick={() => addEmbedCanvasPart("embed")}>Add another embed</Button>
-        </div>
-      );
-    }
-
-    if (currentPrimaryType === "components") {
-      return (
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("button_row")}>Add button row</Button>
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("dropdown")}>Add dropdown</Button>
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("image")}>Add image</Button>
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("gallery")}>Add gallery</Button>
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("section")}>Add section</Button>
-          <Button variant="outline" onClick={() => addInteractiveCanvasPart("notice")}>Add notice panel</Button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        <Button variant="outline" onClick={() => openMessageEditor("message body")}>Edit message</Button>
-        <Button variant="outline" onClick={() => addEmbedCanvasPart("embed")}>Add embed</Button>
-        <Button variant="outline" onClick={() => addInteractiveCanvasPart("button_row")}>Add button row</Button>
-      </div>
-    );
-  };
+  const renderCanvasAddActions = () => (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <Button variant="outline" onClick={() => addCanvasPart("text")}>Text</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("embed")}>Embed</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("button_row")}>Button Row</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("dropdown")}>Dropdown</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("image")}>Image</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("gallery")}>Gallery</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("divider")}>Divider</Button>
+      <Button variant="outline" onClick={() => addCanvasPart("notice")}>Notice Panel</Button>
+    </div>
+  );
 
   const renderLiveCanvasWorkspace = () => (
     <div className="space-y-4">
@@ -3832,7 +3900,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <Badge variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}>
                 {errorCount > 0 ? `${errorCount} blocked` : warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "No issues"}
               </Badge>
-              <Badge variant="outline">{currentPrimaryType === "components" ? "Interactive Message" : currentPrimaryType === "embed" ? "Embed Message" : "Plain Message"}</Badge>
+              {canvasSummaryChips.length > 0 ? canvasSummaryChips.map((chip) => (
+                <Badge key={`canvas-chip-${chip}`} variant="outline">{chip}</Badge>
+              )) : <Badge variant="outline">Blank canvas</Badge>}
             </div>
           </div>
         </CardHeader>
@@ -3955,6 +4025,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 onChange={(event) => touchDraft((document) => {
                   document.views[selectedViewId].messageContent = event.target.value;
                 })}
+                placeholder="Write the main message members will see..."
                 className="min-h-[220px]"
               />
               {renderTokenButtons("Use tokens or random text inline, then preview the actual Discord-style result as you build.")}
@@ -3991,7 +4062,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 <Label>Title</Label>
                 <Input value={selectedEmbed.title || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_title", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => {
                   document.views[selectedViewId].embeds[selectedEmbedIndex].title = event.target.value;
-                })} />
+                })} placeholder="Give this embed a headline" />
                 <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.title || "").length}/256</p>
               </div>
               <div className="space-y-2">
@@ -4006,7 +4077,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <Label>Description</Label>
               <Textarea value={selectedEmbed.description || ""} onFocus={() => setActiveInsertTarget({ kind: "embed_description", embedIndex: selectedEmbedIndex })} onChange={(event) => touchDraft((document) => {
                 document.views[selectedViewId].embeds[selectedEmbedIndex].description = event.target.value;
-              })} className="min-h-[120px]" />
+              })} placeholder="Write the main embed copy..." className="min-h-[120px]" />
               {renderTokenButtons("Embed preview uses sample values, but member-only tokens still stay raw in normal static publishes.")}
               <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.description || "").length}/4096</p>
             </div>
@@ -4770,7 +4841,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         onBack={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
         onOpenSettings={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
         onOpenDocument={loadDocument}
-        onCreatePrimary={createPrimaryDocument}
+        onCreateNewDesign={createNewDesign}
         onImportCommunityStarter={importCommunityStarter}
       />
     );
@@ -4893,11 +4964,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>
       <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
         <DrawerHeader>
-          <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add to Message"}</DrawerTitle>
+          <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add Part"}</DrawerTitle>
           <DrawerDescription>
             {quickAddParentNode
               ? `New blocks will be nested inside ${getStudioNodeDisplayLabel(quickAddParentNode)}.`
-              : "Add parts to this message without opening a deeper setup flow."}
+              : "Add a visible part to this message without leaving the live canvas."}
           </DrawerDescription>
         </DrawerHeader>
         <div className="space-y-4 px-4 pb-6">
@@ -4908,47 +4979,69 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <p className="mt-1 text-xs text-muted-foreground">{getStudioNodeTypeLabel(quickAddParentNode.type)}</p>
             </div>
           ) : null}
-          <div className="grid grid-cols-2 gap-2">
-            {quickAddNodeOptions.map((option) => (
-              <Button key={`quick-add-${option.type}`} variant="outline" className="h-auto justify-start py-3" onClick={() => addNodeFromQuickAdd(option.type)}>
+          {quickAddParentNode ? (
+            <div className="grid grid-cols-2 gap-2">
+              {quickAddNodeOptions.map((option) => (
+                <Button key={`quick-add-${option.type}`} variant="outline" className="h-auto justify-start py-3" onClick={() => addNodeFromQuickAdd(option.type)}>
+                  <div className="text-left">
+                    <div className="text-sm font-medium text-white">{option.label}</div>
+                    <div className="text-xs text-muted-foreground">{option.detail}</div>
+                  </div>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("text"); setQuickAddOpen(false); }}>
                 <div className="text-left">
-                  <div className="text-sm font-medium text-white">{option.label}</div>
-                  <div className="text-xs text-muted-foreground">{option.detail}</div>
+                  <div className="text-sm font-medium text-white">Text</div>
+                  <div className="text-xs text-muted-foreground">Write message copy or add a text block.</div>
                 </div>
               </Button>
-            ))}
-          </div>
-          {!quickAddParentNode ? (
-            <>
-              <Separator className="bg-white/10" />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    touchDraft((document) => {
-                      document.views[selectedViewId].embeds.push({ title: "", description: "", color: "#5865F2" });
-                      setBuildFocusId("embeds");
-                      setSelectedEmbedIndex(document.views[selectedViewId].embeds.length - 1);
-                      setSelectedNodeId(null);
-                      setSelectedActionId(null);
-                      setSelectedModalId(null);
-                    });
-                    setQuickAddOpen(false);
-                    setQuickAddParentId(null);
-                    setInspectorOpen(true);
-                  }}
-                >
-                  Add Embed
-                </Button>
-                <Button variant="outline" onClick={() => { addAction("reply_message"); setQuickAddOpen(false); setQuickAddParentId(null); }}>
-                  Add Behavior
-                </Button>
-                <Button variant="outline" onClick={() => { addModal(); setQuickAddOpen(false); setQuickAddParentId(null); }}>
-                  Add Modal
-                </Button>
-              </div>
-            </>
-          ) : null}
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("embed"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Embed</div>
+                  <div className="text-xs text-muted-foreground">Add a rich Discord embed with direct on-canvas editing.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("button_row"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Button Row</div>
+                  <div className="text-xs text-muted-foreground">Insert a starter row with a button you can edit directly.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("dropdown"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Dropdown</div>
+                  <div className="text-xs text-muted-foreground">Add a select menu with options, emoji, and actions.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("image"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Image</div>
+                  <div className="text-xs text-muted-foreground">Add an image slot to an embed or a visible media card.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("gallery"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Gallery</div>
+                  <div className="text-xs text-muted-foreground">Stack multiple images into one message gallery.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("divider"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Divider</div>
+                  <div className="text-xs text-muted-foreground">Separate sections with a visible line or symbol break.</div>
+                </div>
+              </Button>
+              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("notice"); setQuickAddOpen(false); }}>
+                <div className="text-left">
+                  <div className="text-sm font-medium text-white">Notice Panel</div>
+                  <div className="text-xs text-muted-foreground">Highlight warnings, rules, or callout copy.</div>
+                </div>
+              </Button>
+            </div>
+          )}
         </div>
       </DrawerContent>
     </Drawer>
@@ -5052,6 +5145,17 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
         <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
           <SheetContent side="bottom" className="h-[96vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
+            <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-white/10 bg-background/95 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <Button variant="ghost" size="sm" onClick={() => setInspectorOpen(false)} className="gap-2 px-0 text-white/80 hover:bg-transparent hover:text-white">
+                  <ChevronLeft className="h-4 w-4" />
+                  Back to canvas
+                </Button>
+                <span className="max-w-[45vw] truncate text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+                  {selectedEditorType === "none" ? "Editor" : selectedEditorLabel}
+                </span>
+              </div>
+            </div>
             <SheetHeader>
               <SheetTitle>Editor</SheetTitle>
               <SheetDescription>
@@ -5104,7 +5208,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             onClick={() => openQuickAddDrawer(null)}
           >
             <Plus className="h-4 w-4" />
-            Add
+            Add Part
           </Button>
         ) : null}
 

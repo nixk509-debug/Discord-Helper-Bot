@@ -70,6 +70,22 @@ function DiscordRichText({ text, className, emojiSize = 18 }: { text: string; cl
   );
 }
 
+function formatPublishPathLabel(publishPlan?: StudioPublishPlan | null) {
+  if (!publishPlan) return "";
+  switch (publishPlan.publishPath) {
+    case "v2":
+      return "Components V2";
+    case "legacy":
+      return "Legacy message";
+    case "downgraded":
+      return "Simplified";
+    case "blocked":
+      return "Blocked";
+    default:
+      return publishPlan.publishPath;
+  }
+}
+
 function PreviewRegion({
   label,
   onClick,
@@ -320,7 +336,7 @@ export function StudioPreview({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant}>{statusLabel}</Badge>
           {surface === "preview" ? <Badge variant="outline">{mode}</Badge> : null}
-          {publishPlan ? <Badge variant="outline">{publishPlan.publishPath}</Badge> : null}
+          {publishPlan ? <Badge variant="outline">{formatPublishPathLabel(publishPlan)}</Badge> : null}
           {publishPlan?.usesComponentsV2 ? <Badge variant="outline">V2</Badge> : null}
         </div>
         {publishPlan ? (
