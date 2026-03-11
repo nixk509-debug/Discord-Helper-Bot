@@ -84,6 +84,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { collectStudioDiagnostics } from "@shared/studio-document";
+import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import { getDiscordEmojiAssetUrl, parseDiscordEmojiToken } from "@shared/discord-emoji";
 import {
   buildStudioPreviewTokenContext,
@@ -104,6 +105,7 @@ import type {
   StudioNode,
   StudioNodeType,
   StudioPublication,
+  StudioPublishPlan,
   StudioStyleBlockPreset,
   StudioThemePack,
 } from "@shared/schema";
@@ -884,6 +886,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [publishChannelId, setPublishChannelId] = useState("");
   const [updateMessageId, setUpdateMessageId] = useState("");
   const [publishViewId, setPublishViewId] = useState("");
+  const [publishSimplifiedArmed, setPublishSimplifiedArmed] = useState(false);
   const [cloneChannelId, setCloneChannelId] = useState("");
   const [selectedPublicationId, setSelectedPublicationId] = useState<number | null>(null);
   const [importText, setImportText] = useState("");
@@ -1021,9 +1024,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const showBehaviorWorkspace = behaviorCount > 0 || Boolean(selectedActionId) || Boolean(selectedModalId);
 
   const interactionRows = useMemo(() => (draft ? collectInteractionMap(draft, selectedViewId) : []), [draft, selectedViewId]);
+  const publishPlan = useMemo<StudioPublishPlan | null>(() => {
+    if (!draft) return null;
+    return buildStudioPublishPlan(draft, publishViewId || selectedViewId, { tokenAvailability });
+  }, [draft, publishViewId, selectedViewId, tokenAvailability]);
   const diagnostics = useMemo(() => {
     if (!draft) return lastDiagnostics;
-    const next = [...collectStudioDiagnostics(draft, selectedViewId, { tokenAvailability }), ...lastDiagnostics];
+    const next = [...(publishPlan?.diagnostics || collectStudioDiagnostics(draft, selectedViewId, { tokenAvailability })), ...lastDiagnostics];
     const ticketActions = Object.values(draft.actions).filter((action) => action.type === "ticket_create");
     if (ticketActions.length > 0 && !ticketConfig?.enabled) {
       next.push({ level: "warning", code: "TICKETS_DISABLED", message: "Ticket create actions exist, but the ticket system is disabled in module settings." });
@@ -1038,7 +1045,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       }
     }
     return next;
-  }, [boundTicketPanel, draft, lastDiagnostics, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length, tokenAvailability]);
+  }, [boundTicketPanel, draft, lastDiagnostics, publishPlan, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length, tokenAvailability]);
   const errorCount = diagnostics.filter((entry) => entry.level === "error").length;
   const warningCount = diagnostics.filter((entry) => entry.level === "warning").length;
   const diagnosticsForPrefix = (prefix: string) => diagnostics.filter((entry) => typeof entry.path === "string" && entry.path.startsWith(prefix));
@@ -1050,6 +1057,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     () => resolveStudioTokensInValue(interactionRows, previewTokenContext),
     [interactionRows, previewTokenContext],
   );
+
+  useEffect(() => {
+    setPublishSimplifiedArmed(false);
+  }, [publishPlan?.viewId, publishPlan?.mode, publishPlan?.downgradedNodeCount, publishPlan?.blockedNodeCount]);
 
   const selectedNode = draft && selectedNodeId ? draft.nodes[selectedNodeId] : null;
   const selectedAction = draft && selectedActionId ? draft.actions[selectedActionId] : null;
@@ -2120,15 +2131,25 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       toast({ title: "Select a channel", description: "Choose the target channel before publishing.", variant: "destructive" });
       return;
     }
-    if (diagnostics.some((entry) => entry.level === "error")) {
+    if (publishPlan?.mode === "blocked" || diagnostics.some((entry) => entry.level === "error")) {
       setActiveArea("publish");
       toast({ title: "Fix errors first", description: "Publishing is blocked until validation errors are resolved.", variant: "destructive" });
+      return;
+    }
+    if (publishPlan?.mode === "downgraded" && !publishSimplifiedArmed) {
+      setActiveArea("publish");
+      setPublishSimplifiedArmed(true);
+      toast({
+        title: publishPlan.requiresStructuralConfirmation ? "Review simplified publish" : "Simplified publish ready",
+        description: publishPlan.summary,
+      });
       return;
     }
     publishMutation.mutate(
       {
         documentId: currentDocumentId || undefined,
         document: draft,
+        allowDowngrade: publishPlan?.mode === "downgraded",
         target: {
           channelId: publishChannelId.trim(),
           messageId: updateMessageId.trim() || undefined,
@@ -2140,8 +2161,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           setSelectedPublicationId(result.publicationId);
           setUpdateMessageId(result.messageId || "");
           setLastDiagnostics(result.diagnostics || []);
+          setPublishSimplifiedArmed(false);
           setDirty(false);
-          toast({ title: "Published", description: `Message ${result.messageId} is live.` });
+          toast({
+            title: publishPlan?.mode === "downgraded" ? "Published simplified" : "Published",
+            description: `Message ${result.messageId} is live.`,
+          });
           studioPublicationsQuery.refetch();
           studioDocumentsQuery.refetch();
         },
@@ -3203,7 +3228,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Validation Summary</CardTitle>
-          <CardDescription>Fix errors before publishing. Warnings can publish but may degrade output.</CardDescription>
+          <CardDescription>See whether this page publishes exactly, simplifies live output, or is blocked before you send it.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -3214,7 +3239,35 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               {diagnostics.filter((entry) => entry.level === "warning").length} warnings
             </Badge>
             <Badge variant="outline">{diagnostics.filter((entry) => entry.level === "info").length} info</Badge>
+            {publishPlan ? (
+              <Badge variant={publishPlan.mode === "blocked" ? "destructive" : publishPlan.mode === "downgraded" ? "secondary" : "default"}>
+                {publishPlan.label}
+              </Badge>
+            ) : null}
           </div>
+          {publishPlan ? (
+            <div className="rounded-2xl border border-white/10 bg-background/30 p-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">Uses V2: {publishPlan.usesComponentsV2 ? "yes" : "no"}</Badge>
+                <Badge variant="outline">Layout: {publishPlan.usesLayoutComponents ? "yes" : "no"}</Badge>
+                <Badge variant="outline">Content: {publishPlan.usesContentComponents ? "yes" : "no"}</Badge>
+                <Badge variant="outline">Interactive: {publishPlan.usesInteractiveComponents ? "yes" : "no"}</Badge>
+                <Badge variant="outline">Path: {publishPlan.publishPath}</Badge>
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">{publishPlan.summary}</p>
+              {publishPlan.mode !== "exact" ? (
+                <div className="mt-3 space-y-2">
+                  {publishPlan.nodeOutcomes.filter((entry) => entry.status !== "exact").map((entry) => (
+                    <div key={`${entry.nodeId}-${entry.status}`} className="rounded-xl border border-white/10 bg-background/40 px-3 py-2 text-xs">
+                      <p className="font-medium text-white">{entry.nodeType.replace(/_/g, " ")}</p>
+                      <p className="text-muted-foreground">{entry.reason}</p>
+                      {entry.lost ? <p className="text-muted-foreground/80">Lost: {entry.lost}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <ScrollArea className="max-h-56 rounded-xl border border-white/10 bg-background/40 p-3">
             <div className="space-y-2">
               {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This message is publish-safe.</p> : null}
@@ -3238,7 +3291,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Publish</CardTitle>
-          <CardDescription>Pick a channel, publish new, or update an existing message.</CardDescription>
+          <CardDescription>
+            {publishPlan?.mode === "blocked"
+              ? "Publishing is blocked until the live output is truthful and sendable."
+              : publishPlan?.mode === "downgraded"
+                ? "This page can only publish in a simplified form right now."
+                : "Pick a channel, publish new, or update an existing message."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <DiscordChannelPicker serverId={serverId} value={publishChannelId} onChange={setPublishChannelId} label="Target Channel" allowedKinds={["text", "announcement", "forum"]} />
@@ -3263,8 +3322,36 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <Input value={updateMessageId} onChange={(event) => setUpdateMessageId(event.target.value)} placeholder="Leave empty to publish new" />
             </div>
           </div>
+          {publishPlan?.mode === "downgraded" ? (
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+              <p className="font-medium text-white">
+                {publishPlan.requiresStructuralConfirmation ? "Review simplified publish" : "Simplified publish available"}
+              </p>
+              <p className="mt-1 text-amber-100/80">{publishPlan.summary}</p>
+              <p className="mt-2 text-xs text-amber-100/70">
+                {publishSimplifiedArmed
+                  ? "Second click will publish the simplified live result."
+                  : "First click will arm simplified publish so you can confirm it intentionally."}
+              </p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button onClick={publishDocument} disabled={publishMutation.isPending} className="gap-2"><Rocket className="h-4 w-4" />{publishMutation.isPending ? "Publishing..." : updateMessageId ? "Update Message" : "Publish New"}</Button>
+            <Button
+              onClick={publishDocument}
+              disabled={publishMutation.isPending || publishPlan?.mode === "blocked"}
+              className="gap-2"
+            >
+              <Rocket className="h-4 w-4" />
+              {publishMutation.isPending
+                ? "Publishing..."
+                : publishPlan?.mode === "downgraded"
+                  ? publishSimplifiedArmed
+                    ? "Publish simplified"
+                    : "Review simplified publish"
+                  : updateMessageId
+                    ? "Update Message"
+                    : "Publish New"}
+            </Button>
             <Button variant="outline" onClick={saveDocument} disabled={!dirty || updateDocumentMutation.isPending} className="gap-2"><Save className="h-4 w-4" />Save Draft</Button>
             <Button variant="outline" onClick={exportJson} className="gap-2">
               <Copy className="h-4 w-4" />
@@ -4242,7 +4329,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   );
 
   const previewPanel = (
-    <StudioPreview document={previewDocument || draft} viewId={selectedViewId} interactionRows={previewInteractionRows} diagnostics={diagnostics} mode={previewMode} />
+    <StudioPreview
+      document={previewDocument || draft}
+      viewId={selectedViewId}
+      interactionRows={previewInteractionRows}
+      diagnostics={diagnostics}
+      mode={previewMode}
+      publishPlan={publishPlan}
+    />
   );
   const quickAddDrawer = (
     <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>

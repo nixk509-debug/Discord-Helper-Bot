@@ -1192,6 +1192,8 @@ export interface StudioPublicationSnapshot {
     content?: string;
     embeds: StudioEmbedDraft[];
     components: EmbedComponentType[];
+    flags?: number;
+    publishPath?: StudioPublishPath;
   };
   diagnostics: StudioDiagnostic[];
   document: StudioDocument;
@@ -1202,6 +1204,58 @@ export interface StudioDiagnostic {
   code: string;
   message: string;
   path?: string;
+}
+
+export type StudioPublishNodeStatus = "exact" | "downgraded" | "blocked";
+export type StudioPublishSeverity = "visual-only" | "structural" | "behavior-breaking";
+export type StudioPublishMode = "exact" | "downgraded" | "blocked";
+export type StudioPublishPath = "v2" | "legacy" | "downgraded" | "blocked";
+
+export interface StudioPublishNodeOutcome {
+  nodeId: string;
+  nodeType: StudioNodeType;
+  status: StudioPublishNodeStatus;
+  reason: string;
+  severity?: StudioPublishSeverity;
+  liveType?: string;
+  transformedTo?: string;
+  lost?: string;
+}
+
+export interface StudioPlannedMessageRender {
+  content?: string;
+  embeds: StudioEmbedDraft[];
+  components: EmbedComponentType[];
+  flags?: number;
+  publishPath: StudioPublishPath;
+}
+
+export interface StudioPublishPlan {
+  viewId: string;
+  mode: StudioPublishMode;
+  label: "Exact V2 publish" | "Downgraded publish" | "Blocked publish";
+  summary: string;
+  publishPath: StudioPublishPath;
+  usesComponentsV2: boolean;
+  usesLayoutComponents: boolean;
+  usesContentComponents: boolean;
+  usesInteractiveComponents: boolean;
+  downgradedNodeCount: number;
+  blockedNodeCount: number;
+  exactNodeCount: number;
+  structuralDowngradeCount: number;
+  behaviorBreakingCount: number;
+  missingCustomIdCount: number;
+  missingHandlerBindingCount: number;
+  emptyInteractiveMap: boolean;
+  invalidMediaConfiguration: boolean;
+  v2FlagReady: boolean;
+  payloadReady: boolean;
+  requiresSimplifiedConfirmation: boolean;
+  requiresStructuralConfirmation: boolean;
+  nodeOutcomes: StudioPublishNodeOutcome[];
+  diagnostics: StudioDiagnostic[];
+  liveMessage: StudioPlannedMessageRender;
 }
 
 // --- AUTOMATION FLOW TYPES ---

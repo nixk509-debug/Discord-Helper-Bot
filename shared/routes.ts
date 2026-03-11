@@ -99,6 +99,7 @@ const studioDocumentInputSchema = z.object({
 const studioPublishSchema = z.object({
   documentId: z.number().optional(),
   document: z.any().optional(),
+  allowDowngrade: z.boolean().optional(),
   target: z.object({
     channelId: z.string().min(1),
     messageId: optionalStringInput,

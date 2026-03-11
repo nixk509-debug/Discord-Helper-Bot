@@ -45,6 +45,7 @@ import {
   createStudioPublicationSnapshotRecord,
 } from "../studio-service";
 import { buildStudioDiscordPayload } from "../studio-discord";
+import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import {
   decodeStudioToken,
   encodeStudioModalToken,
@@ -467,29 +468,13 @@ async function sendStudioAutomationSurface(input: {
     channelMention: input.dm ? "Direct Message" : undefined,
   });
   const personalizedDocument = resolveStudioTokensInValue(documentRecord.document, tokenContext);
-  const rendered = renderStudioDocumentView(
+  const plan = buildStudioPublishPlan(
     personalizedDocument,
     input.defaultViewId || personalizedDocument.meta.entryViewId,
     { tokenAvailability: buildStudioRuntimeAvailability({ member: true, postSend: false }) },
   );
 
-  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
-    return;
-  }
-
-  if (rendered.interactiveComponents.length === 0) {
-    await (channel as any).send({
-      content: rendered.content || undefined,
-      embeds: buildResponseEmbeds(rendered.embeds),
-    });
-    await recordStudioRuntimeEvent({
-      serverId: input.serverId,
-      documentId: documentRecord.id,
-      severity: rendered.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
-      eventType: input.eventType,
-      summary: `Delivered ${documentRecord.name} via Studio automation.`,
-      details: { channelId: channel.id, dm: Boolean(input.dm), diagnostics: rendered.diagnostics },
-    });
+  if (!plan.payloadReady || plan.mode === "blocked") {
     return;
   }
 
@@ -498,22 +483,25 @@ async function sendStudioAutomationSurface(input: {
     documentId: documentRecord.id,
     channelId: channel.id,
     messageId: "pending",
-    currentViewId: rendered.viewId,
+    currentViewId: plan.viewId,
   });
 
   const snapshotPayload = {
     documentId: documentRecord.id,
     documentName: documentRecord.name,
     documentVersion: personalizedDocument.version,
-    publishedViewId: rendered.viewId,
+    publishedViewId: plan.viewId,
     channelId: channel.id,
     guildId: input.guild.id,
     render: {
-      content: rendered.content,
-      embeds: rendered.embeds,
-      components: rendered.interactiveComponents,
+      content: plan.liveMessage.content,
+      embeds: plan.liveMessage.embeds,
+      components: plan.liveMessage.components,
+      flags: plan.liveMessage.flags,
+      publishPath: plan.publishPath,
     },
-    diagnostics: rendered.diagnostics,
+    diagnostics: plan.diagnostics,
+    publishPlan: plan,
     document: personalizedDocument,
   };
 
@@ -521,21 +509,22 @@ async function sendStudioAutomationSurface(input: {
     publicationId: publication.id,
     snapshot: snapshotPayload,
   });
-  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id, tokenContext);
+  const payload = buildStudioDiscordPayload(plan, publication.id, tokenContext);
 
   try {
     const message = await (channel as any).send({
       content: payload.content,
       embeds: payload.embeds,
       components: payload.components,
+      flags: payload.flags,
     });
 
     await updateStudioPublicationRecord(publication.id, {
       messageId: message.id,
       currentSnapshotId: snapshotRecord.id,
-      currentViewId: rendered.viewId,
+      currentViewId: plan.viewId,
       active: true,
-      status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+      status: plan.mode === "downgraded" ? "degraded" : "published",
       lastPublishedAt: new Date(),
       lastFailureAt: null,
       lastFailureSummary: null,
@@ -1652,36 +1641,44 @@ async function switchStudioPublicationView(
         messageId: publication.messageId || interaction.message.id,
       })
     : null;
-  const rendered = renderStudioDocumentView(snapshot.document, targetViewId, {
+  const plan = buildStudioPublishPlan(snapshot.document, targetViewId, {
     tokenAvailability: buildStudioRuntimeAvailability({
       member: false,
       postSend: Boolean(publication.messageId || interaction.message.id),
     }),
   });
+  if (!plan.payloadReady || plan.mode === "blocked") {
+    await replyStudioInteraction(interaction, plan.summary, "ephemeral");
+    return;
+  }
   const nextSnapshot = {
     ...snapshot,
-    publishedViewId: rendered.viewId,
+    publishedViewId: plan.viewId,
     render: {
-      content: rendered.content,
-      embeds: rendered.embeds,
-      components: rendered.interactiveComponents,
+      content: plan.liveMessage.content,
+      embeds: plan.liveMessage.embeds,
+      components: plan.liveMessage.components,
+      flags: plan.liveMessage.flags,
+      publishPath: plan.publishPath,
     },
-    diagnostics: rendered.diagnostics,
+    diagnostics: plan.diagnostics,
+    publishPlan: plan,
   };
   const snapshotRecord = await createStudioPublicationSnapshotRecord({
     publicationId: publication.id,
     snapshot: nextSnapshot,
   });
-  const payload = buildStudioDiscordPayload(nextSnapshot, publication.id, tokenContext || undefined);
+  const payload = buildStudioDiscordPayload(plan, publication.id, tokenContext || undefined);
   const message = interaction.message;
   await message.edit({
     content: payload.content,
     embeds: payload.embeds,
     components: payload.components,
+    flags: payload.flags,
   });
   await updateStudioPublicationRecord(publication.id, {
     currentSnapshotId: snapshotRecord.id,
-    currentViewId: rendered.viewId,
+    currentViewId: plan.viewId,
     lastInteractionAt: new Date(),
   } as any);
 }

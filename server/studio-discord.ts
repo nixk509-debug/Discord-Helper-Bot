@@ -5,12 +5,22 @@ import {
   EmbedBuilder,
   StringSelectMenuBuilder,
 } from "discord.js";
+import {
+  ContainerBuilder,
+  FileBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
+  SectionBuilder,
+  SeparatorBuilder,
+  TextDisplayBuilder,
+} from "@discordjs/builders";
 import type {
   EmbedComponentOption,
   EmbedComponentType,
   StudioDiagnostic,
-  StudioPublicationSnapshot,
+  StudioPublishPlan,
 } from "@shared/schema";
+import { COMPONENT_TYPES } from "@shared/schema";
 import { toDiscordEmojiObject } from "@shared/discord-emoji";
 import { resolveStudioTokensInValue, type StudioTokenContext } from "@shared/studio-tokens";
 import { encodeStudioActionToken } from "./bot/studio-action-token";
@@ -23,12 +33,12 @@ function parseColor(value: unknown) {
   return parseInt(normalized, 16);
 }
 
-export function buildStudioEmbedBuilders(snapshot: StudioPublicationSnapshot, tokenContext?: StudioTokenContext) {
+export function buildStudioEmbedBuilders(embedsInput: unknown[], tokenContext?: StudioTokenContext) {
   const resolvedEmbeds = tokenContext
-    ? resolveStudioTokensInValue(snapshot.render.embeds || [], tokenContext)
-    : (snapshot.render.embeds || []);
+    ? resolveStudioTokensInValue(embedsInput || [], tokenContext)
+    : (embedsInput || []);
 
-  return resolvedEmbeds.flatMap((rawEmbed) => {
+  return (resolvedEmbeds as any[]).flatMap((rawEmbed: any) => {
     const embed = new EmbedBuilder();
     let hasContent = false;
 
@@ -238,25 +248,139 @@ function buildActionRows(
   return rows.slice(0, 5);
 }
 
+function buildV2Component(
+  component: EmbedComponentType,
+  publicationId: number,
+  diagnostics: StudioDiagnostic[],
+) {
+  switch (component.type) {
+    case COMPONENT_TYPES.TEXT_DISPLAY:
+      return new TextDisplayBuilder().setContent(String(component.content || ""));
+    case COMPONENT_TYPES.SEPARATOR:
+      return new SeparatorBuilder({
+        divider: component.divider ?? true,
+        spacing: component.spacing === "large" ? 2 : 1,
+      });
+    case COMPONENT_TYPES.FILE: {
+      const url = String(component.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) {
+        diagnostics.push({
+          level: "warning",
+          code: "FILE_URL_INVALID",
+          message: `File ${component.id || component.label || "file"} has an invalid URL.`,
+        });
+        return null;
+      }
+      return new FileBuilder().setURL(url).setSpoiler(Boolean(component.spoiler));
+    }
+    case COMPONENT_TYPES.MEDIA_GALLERY: {
+      const items = Array.isArray(component.items) ? component.items : [];
+      if (items.length === 0) {
+        diagnostics.push({
+          level: "warning",
+          code: "MEDIA_GALLERY_EMPTY",
+          message: "Media gallery had no valid items for live publish.",
+        });
+        return null;
+      }
+      return new MediaGalleryBuilder().addItems(
+        ...items.map((item) =>
+          new MediaGalleryItemBuilder({
+            description: item.description,
+            spoiler: Boolean(item.spoiler),
+            media: { url: String(item.url) },
+          }),
+        ),
+      );
+    }
+    case COMPONENT_TYPES.SECTION: {
+      const section = new SectionBuilder();
+      const textChildren = (component.components || []).filter((child) => child.type === COMPONENT_TYPES.TEXT_DISPLAY);
+      if (textChildren.length === 0) {
+        diagnostics.push({
+          level: "warning",
+          code: "SECTION_TEXT_EMPTY",
+          message: "Section had no text display content for live publish.",
+        });
+        return null;
+      }
+      section.addTextDisplayComponents(
+        ...textChildren.map((child) => new TextDisplayBuilder().setContent(String(child.content || ""))),
+      );
+      if (component.accessory?.type === COMPONENT_TYPES.BUTTON) {
+        const button = buildButton(component.accessory, publicationId, diagnostics);
+        if (button) section.setButtonAccessory(button.toJSON() as any);
+      }
+      return section;
+    }
+    case COMPONENT_TYPES.CONTAINER: {
+      const container = new ContainerBuilder();
+      const accentColor = parseColor(component.accentColor);
+      if (accentColor !== null) container.setAccentColor(accentColor);
+      container.setSpoiler(Boolean(component.spoiler));
+      for (const child of component.components || []) {
+        const built = buildV2Component(child, publicationId, diagnostics);
+        if (!built) continue;
+        container.spliceComponents(
+          container.components.length,
+          0,
+          (typeof (built as any).toJSON === "function" ? (built as any).toJSON() : built) as any,
+        );
+      }
+      return container;
+    }
+    case COMPONENT_TYPES.ACTION_ROW:
+      return buildActionRows([component], publicationId, diagnostics)[0] || null;
+    case COMPONENT_TYPES.BUTTON:
+      return buildButton(component, publicationId, diagnostics);
+    case COMPONENT_TYPES.SELECT_MENU:
+      return buildStringSelect(component, publicationId, diagnostics);
+    default:
+      diagnostics.push({
+        level: "warning",
+        code: "UNSUPPORTED_V2_COMPONENT",
+        message: `Unsupported live component type ${component.type}.`,
+      });
+      return null;
+  }
+}
+
+function buildStudioMessageComponents(
+  componentsInput: EmbedComponentType[] | undefined,
+  publicationId: number,
+  diagnostics: StudioDiagnostic[],
+) {
+  const built: any[] = [];
+
+  for (const component of componentsInput || []) {
+    const next = buildV2Component(component, publicationId, diagnostics);
+    if (!next) continue;
+    built.push(typeof (next as any).toJSON === "function" ? (next as any).toJSON() : next);
+  }
+
+  return built;
+}
+
 export function buildStudioDiscordPayload(
-  snapshot: StudioPublicationSnapshot,
+  plan: StudioPublishPlan,
   publicationId: number,
   tokenContext?: StudioTokenContext,
 ) {
-  const diagnostics = [...(snapshot.diagnostics || [])];
+  const diagnostics = [...(plan.diagnostics || [])];
   const resolvedContent = tokenContext
-    ? resolveStudioTokensInValue(snapshot.render.content || "", tokenContext)
-    : snapshot.render.content || "";
+    ? resolveStudioTokensInValue(plan.liveMessage.content || "", tokenContext)
+    : plan.liveMessage.content || "";
   const resolvedComponents = tokenContext
-    ? resolveStudioTokensInValue(snapshot.render.components || [], tokenContext)
-    : snapshot.render.components || [];
-  const embeds = buildStudioEmbedBuilders(snapshot, tokenContext);
-  const components = buildActionRows(resolvedComponents, publicationId, diagnostics);
+    ? resolveStudioTokensInValue(plan.liveMessage.components || [], tokenContext)
+    : plan.liveMessage.components || [];
+  const embeds = buildStudioEmbedBuilders(plan.liveMessage.embeds || [], tokenContext);
+  const components = buildStudioMessageComponents(resolvedComponents, publicationId, diagnostics);
 
   return {
     content: resolvedContent || undefined,
     embeds,
     components,
+    flags: plan.liveMessage.flags,
     diagnostics,
   };
 }

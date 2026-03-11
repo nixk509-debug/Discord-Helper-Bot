@@ -1,4 +1,13 @@
-import type { StudioDiagnostic, StudioDocument, StudioEmbedDraft, StudioNode } from "@shared/schema";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  EmbedComponentType,
+  StudioDiagnostic,
+  StudioDocument,
+  StudioEmbedDraft,
+  StudioNode,
+  StudioPublishPlan,
+} from "@shared/schema";
+import { COMPONENT_TYPES } from "@shared/schema";
 import {
   getDiscordEmojiAssetUrl,
   parseDiscordEmojiToken,
@@ -15,6 +24,7 @@ interface StudioPreviewProps {
   interactionRows: Array<{ label: string; action: string }>;
   diagnostics: StudioDiagnostic[];
   mode: "desktop" | "mobile" | "compact";
+  publishPlan?: StudioPublishPlan | null;
 }
 
 function getView(document: StudioDocument, viewId: string) {
@@ -369,16 +379,175 @@ function NodePreview({
   );
 }
 
-export function StudioPreview({ document, viewId, interactionRows, diagnostics, mode }: StudioPreviewProps) {
+function PlannedComponentPreview({
+  component,
+  depth = 0,
+}: {
+  component: EmbedComponentType;
+  depth?: number;
+}) {
+  const edge = depth > 0 ? "border-l border-white/10 pl-3" : "";
+
+  if (component.type === COMPONENT_TYPES.CONTAINER) {
+    return (
+      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge)}>
+        <div className="space-y-2">
+          {(component.components || []).map((child, index) => (
+            <PlannedComponentPreview key={`${component.id || "container"}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.SECTION) {
+    return (
+      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge)}>
+        <div className="space-y-2">
+          {(component.components || []).map((child, index) => (
+            <PlannedComponentPreview key={`${component.id || "section"}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />
+          ))}
+        </div>
+        {component.accessory ? (
+          <div className="pt-1">
+            <PlannedComponentPreview component={component.accessory} depth={depth + 1} />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.TEXT_DISPLAY) {
+    return (
+      <p className={cn("whitespace-pre-wrap text-sm text-[#dbdee1]", edge)}>
+        <DiscordRichText text={String(component.content || "") || "Text block"} emojiSize={16} />
+      </p>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.SEPARATOR) {
+    return (
+      <p className={cn("whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]", edge)}>
+        {component.spacing === "large" ? "────────────" : "────────"}
+      </p>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.MEDIA_GALLERY) {
+    const items = Array.isArray(component.items) ? component.items : [];
+    return (
+      <div className={cn("space-y-2", edge)}>
+        <p className="text-xs font-medium text-[#b5bac1]">Media Gallery</p>
+        <div className="grid grid-cols-2 gap-2">
+          {items.length === 0 ? <div className="rounded border border-dashed border-white/10 p-2 text-xs text-[#949ba4]">No media items</div> : null}
+          {items.slice(0, 4).map((item, index) => (
+            <div key={`planned-media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">
+              <img
+                src={String(item.url)}
+                alt={String(item.description || "")}
+                className="h-full w-full object-cover"
+                onError={(event) => {
+                  (event.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              {item.spoiler ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-[10px] font-semibold uppercase tracking-[0.25em] text-white">
+                  Spoiler
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.FILE) {
+    return (
+      <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}>
+        <span>Attachment </span>
+        <DiscordRichText text={String(component.label || "File")} emojiSize={14} />
+        {component.url ? <span>{` - ${String(component.url)}`}</span> : null}
+      </div>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.ACTION_ROW) {
+    return (
+      <div className={cn("flex flex-wrap gap-2", edge)}>
+        {(component.components || []).map((child, index) => (
+          <PlannedComponentPreview key={`${component.id || "row"}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />
+        ))}
+      </div>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.BUTTON) {
+    const style = Number(component.style || 1);
+    const parsedEmoji = component.emoji ? parseDiscordEmojiToken(String(component.emoji)) : null;
+    const styleClass =
+      style === 1
+        ? "bg-[#5865F2] text-white"
+        : style === 2
+          ? "bg-[#4e5058] text-white"
+          : style === 3
+            ? "bg-[#248046] text-white"
+            : style === 4
+              ? "bg-[#da373c] text-white"
+              : "bg-[#00a8fc] text-[#101114]";
+
+    return (
+      <button type="button" className={cn("rounded-md px-3 py-1.5 text-xs font-medium", styleClass, edge)}>
+        {parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}
+        <DiscordRichText text={String(component.label || "Button")} emojiSize={15} />
+      </button>
+    );
+  }
+
+  if (component.type === COMPONENT_TYPES.SELECT_MENU) {
+    return (
+      <div className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}>
+        <DiscordRichText text={String(component.placeholder || component.label || "Select Menu")} emojiSize={15} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("rounded border border-dashed border-white/10 px-2 py-1 text-xs text-[#949ba4]", edge)}>
+      Component {component.type}
+    </div>
+  );
+}
+
+export function StudioPreview({ document, viewId, interactionRows, diagnostics, mode, publishPlan }: StudioPreviewProps) {
   const view = getView(document, viewId);
   const widthClass = mode === "mobile" ? "max-w-[390px]" : mode === "compact" ? "max-w-[560px]" : "max-w-full";
+  const [previewSurface, setPreviewSurface] = useState<"studio" | "live">("studio");
 
-  const hasErrors = diagnostics.some((entry) => entry.level === "error");
-  const hasWarnings = diagnostics.some((entry) => entry.level === "warning");
-  const hasPreviewOnly = diagnostics.some((entry) => entry.code.includes("RUNTIME_GATED") || entry.code.includes("PREVIEW_ONLY"));
+  useEffect(() => {
+    if (!publishPlan) {
+      setPreviewSurface("studio");
+      return;
+    }
+    setPreviewSurface(publishPlan.mode === "exact" ? "studio" : "live");
+  }, [publishPlan?.mode, publishPlan?.viewId]);
 
-  const statusLabel = hasErrors ? "Invalid" : hasWarnings ? "Degraded" : "Publish-safe";
+  const effectiveDiagnostics = publishPlan?.diagnostics || diagnostics;
+  const hasErrors = effectiveDiagnostics.some((entry) => entry.level === "error");
+  const hasWarnings = effectiveDiagnostics.some((entry) => entry.level === "warning");
+  const hasPreviewOnly = effectiveDiagnostics.some((entry) => entry.code.includes("RUNTIME_GATED") || entry.code.includes("PREVIEW_ONLY"));
+  const statusLabel = publishPlan?.label || (hasErrors ? "Invalid" : hasWarnings ? "Degraded" : "Publish-safe");
   const statusVariant = hasErrors ? "destructive" : hasWarnings ? "secondary" : "default";
+  const liveComponents = publishPlan?.liveMessage.components || [];
+  const liveInteractionCount = useMemo(
+    () =>
+      liveComponents.filter((component) =>
+        component.type === COMPONENT_TYPES.ACTION_ROW ||
+        component.type === COMPONENT_TYPES.BUTTON ||
+        component.type === COMPONENT_TYPES.SELECT_MENU,
+      ).length,
+    [liveComponents],
+  );
 
   return (
     <div className={cn("mx-auto w-full space-y-4", widthClass)}>
@@ -387,32 +556,110 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
           <Badge variant={statusVariant}>{statusLabel}</Badge>
           {hasPreviewOnly ? <Badge variant="outline">Preview-only parts</Badge> : null}
           <Badge variant="outline">{mode}</Badge>
+          {publishPlan ? <Badge variant="outline">{publishPlan.publishPath}</Badge> : null}
         </div>
 
-        <div className="space-y-3">
-          {view?.messageContent ? (
-            <div className="whitespace-pre-wrap text-sm text-[#dbdee1]">
-              <DiscordRichText text={String(view.messageContent)} emojiSize={17} />
+        {publishPlan ? (
+          <div className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={publishPlan.mode === "blocked" ? "destructive" : publishPlan.mode === "downgraded" ? "secondary" : "default"}>
+                {publishPlan.label}
+              </Badge>
+              <Badge variant="outline">Uses V2: {publishPlan.usesComponentsV2 ? "yes" : "no"}</Badge>
+              <Badge variant="outline">Layout: {publishPlan.usesLayoutComponents ? "yes" : "no"}</Badge>
+              <Badge variant="outline">Content: {publishPlan.usesContentComponents ? "yes" : "no"}</Badge>
+              <Badge variant="outline">Interactive: {publishPlan.usesInteractiveComponents ? "yes" : "no"}</Badge>
             </div>
-          ) : (
-            <div className="text-sm text-[#949ba4]">No message content yet.</div>
-          )}
+            <p className="mt-2 text-xs text-[#b5bac1]">{publishPlan.summary}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={cn("rounded-full px-3 py-1.5 text-xs font-medium", previewSurface === "studio" ? "bg-white text-black" : "border border-white/10 bg-transparent text-white")}
+                onClick={() => setPreviewSurface("studio")}
+              >
+                Studio view
+              </button>
+              <button
+                type="button"
+                className={cn("rounded-full px-3 py-1.5 text-xs font-medium", previewSurface === "live" ? "bg-white text-black" : "border border-white/10 bg-transparent text-white")}
+                onClick={() => setPreviewSurface("live")}
+              >
+                Live publish view
+              </button>
+            </div>
+          </div>
+        ) : null}
 
-          {(view?.embeds || []).map((embed, index) => (
-            <EmbedPreviewCard key={`${embed.title || "embed"}-${index}`} embed={embed} />
-          ))}
-
-          {(view?.rootNodeIds || []).length > 0 ? (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-[#2b2d31]/80 p-3">
-              {(view?.rootNodeIds || []).map((nodeId) => (
-                <NodePreview key={nodeId} document={document} nodeId={nodeId} />
+        {publishPlan && publishPlan.mode !== "exact" ? (
+          <div className="mb-3 rounded-xl border border-white/10 bg-background/30 p-3 text-xs text-[#dbdee1]">
+            <p className="font-medium text-white">
+              {publishPlan.mode === "blocked" ? "Publish is blocked." : "This page will publish in a simplified form."}
+            </p>
+            <div className="mt-2 space-y-1">
+              {publishPlan.nodeOutcomes.filter((entry) => entry.status !== "exact").map((entry) => (
+                <div key={`${entry.nodeId}-${entry.status}`} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                  <span className="font-medium text-white">{entry.nodeType.replace(/_/g, " ")}</span>
+                  <span className="ml-2 text-[#b5bac1]">{entry.reason}</span>
+                </div>
               ))}
             </div>
-          ) : null}
+          </div>
+        ) : null}
+
+        <div className="space-y-3">
+          {previewSurface === "studio" ? (
+            <>
+              {view?.messageContent ? (
+                <div className="whitespace-pre-wrap text-sm text-[#dbdee1]">
+                  <DiscordRichText text={String(view.messageContent)} emojiSize={17} />
+                </div>
+              ) : (
+                <div className="text-sm text-[#949ba4]">No message content yet.</div>
+              )}
+
+              {(view?.embeds || []).map((embed, index) => (
+                <EmbedPreviewCard key={`${embed.title || "embed"}-${index}`} embed={embed} />
+              ))}
+
+              {(view?.rootNodeIds || []).length > 0 ? (
+                <div className="space-y-2 rounded-xl border border-white/10 bg-[#2b2d31]/80 p-3">
+                  {(view?.rootNodeIds || []).map((nodeId) => (
+                    <NodePreview key={nodeId} document={document} nodeId={nodeId} />
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {publishPlan?.liveMessage.content ? (
+                <div className="whitespace-pre-wrap text-sm text-[#dbdee1]">
+                  <DiscordRichText text={String(publishPlan.liveMessage.content)} emojiSize={17} />
+                </div>
+              ) : (
+                <div className="text-sm text-[#949ba4]">No live message content.</div>
+              )}
+
+              {(publishPlan?.liveMessage.embeds || []).map((embed, index) => (
+                <EmbedPreviewCard key={`${embed.title || "live-embed"}-${index}`} embed={embed} />
+              ))}
+
+              {(publishPlan?.liveMessage.components || []).length > 0 ? (
+                <div className="space-y-2 rounded-xl border border-white/10 bg-[#2b2d31]/80 p-3">
+                  {(publishPlan?.liveMessage.components || []).map((component, index) => (
+                    <PlannedComponentPreview key={`${component.id || component.type}-${index}`} component={component} />
+                  ))}
+                </div>
+              ) : null}
+            </>
+          )}
 
           <div className="flex flex-wrap gap-2">
-            {interactionRows.length === 0 ? (
-              <div className="text-xs text-[#949ba4]">No interactive components in this screen.</div>
+            {(publishPlan ? liveInteractionCount : interactionRows.length) === 0 ? (
+              <div className="text-xs text-[#949ba4]">
+                {publishPlan?.usesComponentsV2
+                  ? "This page uses content/layout components only. No buttons or select menus are configured yet."
+                  : "No buttons or select menus in this page."}
+              </div>
             ) : (
               interactionRows.map((row, index) => (
                 <Badge key={`${row.label}-${index}`} variant="outline" className="border-white/10 bg-white/5 text-[#dbdee1]">
@@ -447,8 +694,8 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
       <div className="rounded-2xl border border-white/10 bg-background/40 p-4">
         <h4 className="mb-3 text-sm font-semibold text-white">Validation Hints</h4>
         <div className="space-y-2">
-          {diagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This screen is publish-safe.</p> : null}
-          {diagnostics.map((diag, index) => (
+          {effectiveDiagnostics.length === 0 ? <p className="text-xs text-muted-foreground">No diagnostics. This screen is publish-safe.</p> : null}
+          {effectiveDiagnostics.map((diag, index) => (
             <div key={`${diag.code}-${index}`} className="rounded-lg border border-white/10 bg-background/50 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium uppercase text-white/80">{diag.level}</span>
               <span className="ml-2">{diag.message}</span>

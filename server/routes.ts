@@ -64,6 +64,7 @@ import {
   updateStudioPublicationRecord,
 } from "./studio-service";
 import { buildStudioDiscordPayload } from "./studio-discord";
+import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import type { StudioTokenContext } from "@shared/studio-tokens";
 
 export async function registerRoutes(_server: Server, app: Express) {
@@ -2244,6 +2245,7 @@ async function publishStudioMessage(input: {
   actorDiscordId?: string;
   documentId?: number;
   documentInput?: unknown;
+  allowDowngrade?: boolean;
   target: {
     channelId: string;
     messageId?: string;
@@ -2285,7 +2287,7 @@ async function publishStudioMessage(input: {
 
   const targetChannelId = input.target.channelId.trim();
   const { guild, channel } = await resolveStudioGuildChannel(input.serverId, targetChannelId);
-  const rendered = renderStudioDocumentView(document, input.target.viewId, {
+  const plan = buildStudioPublishPlan(document, input.target.viewId, {
     tokenAvailability: {
       static: true,
       member: false,
@@ -2293,8 +2295,14 @@ async function publishStudioMessage(input: {
     },
   });
 
-  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
+  if (!plan.payloadReady) {
     throw studioHttpError(400, "Nothing to publish. Add content, embeds, or interactive components.");
+  }
+  if (plan.mode === "blocked") {
+    throw studioHttpError(400, plan.summary);
+  }
+  if (plan.mode === "downgraded" && !input.allowDowngrade) {
+    throw studioHttpError(400, "This page will publish in a simplified form. Review the downgrade details, then confirm with Publish simplified.");
   }
 
   let publication = input.target.messageId?.trim()
@@ -2307,7 +2315,7 @@ async function publishStudioMessage(input: {
       documentId: documentRecord.id,
       channelId: targetChannelId,
       messageId: input.target.messageId?.trim() || "pending",
-      currentViewId: rendered.viewId,
+      currentViewId: plan.viewId,
     });
   }
 
@@ -2315,15 +2323,18 @@ async function publishStudioMessage(input: {
     documentId: documentRecord.id,
     documentName: documentRecord.name,
     documentVersion: document.version,
-    publishedViewId: rendered.viewId,
+    publishedViewId: plan.viewId,
     channelId: targetChannelId,
     guildId: guild.id,
     render: {
-      content: rendered.content,
-      embeds: rendered.embeds,
-      components: rendered.interactiveComponents,
+      content: plan.liveMessage.content,
+      embeds: plan.liveMessage.embeds,
+      components: plan.liveMessage.components,
+      flags: plan.liveMessage.flags,
+      publishPath: plan.publishPath,
     },
-    diagnostics: rendered.diagnostics,
+    diagnostics: plan.diagnostics,
+    publishPlan: plan,
     document,
   };
 
@@ -2335,12 +2346,12 @@ async function publishStudioMessage(input: {
 
   publication = await updateStudioPublicationRecord(publication.id, {
     currentSnapshotId: snapshotRecord.id,
-    currentViewId: rendered.viewId,
-    status: rendered.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+    currentViewId: plan.viewId,
+    status: plan.mode === "downgraded" ? "degraded" : "published",
   });
 
   const payload = buildStudioDiscordPayload(
-    snapshotPayload,
+    plan,
     publication.id,
     buildStudioStaticTokenContext({
       guild,
@@ -2358,6 +2369,7 @@ async function publishStudioMessage(input: {
         content: payload.content,
         embeds: payload.embeds,
         components: payload.components,
+        flags: payload.flags,
       });
       messageId = updated.id;
     } else {
@@ -2365,6 +2377,7 @@ async function publishStudioMessage(input: {
         content: payload.content,
         embeds: payload.embeds,
         components: payload.components,
+        flags: payload.flags,
       });
       messageId = sent.id;
     }
@@ -2373,10 +2386,10 @@ async function publishStudioMessage(input: {
       messageId,
       channelId: targetChannelId,
       currentSnapshotId: snapshotRecord.id,
-      currentViewId: rendered.viewId,
+      currentViewId: plan.viewId,
       lastPublishedAt: new Date(),
       active: true,
-      status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+      status: plan.mode === "downgraded" ? "degraded" : "published",
       lastFailureAt: null,
       lastFailureSummary: null,
     } as any);
@@ -2388,7 +2401,7 @@ async function publishStudioMessage(input: {
       severity: payload.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
       eventType: "publish",
       summary: `Published ${documentRecord.name} to ${targetChannelId}.`,
-      details: { diagnostics: payload.diagnostics, viewId: rendered.viewId, messageId },
+      details: { diagnostics: payload.diagnostics, viewId: plan.viewId, messageId },
     });
 
     return {
@@ -2397,6 +2410,7 @@ async function publishStudioMessage(input: {
       channelId: targetChannelId,
       snapshotVersion: snapshotRecord.version,
       diagnostics: payload.diagnostics,
+      publishPlan: plan,
     };
   } catch (err: any) {
     await updateStudioPublicationRecord(publication.id, {
@@ -2453,7 +2467,7 @@ async function sendStudioTestMessage(input: {
   const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
   if (!guild) throw studioHttpError(404, "Bot is not in this Discord server.");
 
-  const rendered = renderStudioDocumentView(document, input.target.viewId, {
+  const plan = buildStudioPublishPlan(document, input.target.viewId, {
     tokenAvailability: {
       static: true,
       member: true,
@@ -2461,8 +2475,11 @@ async function sendStudioTestMessage(input: {
     },
   });
 
-  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
+  if (!plan.payloadReady) {
     throw studioHttpError(400, "Nothing to test. Add content, embeds, or interactive components.");
+  }
+  if (plan.mode === "blocked") {
+    throw studioHttpError(400, plan.summary);
   }
 
   if (input.target.kind === "dm") {
@@ -2480,31 +2497,18 @@ async function sendStudioTestMessage(input: {
       messageId: null,
     });
 
-    const payload = buildStudioDiscordPayload({
-      documentId: documentRecord?.id || 0,
-      documentName: documentRecord?.name || document.meta.name,
-      documentVersion: document.version,
-      publishedViewId: rendered.viewId,
-      channelId: "dm",
-      guildId: guild.id,
-      render: {
-        content: rendered.content,
-        embeds: rendered.embeds,
-        components: rendered.interactiveComponents,
-      },
-      diagnostics: rendered.diagnostics,
-      document,
-    } as any, 0, tokenContext);
+    const payload = buildStudioDiscordPayload(plan, 0, tokenContext);
 
     await user.send({
       content: payload.content,
       embeds: payload.embeds,
       components: payload.components,
+      flags: payload.flags,
     }).catch((err: any) => {
       throw studioHttpError(400, err?.message || "Could not send the Studio DM test.");
     });
 
-    return { ok: true, mode: "dm", diagnostics: payload.diagnostics };
+    return { ok: true, mode: "dm", diagnostics: payload.diagnostics, publishPlan: plan };
   }
 
   const channelId = String(input.target.channelId || "").trim();
@@ -2517,31 +2521,18 @@ async function sendStudioTestMessage(input: {
     messageId: null,
   });
 
-  const payload = buildStudioDiscordPayload({
-    documentId: documentRecord?.id || 0,
-    documentName: documentRecord?.name || document.meta.name,
-    documentVersion: document.version,
-    publishedViewId: rendered.viewId,
-    channelId,
-    guildId: guild.id,
-    render: {
-      content: rendered.content,
-      embeds: rendered.embeds,
-      components: rendered.interactiveComponents,
-    },
-    diagnostics: rendered.diagnostics,
-    document,
-  } as any, 0, tokenContext);
+  const payload = buildStudioDiscordPayload(plan, 0, tokenContext);
 
   await (channel as any).send({
     content: payload.content,
     embeds: payload.embeds,
     components: payload.components,
+    flags: payload.flags,
   }).catch((err: any) => {
     throw studioHttpError(400, err?.message || "Could not send the Studio test message.");
   });
 
-  return { ok: true, mode: "channel", diagnostics: payload.diagnostics, channelId };
+  return { ok: true, mode: "channel", diagnostics: payload.diagnostics, channelId, publishPlan: plan };
 }
 
 async function cloneStudioPublication(input: {
@@ -2582,8 +2573,15 @@ async function rollbackStudioPublication(input: {
 
   const snapshot = snapshotRecord.snapshot as any;
   const { guild, channel } = await resolveStudioGuildChannel(publication.serverId, publication.channelId);
+  const rollbackPlan = snapshot.publishPlan || buildStudioPublishPlan(snapshot.document, snapshot.publishedViewId, {
+    tokenAvailability: {
+      static: true,
+      member: false,
+      postSend: true,
+    },
+  });
   const payload = buildStudioDiscordPayload(
-    snapshot,
+    rollbackPlan,
     publication.id,
     buildStudioStaticTokenContext({
       guild,
@@ -2598,6 +2596,7 @@ async function rollbackStudioPublication(input: {
     content: payload.content,
     embeds: payload.embeds,
     components: payload.components,
+    flags: payload.flags,
   });
 
   await updateStudioPublicationRecord(publication.id, {
@@ -2605,7 +2604,7 @@ async function rollbackStudioPublication(input: {
     currentViewId: snapshot.publishedViewId,
     lastPublishedAt: new Date(),
     active: true,
-    status: payload.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
+    status: rollbackPlan.mode === "downgraded" ? "degraded" : "published",
   });
 
   await recordStudioRuntimeEvent({
