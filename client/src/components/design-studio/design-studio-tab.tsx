@@ -1027,18 +1027,23 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     const nextDraft = cloneDocument(currentRecord.document as StudioDocument);
     const nextPrimaryType = inferStudioPrimarySurfaceType(nextDraft);
     const entryView = nextDraft.views[nextDraft.meta.entryViewId];
+    const shouldResetEditorState = isNewDocument || !draft;
     ensureDesign(nextDraft);
     setDraft(nextDraft);
     setDirty(false);
-    setSelectedViewId(nextDraft.meta.entryViewId);
-    setSelectedNodeId(null);
-    setSelectedActionId(null);
-    setSelectedModalId(null);
-    setSelectedEmbedIndex(nextPrimaryType === "embed" && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
-    setMessageEditorOpen(false);
-    setEditorFocusLabel("message");
-    setActiveInsertTarget(null);
-    setLastDiagnostics([]);
+    if (shouldResetEditorState) {
+      setSelectedViewId(nextDraft.meta.entryViewId);
+      setSelectedNodeId(null);
+      setSelectedActionId(null);
+      setSelectedModalId(null);
+      setSelectedEmbedIndex(nextPrimaryType === "embed" && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
+      setMessageEditorOpen(false);
+      setEditorFocusLabel("message");
+      setActiveInsertTarget(null);
+      setLastDiagnostics([]);
+    } else if (!nextDraft.views[selectedViewId]) {
+      setSelectedViewId(nextDraft.meta.entryViewId);
+    }
     if (isNewDocument) {
       setActiveArea("build");
       setBuildFocusId(getBuildFocusFromPrimaryType(nextPrimaryType));
