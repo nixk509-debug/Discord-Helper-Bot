@@ -11,6 +11,7 @@ import type {
   StudioDiagnostic,
   StudioPublicationSnapshot,
 } from "@shared/schema";
+import { resolveStudioTokensInValue, type StudioTokenContext } from "@shared/studio-tokens";
 import { encodeStudioActionToken } from "./bot/studio-action-token";
 
 function parseColor(value: unknown) {
@@ -38,8 +39,12 @@ function toEmoji(emoji: unknown) {
   return { name: raw };
 }
 
-export function buildStudioEmbedBuilders(snapshot: StudioPublicationSnapshot) {
-  return (snapshot.render.embeds || []).flatMap((rawEmbed) => {
+export function buildStudioEmbedBuilders(snapshot: StudioPublicationSnapshot, tokenContext?: StudioTokenContext) {
+  const resolvedEmbeds = tokenContext
+    ? resolveStudioTokensInValue(snapshot.render.embeds || [], tokenContext)
+    : (snapshot.render.embeds || []);
+
+  return resolvedEmbeds.flatMap((rawEmbed) => {
     const embed = new EmbedBuilder();
     let hasContent = false;
 
@@ -249,13 +254,23 @@ function buildActionRows(
   return rows.slice(0, 5);
 }
 
-export function buildStudioDiscordPayload(snapshot: StudioPublicationSnapshot, publicationId: number) {
+export function buildStudioDiscordPayload(
+  snapshot: StudioPublicationSnapshot,
+  publicationId: number,
+  tokenContext?: StudioTokenContext,
+) {
   const diagnostics = [...(snapshot.diagnostics || [])];
-  const embeds = buildStudioEmbedBuilders(snapshot);
-  const components = buildActionRows(snapshot.render.components, publicationId, diagnostics);
+  const resolvedContent = tokenContext
+    ? resolveStudioTokensInValue(snapshot.render.content || "", tokenContext)
+    : snapshot.render.content || "";
+  const resolvedComponents = tokenContext
+    ? resolveStudioTokensInValue(snapshot.render.components || [], tokenContext)
+    : snapshot.render.components || [];
+  const embeds = buildStudioEmbedBuilders(snapshot, tokenContext);
+  const components = buildActionRows(resolvedComponents, publicationId, diagnostics);
 
   return {
-    content: snapshot.render.content || undefined,
+    content: resolvedContent || undefined,
     embeds,
     components,
     diagnostics,

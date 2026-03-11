@@ -9,6 +9,10 @@ import {
   type StudioModalDefinition,
   type StudioNode,
 } from "./schema";
+import {
+  buildStudioTokenDiagnostics,
+  type StudioTokenAvailability,
+} from "./studio-tokens";
 
 const URL_PATTERN = /^https?:\/\/\S+$/i;
 const DISCORD_LIMITS = {
@@ -40,6 +44,10 @@ export interface StudioSerializedView {
   viewId: string;
 }
 
+export interface StudioDocumentRenderOptions {
+  tokenAvailability?: StudioTokenAvailability;
+}
+
 function safeText(value: unknown) {
   return String(value || "").trim();
 }
@@ -57,6 +65,17 @@ function pushDiagnostic(
   path?: string,
 ) {
   diagnostics.push({ level, code, message, path });
+}
+
+function pushTokenDiagnostics(
+  diagnostics: StudioDiagnostic[],
+  value: unknown,
+  path: string,
+  options?: StudioDocumentRenderOptions,
+) {
+  const text = typeof value === "string" ? value : String(value || "");
+  if (!text) return;
+  diagnostics.push(...buildStudioTokenDiagnostics(text, path, options?.tokenAvailability));
 }
 
 function getView(document: StudioDocument, requestedViewId?: string) {
@@ -119,7 +138,16 @@ function appendContentPart(parts: string[], nextValue?: string | null) {
   parts.push(value);
 }
 
-function validateEmbed(embed: StudioEmbedDraft, path: string, diagnostics: StudioDiagnostic[]) {
+function validateEmbed(
+  embed: StudioEmbedDraft,
+  path: string,
+  diagnostics: StudioDiagnostic[],
+  options?: StudioDocumentRenderOptions,
+) {
+  pushTokenDiagnostics(diagnostics, embed.title, `${path}.title`, options);
+  pushTokenDiagnostics(diagnostics, embed.description, `${path}.description`, options);
+  pushTokenDiagnostics(diagnostics, embed.authorName, `${path}.authorName`, options);
+  pushTokenDiagnostics(diagnostics, embed.footerText, `${path}.footerText`, options);
   if (safeText(embed.title).length > DISCORD_LIMITS.embedTitle) {
     pushDiagnostic(diagnostics, "error", "EMBED_TITLE_LIMIT", "Embed title exceeds 256 characters.", `${path}.title`);
   }
@@ -157,6 +185,8 @@ function validateEmbed(embed: StudioEmbedDraft, path: string, diagnostics: Studi
   }
   fields.forEach((field, index) => {
     const fieldPath = `${path}.fields[${index}]`;
+    pushTokenDiagnostics(diagnostics, field.name, `${fieldPath}.name`, options);
+    pushTokenDiagnostics(diagnostics, field.value, `${fieldPath}.value`, options);
     if (safeText(field.name).length === 0) {
       pushDiagnostic(diagnostics, "warning", "EMBED_FIELD_NAME_EMPTY", "Field name is empty.", `${fieldPath}.name`);
     }
@@ -237,7 +267,35 @@ function validateNodeReferences(
   node: StudioNode,
   diagnostics: StudioDiagnostic[],
   path: string,
+  options?: StudioDocumentRenderOptions,
 ) {
+  if (node.type === "text_display") {
+    pushTokenDiagnostics(diagnostics, node.props.text, `${path}.props.text`, options);
+  }
+
+  if (node.type === "button") {
+    pushTokenDiagnostics(diagnostics, node.props.label, `${path}.props.label`, options);
+  }
+
+  if (node.type === "section" || node.type === "container") {
+    pushTokenDiagnostics(diagnostics, node.props.heading, `${path}.props.heading`, options);
+    pushTokenDiagnostics(diagnostics, node.props.description, `${path}.props.description`, options);
+  }
+
+  if (node.type === "style_block") {
+    pushTokenDiagnostics(diagnostics, node.props.title, `${path}.props.title`, options);
+    pushTokenDiagnostics(diagnostics, node.props.description, `${path}.props.description`, options);
+  }
+
+  if (node.type === "file") {
+    pushTokenDiagnostics(diagnostics, node.props.label, `${path}.props.label`, options);
+  }
+
+  if (["string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(node.type)) {
+    pushTokenDiagnostics(diagnostics, node.props.label, `${path}.props.label`, options);
+    pushTokenDiagnostics(diagnostics, node.props.placeholder, `${path}.props.placeholder`, options);
+  }
+
   if (node.type === "button") {
     if (!node.actionId) {
       pushDiagnostic(diagnostics, "warning", "BUTTON_ACTION_EMPTY", "Button has no action bound.", `${path}.actionId`);
@@ -341,7 +399,12 @@ function validateNodeReferences(
   }
 }
 
-function validateTree(document: StudioDocument, viewId: string, diagnostics: StudioDiagnostic[]) {
+function validateTree(
+  document: StudioDocument,
+  viewId: string,
+  diagnostics: StudioDiagnostic[],
+  options?: StudioDocumentRenderOptions,
+) {
   const visited = new Set<string>();
   const view = document.views[viewId];
   if (!view) return;
@@ -359,7 +422,7 @@ function validateTree(document: StudioDocument, viewId: string, diagnostics: Stu
       pushDiagnostic(diagnostics, "warning", "NODE_VIEW_MISMATCH", "Node belongs to a different view.", path);
     }
 
-    validateNodeReferences(document, node, diagnostics, `nodes.${node.id}`);
+    validateNodeReferences(document, node, diagnostics, `nodes.${node.id}`, options);
     node.childIds.forEach((childId, index) => walk(childId, `${path}.childIds[${index}]`));
   };
 
@@ -421,7 +484,11 @@ function renderInteractiveNode(
   return null;
 }
 
-export function collectStudioDiagnostics(document: StudioDocument, requestedViewId?: string) {
+export function collectStudioDiagnostics(
+  document: StudioDocument,
+  requestedViewId?: string,
+  options?: StudioDocumentRenderOptions,
+) {
   const diagnostics: StudioDiagnostic[] = [];
   const view = getView(document, requestedViewId);
 
@@ -431,6 +498,7 @@ export function collectStudioDiagnostics(document: StudioDocument, requestedView
   }
 
   const viewPath = `views.${view.id}`;
+  pushTokenDiagnostics(diagnostics, view.messageContent, `${viewPath}.messageContent`, options);
 
   if (safeText(view.messageContent).length > DISCORD_LIMITS.messageContent) {
     pushDiagnostic(
@@ -453,7 +521,7 @@ export function collectStudioDiagnostics(document: StudioDocument, requestedView
   let totalEmbedChars = 0;
   (view.embeds || []).forEach((embed, index) => {
     const embedPath = `${viewPath}.embeds[${index}]`;
-    validateEmbed(embed, embedPath, diagnostics);
+    validateEmbed(embed, embedPath, diagnostics, options);
     totalEmbedChars += embedCharCount(embed);
   });
   if (totalEmbedChars > DISCORD_LIMITS.embedTotal) {
@@ -466,7 +534,7 @@ export function collectStudioDiagnostics(document: StudioDocument, requestedView
     );
   }
 
-  validateTree(document, view.id, diagnostics);
+  validateTree(document, view.id, diagnostics, options);
 
   Object.values(document.actions).forEach((action) => {
     validateAction(action, document, diagnostics, `actions.${action.id}`);
@@ -490,8 +558,12 @@ export function collectStudioDiagnostics(document: StudioDocument, requestedView
   return diagnostics;
 }
 
-export function serializeStudioDocumentView(document: StudioDocument, requestedViewId?: string): StudioSerializedView {
-  const diagnostics = collectStudioDiagnostics(document, requestedViewId);
+export function serializeStudioDocumentView(
+  document: StudioDocument,
+  requestedViewId?: string,
+  options?: StudioDocumentRenderOptions,
+): StudioSerializedView {
+  const diagnostics = collectStudioDiagnostics(document, requestedViewId, options);
   const view = getView(document, requestedViewId);
   if (!view) {
     return {

@@ -8,6 +8,17 @@ export const STUDIO_ENTRY_INTENTS = ["blank", "ticket", "welcome", "verify", "te
 export type StudioEntryIntent = (typeof STUDIO_ENTRY_INTENTS)[number];
 export const STUDIO_PRIMARY_SURFACE_TYPES = ["message", "embed", "components"] as const;
 export type StudioPrimarySurfaceType = (typeof STUDIO_PRIMARY_SURFACE_TYPES)[number];
+export const STUDIO_CREATION_KINDS = ["plain_message", "embed_message", "interactive_message"] as const;
+export type StudioCreationKind = (typeof STUDIO_CREATION_KINDS)[number];
+
+export interface StudioCommunityStarter {
+  id: string;
+  title: string;
+  description: string;
+  eyebrow: string;
+  primaryType: StudioPrimarySurfaceType;
+  createDocument: () => StudioDocument;
+}
 
 export function parseStudioEntryIntent(value: string | null | undefined): StudioEntryIntent {
   if (!value) return "blank";
@@ -285,6 +296,109 @@ export function createStudioPrimaryDocument(primaryType: StudioPrimarySurfaceTyp
 
   return document;
 }
+
+function createRulesStarterDocument() {
+  const document = createStudioPrimaryDocument("embed", "Rules Message");
+  document.views.entry.messageContent = "Welcome to **{server}**. Read the rules below before you dive in.";
+  document.views.entry.embeds = [
+    {
+      title: "Server Rules",
+      description: "Be respectful, keep things on topic, and use the right channels. Staff may step in when needed.",
+      color: "#B11226",
+      fields: [
+        { name: "Respect", value: "Treat members and staff with respect.", inline: false },
+        { name: "No spam", value: "Avoid spam, scams, or disruptive self-promo.", inline: false },
+        { name: "Ask for help", value: "Need help? Open a ticket and we will jump in.", inline: false },
+      ],
+      footerText: "Last updated {date}",
+    },
+  ];
+  return document;
+}
+
+function createRolePickerStarterDocument() {
+  const document = createStudioPrimaryDocument("components", "Role Picker");
+  document.views.entry.messageContent = "Pick the roles that fit you best and keep your notifications clean.";
+  const rootSectionId = Object.keys(document.nodes).find((nodeId) => document.nodes[nodeId]?.type === "section");
+  const actionRowId = Object.keys(document.nodes).find((nodeId) => document.nodes[nodeId]?.type === "action_row");
+  const buttonId = actionRowId ? document.nodes[actionRowId].childIds[0] : null;
+  const actionId = buttonId ? document.nodes[buttonId].actionId || null : null;
+
+  if (rootSectionId) {
+    document.nodes[rootSectionId].props.heading = "Choose Your Roles";
+    document.nodes[rootSectionId].props.description = "Tap a button or swap the row for menus once your server roles are mapped.";
+  }
+
+  if (buttonId) {
+    document.nodes[buttonId].props.label = "Get Updates";
+    document.nodes[buttonId].props.style = 3;
+  }
+
+  if (actionId && document.actions[actionId]) {
+    document.actions[actionId].type = "role_toggle";
+    document.actions[actionId].label = "Toggle updates role";
+    document.actions[actionId].response = {
+      mode: "inline",
+      inline: {
+        content: "Your role settings were updated.",
+        embeds: [],
+      },
+    };
+  }
+
+  return document;
+}
+
+function createStaffIntakeStarterDocument() {
+  const document = createStudioDocument("ticket_panel", "Staff App Form");
+  document.views.entry.messageContent = "Apply to join the Archivist team. Press the button below to open the intake form.";
+  const entryEmbed = document.views.entry.embeds[0];
+  if (entryEmbed) {
+    entryEmbed.title = "Staff Applications";
+    entryEmbed.description = "We are looking for calm, active staff who can guide members and keep things moving.";
+    entryEmbed.color = "#7A0F1F";
+  }
+  return document;
+}
+
+export function creationKindToPrimaryType(kind: StudioCreationKind): StudioPrimarySurfaceType {
+  switch (kind) {
+    case "embed_message":
+      return "embed";
+    case "interactive_message":
+      return "components";
+    case "plain_message":
+    default:
+      return "message";
+  }
+}
+
+export const STUDIO_COMMUNITY_STARTERS: StudioCommunityStarter[] = [
+  {
+    id: "rules_message",
+    title: "Rules Message",
+    description: "A polished server rules post with ready-to-edit fields and a clean intro line.",
+    eyebrow: "Community Shared",
+    primaryType: "embed",
+    createDocument: createRulesStarterDocument,
+  },
+  {
+    id: "role_picker",
+    title: "Role Picker",
+    description: "A starter interactive message for self-assign roles and notification toggles.",
+    eyebrow: "Community Shared",
+    primaryType: "components",
+    createDocument: createRolePickerStarterDocument,
+  },
+  {
+    id: "staff_app_form",
+    title: "Staff App Form",
+    description: "A starter intake flow with a polished panel and modal-based application prompt.",
+    eyebrow: "Community Shared",
+    primaryType: "components",
+    createDocument: createStaffIntakeStarterDocument,
+  },
+];
 
 export function inferStudioPrimarySurfaceType(document: StudioDocument): StudioPrimarySurfaceType {
   const nodes = Object.values(document.nodes || {});

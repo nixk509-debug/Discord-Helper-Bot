@@ -50,6 +50,12 @@ import {
   encodeStudioModalToken,
   STUDIO_ACTION_TOKEN_PREFIX,
 } from "./studio-action-token";
+import {
+  resolveStudioTokensInString,
+  resolveStudioTokensInValue,
+  type StudioTokenAvailability,
+  type StudioTokenContext,
+} from "@shared/studio-tokens";
 
 let botClient: Client | null = null;
 let botStartTime: Date | null = null;
@@ -296,54 +302,112 @@ async function syncServerSnapshotForGuild(guild: Guild) {
   }).where(eq(servers.discordId, guild.id));
 }
 
-function buildStudioVariableMap(input: {
-  member: StudioAutomationMember;
+function buildStudioRuntimeTokenContext(input: {
   guild: Guild;
+  member?: StudioAutomationMember | { user?: any; displayName?: string | null } | null;
   channelName?: string | null;
   channelId?: string | null;
-}) {
-  const user = input.member.user;
-  const displayName = "displayName" in input.member && input.member.displayName
-    ? input.member.displayName
-    : user?.username || "Member";
-  const avatarUrl = user?.displayAvatarURL?.() || user?.avatarURL?.() || "";
+  channelMention?: string | null;
+  messageId?: string | null;
+}): StudioTokenContext {
+  const user = input.member?.user;
+  const displayName = input.member && "displayName" in input.member && input.member.displayName
+    ? String(input.member.displayName)
+    : user?.username || null;
+  const avatarUrl = user?.displayAvatarURL?.() || user?.avatarURL?.() || null;
   const now = new Date();
   const channelName = input.channelName || "";
   const channelId = input.channelId || "";
 
   return {
-    "{user}": user?.username || displayName,
-    "{user.name}": displayName,
-    "{user.id}": user?.id || "",
-    "{user.mention}": user?.id ? `<@${user.id}>` : displayName,
-    "{user.avatar}": avatarUrl,
-    "{server}": input.guild.name,
-    "{server.name}": input.guild.name,
-    "{server.id}": input.guild.id,
-    "{server.membercount}": String(input.guild.memberCount),
-    "{channel}": channelName,
-    "{channel.mention}": channelId ? `<#${channelId}>` : channelName,
-    "{date}": now.toLocaleDateString(),
-    "{time}": now.toLocaleTimeString(),
+    username: user?.username || displayName,
+    displayName,
+    userId: user?.id || null,
+    userMention: user?.id ? `<@${user.id}>` : displayName,
+    userAvatar: avatarUrl,
+    serverName: input.guild.name,
+    serverId: input.guild.id,
+    memberCount: input.guild.memberCount,
+    channelName,
+    channelId,
+    channelMention: input.channelMention ?? (channelId ? `<#${channelId}>` : channelName || null),
+    messageId: input.messageId || null,
+    date: now.toLocaleDateString(),
+    time: now.toLocaleTimeString(),
+    unix: Math.floor(now.getTime() / 1000),
   };
 }
 
-function interpolateStudioVariables<T>(value: T, variables: Record<string, string>): T {
+function buildStudioRuntimeAvailability(input: {
+  member?: boolean;
+  postSend?: boolean;
+}): StudioTokenAvailability {
+  return {
+    static: true,
+    member: Boolean(input.member),
+    postSend: Boolean(input.postSend),
+  };
+}
+
+async function buildStudioInteractionTokenContext(input: {
+  interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
+  guild?: Guild | null;
+  guildId?: string;
+  channel?: any;
+  channelName?: string | null;
+  channelId?: string | null;
+  channelMention?: string | null;
+  messageId?: string | null;
+}) {
+  const guild = input.guild ?? await resolveStudioGuildForInteraction(input.interaction, input.guildId);
+  if (!guild) return null;
+
+  let member: StudioAutomationMember | { user?: any; displayName?: string | null } | null =
+    (input.interaction.member as StudioAutomationMember | null) || { user: input.interaction.user };
+
+  if (!("displayName" in (member || {})) || !(member as any)?.displayName) {
+    member = await guild.members.fetch(input.interaction.user.id).catch(() => member);
+  }
+
+  const channel = input.channel ?? input.interaction.channel;
+  const channelId = input.channelId ?? String(channel?.id || "");
+  const channelName = input.channelName
+    ?? ("name" in (channel as any) ? String((channel as any).name || "") : input.interaction.inGuild() ? "" : "Direct Message");
+  const defaultMention = input.interaction.inGuild()
+    ? (channelId ? `<#${channelId}>` : channelName || null)
+    : channelName || "Direct Message";
+
+  return buildStudioRuntimeTokenContext({
+    guild,
+    member,
+    channelName,
+    channelId,
+    channelMention: input.channelMention ?? defaultMention,
+    messageId: input.messageId || (input.interaction as any).message?.id || null,
+  });
+}
+
+function interpolateStudioSubmissionText(text: string | undefined, submission?: Record<string, string>) {
+  let value = String(text || "");
+  for (const [key, entry] of Object.entries(submission || {})) {
+    value = value.replace(new RegExp(`\\{${key}\\}`, "g"), entry);
+    value = value.replace(new RegExp(`\\{modal\\.${key}\\}`, "g"), entry);
+  }
+  return value;
+}
+
+function interpolateStudioSubmissionValue<T>(value: T, submission?: Record<string, string>): T {
   if (typeof value === "string") {
-    let output = value;
-    for (const [token, replacement] of Object.entries(variables)) {
-      output = output.split(token).join(replacement);
-    }
-    return output as T;
+    return interpolateStudioSubmissionText(value, submission) as T;
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => interpolateStudioVariables(entry, variables)) as T;
+    return value.map((entry) => interpolateStudioSubmissionValue(entry, submission)) as T;
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         key,
-        interpolateStudioVariables(entry, variables),
+        interpolateStudioSubmissionValue(entry, submission),
       ]),
     ) as T;
   }
@@ -394,16 +458,18 @@ async function sendStudioAutomationSurface(input: {
     return;
   }
 
-  const variables = buildStudioVariableMap({
-    member: input.member,
+  const tokenContext = buildStudioRuntimeTokenContext({
     guild: input.guild,
+    member: input.member,
     channelName: "name" in channel ? channel.name : "Direct Message",
-    channelId: channel.id,
+    channelId: input.dm ? null : channel.id,
+    channelMention: input.dm ? "Direct Message" : undefined,
   });
-  const personalizedDocument = interpolateStudioVariables(documentRecord.document, variables);
+  const personalizedDocument = resolveStudioTokensInValue(documentRecord.document, tokenContext);
   const rendered = renderStudioDocumentView(
     personalizedDocument,
     input.defaultViewId || personalizedDocument.meta.entryViewId,
+    { tokenAvailability: buildStudioRuntimeAvailability({ member: true, postSend: false }) },
   );
 
   if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
@@ -454,7 +520,7 @@ async function sendStudioAutomationSurface(input: {
     publicationId: publication.id,
     snapshot: snapshotPayload,
   });
-  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id);
+  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id, tokenContext);
 
   try {
     const message = await (channel as any).send({
@@ -524,7 +590,7 @@ async function handleGuildMemberAdd(member: GuildMember) {
   } else if (settings.welcomeEnabled && settings.welcomeChannelId && settings.welcomeMessage) {
     const channel = await member.guild.channels.fetch(settings.welcomeChannelId).catch(() => null);
     if (channel && channel.isTextBased() && !channel.isThread()) {
-      const content = interpolateStudioVariables(settings.welcomeMessage, buildStudioVariableMap({
+      const content = resolveStudioTokensInString(settings.welcomeMessage, buildStudioRuntimeTokenContext({
         member,
         guild: member.guild,
         channelName: "name" in channel ? channel.name : "",
@@ -545,11 +611,12 @@ async function handleGuildMemberAdd(member: GuildMember) {
       dm: true,
     });
   } else if (settings.welcomeDmEnabled && settings.welcomeDmMessage) {
-    const content = interpolateStudioVariables(settings.welcomeDmMessage, buildStudioVariableMap({
+    const content = resolveStudioTokensInString(settings.welcomeDmMessage, buildStudioRuntimeTokenContext({
       member,
       guild: member.guild,
       channelName: "Direct Message",
       channelId: null,
+      channelMention: "Direct Message",
     }));
     await member.user.send({ content }).catch(() => {});
   }
@@ -577,7 +644,7 @@ async function handleGuildMemberRemove(member: GuildMember | PartialGuildMember)
   if (settings.leaveEnabled && settings.leaveChannelId && settings.leaveMessage) {
     const channel = await member.guild.channels.fetch(settings.leaveChannelId).catch(() => null);
     if (channel && channel.isTextBased() && !channel.isThread()) {
-      const content = interpolateStudioVariables(settings.leaveMessage, buildStudioVariableMap({
+      const content = resolveStudioTokensInString(settings.leaveMessage, buildStudioRuntimeTokenContext({
         member,
         guild: member.guild,
         channelName: "name" in channel ? channel.name : "",
@@ -799,7 +866,18 @@ async function executeTicketCreateAction(input: {
     reason: `Ticket created by ${interaction.user.tag}`,
   });
 
-  const responsePayload = await buildStudioResponsePayload(action, submission);
+  const responsePayload = await buildStudioResponsePayload({
+    action,
+    submission,
+    tokenContext: buildStudioRuntimeTokenContext({
+      guild,
+      member: (interaction.member as StudioAutomationMember | null) || { user: interaction.user, displayName: interaction.user.username },
+      channelName: "name" in ticketChannel ? ticketChannel.name : "",
+      channelId: ticketChannel.id,
+      messageId: null,
+    }),
+    tokenAvailability: buildStudioRuntimeAvailability({ member: true, postSend: false }),
+  });
   const intakeEmbed = buildTicketSubmissionEmbed(submission);
   const supportMention = supportRoleId ? `<@&${supportRoleId}>` : "";
   const openerMention = `<@${interaction.user.id}>`;
@@ -1345,16 +1423,13 @@ async function getStudioGateFailure(
   return null;
 }
 
-function interpolateStudioText(text: string | undefined, submission?: Record<string, string>) {
-  let value = String(text || "");
-  for (const [key, entry] of Object.entries(submission || {})) {
-    value = value.replace(new RegExp(`\\{${key}\\}`, "g"), entry);
-    value = value.replace(new RegExp(`\\{modal\\.${key}\\}`, "g"), entry);
-  }
-  return value;
-}
-
-async function buildStudioResponsePayload(action: any, submission?: Record<string, string>) {
+async function buildStudioResponsePayload(input: {
+  action: any;
+  submission?: Record<string, string>;
+  tokenContext?: StudioTokenContext | null;
+  tokenAvailability?: StudioTokenAvailability;
+}) {
+  const { action, submission, tokenContext, tokenAvailability } = input;
   const mode = action.response?.mode || "inline";
   let source: any = action.response?.inline || {};
 
@@ -1366,6 +1441,7 @@ async function buildStudioResponsePayload(action: any, submission?: Record<strin
     const rendered = renderStudioDocumentView(
       templateDocument.document as any,
       action.response?.templateViewId,
+      { tokenAvailability },
     );
     source = {
       content: rendered.content,
@@ -1373,21 +1449,12 @@ async function buildStudioResponsePayload(action: any, submission?: Record<strin
     };
   }
 
+  const withSubmission = interpolateStudioSubmissionValue(source, submission);
+  const resolved = tokenContext ? resolveStudioTokensInValue(withSubmission, tokenContext) : withSubmission;
+
   return {
-    content: interpolateStudioText(source?.content, submission) || undefined,
-    embeds: (Array.isArray(source?.embeds) ? source.embeds : []).map((embed: any) => {
-      const next = { ...embed };
-      if (next.title) next.title = interpolateStudioText(next.title, submission);
-      if (next.description) next.description = interpolateStudioText(next.description, submission);
-      if (Array.isArray(next.fields)) {
-        next.fields = next.fields.map((field: any) => ({
-          ...field,
-          name: interpolateStudioText(field.name, submission),
-          value: interpolateStudioText(field.value, submission),
-        }));
-      }
-      return next;
-    }),
+    content: String(resolved?.content || "") || undefined,
+    embeds: Array.isArray(resolved?.embeds) ? resolved.embeds : [],
   };
 }
 
@@ -1401,6 +1468,16 @@ async function executeStudioAction(input: {
 }) {
   const { interaction, publication, snapshot, action, submission } = input;
   const studioGuild = await resolveStudioGuildForInteraction(interaction, snapshot.guildId);
+  const interactionTokenContext = await buildStudioInteractionTokenContext({
+    interaction,
+    guild: studioGuild,
+    guildId: snapshot.guildId,
+    messageId: publication.messageId || (interaction as any).message?.id || null,
+  });
+  const interactionTokenAvailability = buildStudioRuntimeAvailability({
+    member: true,
+    postSend: Boolean(publication.messageId || (interaction as any).message?.id),
+  });
 
   if (action.type === "role_add" || action.type === "role_remove" || action.type === "role_toggle") {
     await executeRoleAction(interaction as any, action, action.replyMode || "ephemeral", studioGuild);
@@ -1463,7 +1540,12 @@ async function executeStudioAction(input: {
     const targetViewId = action.targetViewId || action.fallbackViewId || snapshot.document?.meta?.entryViewId;
     await switchStudioPublicationView(publication, snapshot, String(targetViewId), interaction as any);
     if (action.response) {
-      const payload = await buildStudioResponsePayload(action, submission);
+      const payload = await buildStudioResponsePayload({
+        action,
+        submission,
+        tokenContext: interactionTokenContext,
+        tokenAvailability: interactionTokenAvailability,
+      });
       if (payload.content || (payload.embeds && payload.embeds.length > 0)) {
         await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "reply");
       }
@@ -1472,19 +1554,28 @@ async function executeStudioAction(input: {
   }
 
   if (action.type === "follow_up_message") {
-    const payload = await buildStudioResponsePayload(action, submission);
+    const payload = await buildStudioResponsePayload({
+      action,
+      submission,
+      tokenContext: interactionTokenContext,
+      tokenAvailability: interactionTokenAvailability,
+    });
     await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "followUp");
     return;
   }
 
   if (action.type === "reply_message" || action.type === "confirm") {
-    const payload = await buildStudioResponsePayload(action, submission);
+    const payload = await buildStudioResponsePayload({
+      action,
+      submission,
+      tokenContext: interactionTokenContext,
+      tokenAvailability: interactionTokenAvailability,
+    });
     await sendStudioResponse(interaction as any, payload, action.replyMode || "ephemeral", "reply");
     return;
   }
 
   if (action.type === "channel_message" || action.type === "log_action") {
-    const payload = await buildStudioResponsePayload(action, submission);
     const channelId = String(action.channelId || "").trim();
     if (!channelId || !studioGuild) {
       await replyStudioInteraction(interaction as any, "Destination channel is not configured.", "ephemeral");
@@ -1495,6 +1586,20 @@ async function executeStudioAction(input: {
       await replyStudioInteraction(interaction as any, "Destination channel is invalid.", "ephemeral");
       return;
     }
+    const channelTokenContext = await buildStudioInteractionTokenContext({
+      interaction,
+      guild: studioGuild,
+      channel,
+      channelName: "name" in channel ? channel.name : "",
+      channelId: channel.id,
+      messageId: null,
+    });
+    const payload = await buildStudioResponsePayload({
+      action,
+      submission,
+      tokenContext: channelTokenContext || interactionTokenContext,
+      tokenAvailability: buildStudioRuntimeAvailability({ member: true, postSend: false }),
+    });
     await (channel as any).send({
       content: payload.content,
       embeds: buildResponseEmbeds(payload.embeds),
@@ -1504,7 +1609,21 @@ async function executeStudioAction(input: {
   }
 
   if (action.type === "dm_user") {
-    const payload = await buildStudioResponsePayload(action, submission);
+    const payload = await buildStudioResponsePayload({
+      action,
+      submission,
+      tokenContext: studioGuild
+        ? buildStudioRuntimeTokenContext({
+            guild: studioGuild,
+            member: { user: interaction.user, displayName: interaction.user.username },
+            channelName: "Direct Message",
+            channelId: null,
+            channelMention: "Direct Message",
+            messageId: null,
+          })
+        : interactionTokenContext,
+      tokenAvailability: buildStudioRuntimeAvailability({ member: true, postSend: false }),
+    });
     await interaction.user.send({
       content: payload.content,
       embeds: buildResponseEmbeds(payload.embeds),
@@ -1522,7 +1641,22 @@ async function switchStudioPublicationView(
   targetViewId: string,
   interaction: ButtonInteraction | StringSelectMenuInteraction,
 ) {
-  const rendered = renderStudioDocumentView(snapshot.document, targetViewId);
+  const studioGuild = await resolveStudioGuildForInteraction(interaction, snapshot.guildId);
+  const channelName = interaction.channel && "name" in interaction.channel ? String(interaction.channel.name || "") : "";
+  const tokenContext = studioGuild
+    ? buildStudioRuntimeTokenContext({
+        guild: studioGuild,
+        channelName,
+        channelId: publication.channelId || interaction.channelId || null,
+        messageId: publication.messageId || interaction.message.id,
+      })
+    : null;
+  const rendered = renderStudioDocumentView(snapshot.document, targetViewId, {
+    tokenAvailability: buildStudioRuntimeAvailability({
+      member: false,
+      postSend: Boolean(publication.messageId || interaction.message.id),
+    }),
+  });
   const nextSnapshot = {
     ...snapshot,
     publishedViewId: rendered.viewId,
@@ -1537,7 +1671,7 @@ async function switchStudioPublicationView(
     publicationId: publication.id,
     snapshot: nextSnapshot,
   });
-  const payload = buildStudioDiscordPayload(nextSnapshot, publication.id);
+  const payload = buildStudioDiscordPayload(nextSnapshot, publication.id, tokenContext || undefined);
   const message = interaction.message;
   await message.edit({
     content: payload.content,

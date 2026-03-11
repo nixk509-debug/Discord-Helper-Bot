@@ -33,7 +33,7 @@ import {
   type StudioThemePack,
   type Template,
 } from "@shared/schema";
-import { serializeStudioDocumentView } from "@shared/studio-document";
+import { serializeStudioDocumentView, type StudioDocumentRenderOptions } from "@shared/studio-document";
 
 export const STUDIO_TEMPLATE_TYPE = "design_studio";
 export const DEFAULT_STUDIO_ENTRY_VIEW = "entry";
@@ -676,8 +676,12 @@ function appendContentPart(parts: string[], nextValue?: string | null) {
   parts.push(value);
 }
 
-export function renderStudioDocumentView(document: StudioDocument, requestedViewId?: string) {
-  const serialized = serializeStudioDocumentView(document, requestedViewId);
+export function renderStudioDocumentView(
+  document: StudioDocument,
+  requestedViewId?: string,
+  options?: StudioDocumentRenderOptions,
+) {
+  const serialized = serializeStudioDocumentView(document, requestedViewId, options);
   return {
     content: serialized.content,
     embeds: serialized.embeds,

@@ -64,6 +64,7 @@ import {
   updateStudioPublicationRecord,
 } from "./studio-service";
 import { buildStudioDiscordPayload } from "./studio-discord";
+import type { StudioTokenContext } from "@shared/studio-tokens";
 
 export async function registerRoutes(_server: Server, app: Express) {
 
@@ -2155,6 +2156,29 @@ async function resolveStudioGuildChannel(serverId: number, channelId: string) {
   return { server, guild, channel };
 }
 
+function buildStudioStaticTokenContext(input: {
+  guild: any;
+  channel: any;
+  messageId?: string | null;
+}): StudioTokenContext {
+  const now = new Date();
+  const channelName = "name" in input.channel ? String(input.channel.name || "") : "";
+  const channelId = String(input.channel?.id || "");
+
+  return {
+    serverName: String(input.guild?.name || ""),
+    serverId: String(input.guild?.id || ""),
+    memberCount: Number.isFinite(Number(input.guild?.memberCount)) ? Number(input.guild.memberCount) : undefined,
+    channelName,
+    channelId,
+    channelMention: channelId ? `<#${channelId}>` : channelName,
+    messageId: input.messageId || null,
+    date: now.toLocaleDateString(),
+    time: now.toLocaleTimeString(),
+    unix: Math.floor(now.getTime() / 1000),
+  };
+}
+
 async function publishStudioMessage(input: {
   serverId: number;
   actorUserId: number;
@@ -2202,7 +2226,13 @@ async function publishStudioMessage(input: {
 
   const targetChannelId = input.target.channelId.trim();
   const { guild, channel } = await resolveStudioGuildChannel(input.serverId, targetChannelId);
-  const rendered = renderStudioDocumentView(document, input.target.viewId);
+  const rendered = renderStudioDocumentView(document, input.target.viewId, {
+    tokenAvailability: {
+      static: true,
+      member: false,
+      postSend: Boolean(input.target.messageId?.trim()),
+    },
+  });
 
   if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
     throw studioHttpError(400, "Nothing to publish. Add content, embeds, or interactive components.");
@@ -2250,7 +2280,15 @@ async function publishStudioMessage(input: {
     status: rendered.diagnostics.some((diag) => diag.level === "error") ? "degraded" : "published",
   });
 
-  const payload = buildStudioDiscordPayload(snapshotPayload, publication.id);
+  const payload = buildStudioDiscordPayload(
+    snapshotPayload,
+    publication.id,
+    buildStudioStaticTokenContext({
+      guild,
+      channel,
+      messageId: input.target.messageId?.trim() || null,
+    }),
+  );
 
   try {
     let messageId = input.target.messageId?.trim();
@@ -2357,8 +2395,16 @@ async function rollbackStudioPublication(input: {
   }
 
   const snapshot = snapshotRecord.snapshot as any;
-  const { channel } = await resolveStudioGuildChannel(publication.serverId, publication.channelId);
-  const payload = buildStudioDiscordPayload(snapshot, publication.id);
+  const { guild, channel } = await resolveStudioGuildChannel(publication.serverId, publication.channelId);
+  const payload = buildStudioDiscordPayload(
+    snapshot,
+    publication.id,
+    buildStudioStaticTokenContext({
+      guild,
+      channel,
+      messageId: publication.messageId,
+    }),
+  );
   const existing = await (channel as any).messages.fetch(publication.messageId).catch(() => null);
   if (!existing) throw studioHttpError(404, "Published message no longer exists.");
 

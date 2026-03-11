@@ -47,17 +47,16 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { DiscordChannelPicker } from "@/components/discord/channel-picker";
-import { DesignStudioMobileHome } from "@/components/design-studio/design-studio-mobile-home";
+import { DesignStudioHome } from "@/components/design-studio/design-studio-home";
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
+  STUDIO_COMMUNITY_STARTERS,
   createStudioPrimaryDocument,
   createStudioDocument as createStudioDocumentDraft,
   defaultPrimarySurfaceName,
   defaultSurfaceName,
   inferStudioPrimarySurfaceType,
-  parseStudioEntryIntent,
   type StudioPrimarySurfaceType,
-  type StudioEntryIntent,
   STUDIO_MAIN_AREAS,
 } from "@/components/design-studio/studio-defaults";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +84,12 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { collectStudioDiagnostics } from "@shared/studio-document";
+import {
+  buildStudioPreviewTokenContext,
+  getStudioFeaturedTokens,
+  resolveStudioTokensInValue,
+  type StudioTokenAvailability,
+} from "@shared/studio-tokens";
 import type {
   InteractiveActionConfig,
   StudioAction,
@@ -169,17 +174,7 @@ const THEME_PACK_STARTERS: StudioThemePack[] = [
 ];
 
 const QUICK_EMOJI = ["🔥", "✨", "✅", "📌", "🎯", "⚠️", "📂", "🔒", "🧭", "🎫", "👋", "📣"];
-const QUICK_MACROS = [
-  { label: "User", value: "<@{user_id}>" },
-  { label: "Username", value: "{username}" },
-  { label: "Server", value: "{server_name}" },
-  { label: "Channel", value: "<#{channel_id}>" },
-  { label: "Role", value: "<@&{role_id}>" },
-  { label: "Timestamp", value: "<t:{unix}:f>" },
-  { label: "Message Link", value: "https://discord.com/channels/{guild_id}/{channel_id}/{message_id}" },
-  { label: "Screen Ref", value: "{{view:entry}}" },
-  { label: "Behavior Ref", value: "{{action:id}}" },
-];
+const FEATURED_STUDIO_TOKENS = getStudioFeaturedTokens();
 
 const MOBILE_BUILD_WORKSPACES = [
   { id: "content" as const, label: "Message", detail: "Project setup, screen flow, and body copy.", icon: FilePlus2 },
@@ -860,7 +855,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const [publishViewId, setPublishViewId] = useState("");
   const [cloneChannelId, setCloneChannelId] = useState("");
   const [selectedPublicationId, setSelectedPublicationId] = useState<number | null>(null);
-  const [entryIntent, setEntryIntent] = useState<StudioEntryIntent>("blank");
   const [importText, setImportText] = useState("");
   const [emojiState, setEmojiState] = useState<{ recent: string[]; favorites: string[] }>({ recent: [], favorites: [] });
   const [libraryScopeFilter, setLibraryScopeFilter] = useState<LibraryScopeFilter>("all");
@@ -918,11 +912,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }, [serverId]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setEntryIntent(parseStudioEntryIntent(params.get("intent")));
-  }, [serverId]);
-
-  useEffect(() => {
     if (currentDocumentId) return;
     const params = new URLSearchParams(window.location.search);
     const requested = Number(params.get("documentId") || "0");
@@ -936,6 +925,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     if (dirty && loadedDocumentIdRef.current === currentRecord.id) return;
     const isNewDocument = loadedDocumentIdRef.current !== currentRecord.id;
     const nextDraft = cloneDocument(currentRecord.document as StudioDocument);
+    const nextPrimaryType = inferStudioPrimarySurfaceType(nextDraft);
+    const entryView = nextDraft.views[nextDraft.meta.entryViewId];
     ensureDesign(nextDraft);
     setDraft(nextDraft);
     setDirty(false);
@@ -943,11 +934,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setSelectedNodeId(null);
     setSelectedActionId(null);
     setSelectedModalId(null);
-    setSelectedEmbedIndex(null);
+    setSelectedEmbedIndex(nextPrimaryType === "embed" && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
     setLastDiagnostics([]);
     if (isNewDocument) {
       setActiveArea("build");
-      setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(nextDraft)));
+      setBuildFocusId(getBuildFocusFromPrimaryType(nextPrimaryType));
       setLibraryModeId("shelf");
       setPreviewOpen(false);
       setInspectorOpen(false);
@@ -968,6 +959,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }, [currentDocumentId, draft, publications, publishChannelId, publishViewId]);
 
   const currentView = draft ? getView(draft, selectedViewId) : null;
+  const previewTokenContext = useMemo(() => buildStudioPreviewTokenContext(), []);
+  const tokenAvailability = useMemo<StudioTokenAvailability>(() => ({
+    static: true,
+    member: ["welcome", "welcome_dm", "leave"].includes(String(currentRecord?.moduleBinding || "")),
+    postSend: false,
+  }), [currentRecord?.moduleBinding]);
   const roleOptions = discordContextQuery.data?.roles || [];
   const emojiOptions = (discordContextQuery.data?.emojis || []).map(emojiToToken);
   const allDividerPresets = useMemo(() => [...(draft?.design?.dividerPresets || [])], [draft]);
@@ -988,7 +985,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   const interactionRows = useMemo(() => (draft ? collectInteractionMap(draft, selectedViewId) : []), [draft, selectedViewId]);
   const diagnostics = useMemo(() => {
     if (!draft) return lastDiagnostics;
-    const next = [...collectStudioDiagnostics(draft, selectedViewId), ...lastDiagnostics];
+    const next = [...collectStudioDiagnostics(draft, selectedViewId, { tokenAvailability }), ...lastDiagnostics];
     const ticketActions = Object.values(draft.actions).filter((action) => action.type === "ticket_create");
     if (ticketActions.length > 0 && !ticketConfig?.enabled) {
       next.push({ level: "warning", code: "TICKETS_DISABLED", message: "Ticket create actions exist, but the ticket system is disabled in module settings." });
@@ -1003,10 +1000,18 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       }
     }
     return next;
-  }, [boundTicketPanel, draft, lastDiagnostics, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length]);
+  }, [boundTicketPanel, draft, lastDiagnostics, selectedViewId, ticketConfig?.enabled, ticketDepartments, ticketPanels.length, tokenAvailability]);
   const errorCount = diagnostics.filter((entry) => entry.level === "error").length;
   const warningCount = diagnostics.filter((entry) => entry.level === "warning").length;
   const diagnosticsForPrefix = (prefix: string) => diagnostics.filter((entry) => typeof entry.path === "string" && entry.path.startsWith(prefix));
+  const previewDocument = useMemo(
+    () => (draft ? resolveStudioTokensInValue(draft, previewTokenContext) : null),
+    [draft, previewTokenContext],
+  );
+  const previewInteractionRows = useMemo(
+    () => resolveStudioTokensInValue(interactionRows, previewTokenContext),
+    [interactionRows, previewTokenContext],
+  );
 
   const selectedNode = draft && selectedNodeId ? draft.nodes[selectedNodeId] : null;
   const selectedAction = draft && selectedActionId ? draft.actions[selectedActionId] : null;
@@ -1206,6 +1211,41 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
   };
 
+  const openCreatedRecord = (
+    created: StudioDocumentRecord,
+    options?: { focus?: BuildFocusId; selectFirstEmbed?: boolean; noticeTitle?: string; noticeDescription?: string },
+  ) => {
+    const normalized = normalizeDocumentDraft(created.document, created.name);
+    const defaultFocus = getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized));
+    const entryView = normalized.views[normalized.meta.entryViewId];
+
+    setCurrentDocumentId(created.id);
+    setDraft(cloneDocument(normalized));
+    setDirty(false);
+    setActiveArea("build");
+    setBuildFocusId(options?.focus || defaultFocus);
+    setLibraryModeId("shelf");
+    setPreviewOpen(false);
+    setInspectorOpen(false);
+    setSelectedViewId(normalized.meta.entryViewId);
+    setSelectedNodeId(null);
+    setSelectedActionId(null);
+    setSelectedModalId(null);
+    setSelectedEmbedIndex(options?.selectFirstEmbed && (entryView?.embeds?.length || 0) > 0 ? 0 : null);
+    loadedDocumentIdRef.current = created.id;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("documentId", String(created.id));
+    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+
+    if (options?.noticeTitle) {
+      toast({
+        title: options.noticeTitle,
+        description: options.noticeDescription || `${created.name} is ready in Studio.`,
+      });
+    }
+  };
+
   const saveDocument = () => {
     if (!draft || !currentDocumentId) return;
     updateDocumentMutation.mutate(
@@ -1242,20 +1282,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
-          const normalized = normalizeDocumentDraft(created.document, created.name);
-          setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalized));
-          setDirty(false);
-          setActiveArea("build");
-          setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
-          setLibraryModeId("shelf");
-          setPreviewOpen(false);
-          setInspectorOpen(false);
-          loadedDocumentIdRef.current = created.id;
-          const url = new URL(window.location.href);
-          url.searchParams.set("documentId", String(created.id));
-          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
-          toast({ title: kind === "template" ? "Template created" : "Project created", description: `${created.name} is ready in Studio.` });
+          openCreatedRecord(created, {
+            noticeTitle: kind === "template" ? "Template created" : "Project created",
+          });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
       },
@@ -1274,22 +1303,42 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
-          const normalized = normalizeDocumentDraft(created.document, created.name);
-          setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalized));
-          setDirty(false);
-          setActiveArea("build");
-          setBuildFocusId(getBuildFocusFromPrimaryType(primaryType));
-          setLibraryModeId("shelf");
-          setPreviewOpen(false);
-          setInspectorOpen(false);
-          loadedDocumentIdRef.current = created.id;
-          const url = new URL(window.location.href);
-          url.searchParams.set("documentId", String(created.id));
-          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
-          toast({ title: "Project created", description: `${created.name} is ready in Studio.` });
+          openCreatedRecord(created, {
+            focus: getBuildFocusFromPrimaryType(primaryType),
+            selectFirstEmbed: primaryType === "embed",
+            noticeTitle: "Project created",
+          });
         },
         onError: (error: any) => toast({ title: "Create failed", description: error.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const importCommunityStarter = (starterId: string) => {
+    const starter = STUDIO_COMMUNITY_STARTERS.find((entry) => entry.id === starterId);
+    if (!starter) {
+      toast({ title: "Starter missing", description: "That community starter is no longer available.", variant: "destructive" });
+      return;
+    }
+
+    const document = starter.createDocument();
+    createDocumentMutation.mutate(
+      {
+        scope: "server",
+        kind: "surface",
+        name: document.meta.name,
+        document,
+      },
+      {
+        onSuccess: (created: StudioDocumentRecord) => {
+          openCreatedRecord(created, {
+            focus: getBuildFocusFromPrimaryType(starter.primaryType),
+            selectFirstEmbed: starter.primaryType === "embed",
+            noticeTitle: "Starter imported",
+            noticeDescription: `${created.name} is ready to customize.`,
+          });
+        },
+        onError: (error: any) => toast({ title: "Import failed", description: error.message, variant: "destructive" }),
       },
     );
   };
@@ -1306,20 +1355,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       },
       {
         onSuccess: (created: StudioDocumentRecord) => {
-          const normalized = normalizeDocumentDraft(created.document, created.name);
           toast({ title: asTemplate ? "Template saved" : "Project duplicated", description: created.name });
-          setCurrentDocumentId(created.id);
-          setDraft(cloneDocument(normalized));
-          setDirty(false);
-          setActiveArea("build");
-          setBuildFocusId(getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized)));
-          setLibraryModeId("shelf");
-          setPreviewOpen(false);
-          setInspectorOpen(false);
-          loadedDocumentIdRef.current = created.id;
-          const url = new URL(window.location.href);
-          url.searchParams.set("documentId", String(created.id));
-          window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+          openCreatedRecord(created);
         },
         onError: (error: any) => toast({ title: "Duplicate failed", description: error.message, variant: "destructive" }),
       },
@@ -1648,20 +1685,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setEmojiState(upsertRecentEmoji(serverId, emoji));
   };
 
-  const insertMacro = (macro: string) => {
+  const insertToken = (token: string) => {
     touchDraft((document) => {
       const node = selectedNodeId ? document.nodes[selectedNodeId] : undefined;
       const activeView = document.views[selectedViewId];
       if (!activeView) return;
       if (node?.type === "text_display") {
-        node.props.text = `${String(node.props.text || "")}${macro}`;
+        node.props.text = `${String(node.props.text || "")}${token}`;
         return;
       }
       if (selectedEmbedIndex !== null && activeView.embeds[selectedEmbedIndex]) {
-        activeView.embeds[selectedEmbedIndex].description = `${String(activeView.embeds[selectedEmbedIndex].description || "")}${macro}`;
+        activeView.embeds[selectedEmbedIndex].description = `${String(activeView.embeds[selectedEmbedIndex].description || "")}${token}`;
         return;
       }
-      activeView.messageContent = `${String(activeView.messageContent || "")}${macro}`;
+      activeView.messageContent = `${String(activeView.messageContent || "")}${token}`;
     });
   };
 
@@ -1925,8 +1962,27 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     }
 
     const text = String(payload.text || payload.value || "");
-    if (text) insertMacro(text);
+    if (text) insertToken(text);
   };
+
+  const renderTokenButtons = (helperText = "Preview uses sample values. Member tokens stay raw in normal static publishes.") => (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {FEATURED_STUDIO_TOKENS.map((token) => (
+          <Button
+            key={`token-${token.id}`}
+            variant="outline"
+            size="sm"
+            title={`${token.primaryAlias} - ${token.helperText}`}
+            onClick={() => insertToken(token.primaryAlias)}
+          >
+            {token.label}
+          </Button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">{helperText}</p>
+    </div>
+  );
 
   const publishDocument = () => {
     if (!draft) return;
@@ -2311,13 +2367,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           placeholder="Write message content..."
           className="min-h-[140px]"
         />
-        <div className="flex flex-wrap gap-2">
-          {QUICK_MACROS.map((macro) => (
-            <Button key={`macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
-              {macro.label}
-            </Button>
-          ))}
-        </div>
+        {renderTokenButtons()}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>{(currentView?.messageContent || "").length}/2000 characters</span>
           <span>Discord markdown and links are supported.</span>
@@ -2626,18 +2676,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
-          <CardTitle className="font-display text-base">Decorative Text Helpers</CardTitle>
-          <CardDescription>Discord-safe text presets and references you can insert into content or text blocks.</CardDescription>
+          <CardTitle className="font-display text-base">Studio Tokens</CardTitle>
+          <CardDescription>Insert real Studio variables instead of raw placeholder text. Simple aliases stay beginner-friendly.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {QUICK_MACROS.map((macro) => (
-              <Button key={`lab-macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
-                {macro.label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">These helpers insert Discord-safe tokens and references into your active message context.</p>
+          {renderTokenButtons("Use these in message text, embed descriptions, and text blocks. Preview shows sample values so you can design faster.")}
         </CardContent>
       </Card>
     </div>
@@ -3199,6 +3242,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <Textarea value={selectedEmbed.description || ""} onChange={(event) => touchDraft((document) => {
                 document.views[selectedViewId].embeds[selectedEmbedIndex].description = event.target.value;
               })} className="min-h-[120px]" />
+              {renderTokenButtons("Embed preview uses sample values, but member-only tokens still stay raw in normal static publishes.")}
               <p className="text-[11px] text-muted-foreground">{String(selectedEmbed.description || "").length}/4096</p>
             </div>
 
@@ -3311,13 +3355,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <div className="space-y-2">
                 <Label>Text</Label>
                 <Textarea value={String(selectedNode.props.text || "")} onChange={(event) => updateSelectedNode((node) => { node.props.text = event.target.value; })} className="min-h-[180px]" />
-                <div className="flex flex-wrap gap-2">
-                  {QUICK_MACROS.slice(0, 5).map((macro) => (
-                    <Button key={`inspector-macro-${macro.label}`} variant="outline" size="sm" onClick={() => insertMacro(macro.value)}>
-                      {macro.label}
-                    </Button>
-                  ))}
-                </div>
+                {renderTokenButtons("Text blocks use the same Studio token system as the main message and embeds.")}
               </div>
             ) : null}
 
@@ -3900,143 +3938,19 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </div>
   );
 
-  if (!draft && studioDocumentsQuery.isLoading && !isMobile) {
-    return <Card className="glass-card"><CardContent className="py-12 text-sm text-muted-foreground">Loading Design Studio...</CardContent></Card>;
-  }
-
   if (!draft) {
-    const templateRecords = documents.filter((record) => record.kind === "template");
-    const projectRecords = documents.filter((record) => record.kind !== "template");
-    const starterIntentLabel: Record<StudioEntryIntent, string> = {
-      blank: "Blank Project",
-      ticket: "Ticket Starter",
-      welcome: "Welcome Starter",
-      verify: "Verify Starter",
-      template: "Template Starter",
-    };
-
-    if (isMobile) {
-      return (
-        <DesignStudioMobileHome
-          documents={documents}
-          publications={publications}
-          isLoading={studioDocumentsQuery.isLoading}
-          isCreating={createDocumentMutation.isPending}
-          onBack={onOpenServerSettings || (() => window.history.back())}
-          onOpenSettings={onOpenServerSettings || (() => window.history.back())}
-          onOpenDocument={loadDocument}
-          onCreatePrimary={createPrimaryDocument}
-          onCreateTemplate={() => createDocument(undefined, "template")}
-          onCreateModuleTemplate={(binding) => createDocument(binding, "surface")}
-        />
-      );
-    }
-
     return (
-      <div className="space-y-6">
-        <Card className="glass-card border-white/10 bg-background/40">
-          <CardHeader>
-            <CardTitle className="font-display text-xl">Studio Home</CardTitle>
-            <CardDescription>
-              Start from a blank project, templates, or module starters. Current intent: {starterIntentLabel[entryIntent]}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <Button onClick={() => createDocument(undefined, "surface", "Untitled Project")} className="justify-start gap-2">
-                <Plus className="h-4 w-4" />
-                New Project
-              </Button>
-              <Button
-                variant={entryIntent === "ticket" ? "default" : "outline"}
-                onClick={() => createDocument("ticket_panel", "surface", "Ticket Panel")}
-                className="justify-start gap-2"
-              >
-                <Workflow className="h-4 w-4" />
-                Ticket Starter
-              </Button>
-              <Button
-                variant={entryIntent === "welcome" ? "default" : "outline"}
-                onClick={() => createDocument("welcome", "surface", "Welcome Message")}
-                className="justify-start gap-2"
-              >
-                <Sparkles className="h-4 w-4" />
-                Welcome Starter
-              </Button>
-              <Button
-                variant={entryIntent === "verify" ? "default" : "outline"}
-                onClick={() => createDocument("verify", "surface", "Verification Panel")}
-                className="justify-start gap-2"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                Verify Starter
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => createDocument(undefined, "template")} className="gap-2">
-                <Copy className="h-4 w-4" />
-                New Template
-              </Button>
-              {entryIntent === "template" && templateRecords[0] ? (
-                <Button variant="outline" onClick={() => loadDocument(templateRecords[0].id)} className="gap-2">
-                  <Library className="h-4 w-4" />
-                  Open Latest Template
-                </Button>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="glass-card border-white/10 bg-background/40">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Recent Drafts</CardTitle>
-              <CardDescription>Jump back into recent project work.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {projectRecords.slice(0, 6).map((record) => (
-                <button
-                  key={`home-recent-${record.id}`}
-                  type="button"
-                  onClick={() => loadDocument(record.id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-background/30 px-3 py-2 text-left hover:border-white/20"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{record.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{record.moduleBinding ? getBindingLabel(record.moduleBinding) : "General project"}</p>
-                  </div>
-                  <Badge variant="outline">#{record.id}</Badge>
-                </button>
-              ))}
-              {projectRecords.length === 0 ? <p className="text-sm text-muted-foreground">No drafts yet.</p> : null}
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card border-white/10 bg-background/40">
-            <CardHeader>
-              <CardTitle className="font-display text-base">Templates</CardTitle>
-              <CardDescription>Reusable templates for fast starts.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {templateRecords.slice(0, 6).map((record) => (
-                <button
-                  key={`home-template-${record.id}`}
-                  type="button"
-                  onClick={() => loadDocument(record.id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-white/10 bg-background/30 px-3 py-2 text-left hover:border-white/20"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">{record.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">Template</p>
-                  </div>
-                  <Badge variant="outline">#{record.id}</Badge>
-                </button>
-              ))}
-              {templateRecords.length === 0 ? <p className="text-sm text-muted-foreground">No templates saved yet.</p> : null}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <DesignStudioHome
+        documents={documents}
+        publications={publications}
+        isLoading={studioDocumentsQuery.isLoading}
+        isWorking={createDocumentMutation.isPending}
+        onBack={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
+        onOpenSettings={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
+        onOpenDocument={loadDocument}
+        onCreatePrimary={createPrimaryDocument}
+        onImportCommunityStarter={importCommunityStarter}
+      />
     );
   }
 
@@ -4140,7 +4054,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   );
 
   const previewPanel = (
-    <StudioPreview document={draft} viewId={selectedViewId} interactionRows={interactionRows} diagnostics={diagnostics} mode={previewMode} />
+    <StudioPreview document={previewDocument || draft} viewId={selectedViewId} interactionRows={previewInteractionRows} diagnostics={diagnostics} mode={previewMode} />
   );
   const quickAddDrawer = (
     <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>
