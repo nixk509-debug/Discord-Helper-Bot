@@ -84,6 +84,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { collectStudioDiagnostics } from "@shared/studio-document";
+import { getDiscordEmojiAssetUrl, parseDiscordEmojiToken } from "@shared/discord-emoji";
 import {
   buildStudioPreviewTokenContext,
   getStudioFeaturedTokens,
@@ -622,6 +623,36 @@ function emojiToToken(emoji: DiscordContextEmoji) {
   return `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
 }
 
+function EmojiSwatch({
+  emoji,
+  size = 20,
+  className,
+}: {
+  emoji: string;
+  size?: number;
+  className?: string;
+}) {
+  const parsed = parseDiscordEmojiToken(emoji);
+  const assetUrl = getDiscordEmojiAssetUrl(parsed, size * 2);
+
+  if (assetUrl) {
+    return (
+      <img
+        src={assetUrl}
+        alt={parsed?.name || emoji}
+        className={cn("shrink-0 object-contain", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
+  return (
+    <span className={cn("inline-flex shrink-0 items-center justify-center", className)} style={{ width: size, height: size }}>
+      {emoji}
+    </span>
+  );
+}
+
 function NodeTreeItem({
   document,
   nodeId,
@@ -967,6 +998,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }), [currentRecord?.moduleBinding]);
   const roleOptions = discordContextQuery.data?.roles || [];
   const emojiOptions = (discordContextQuery.data?.emojis || []).map(emojiToToken);
+  const favoriteEmojiOptions = useMemo(() => Array.from(new Set(emojiState.favorites)).slice(0, 10), [emojiState.favorites]);
+  const recentEmojiOptions = useMemo(() => Array.from(new Set(emojiState.recent)).slice(0, 10), [emojiState.recent]);
+  const serverEmojiOptions = useMemo(() => Array.from(new Set(emojiOptions)).slice(0, 18), [emojiOptions]);
+  const emojiQuickPickOptions = useMemo(
+    () => Array.from(new Set([...favoriteEmojiOptions, ...recentEmojiOptions, ...serverEmojiOptions, ...QUICK_EMOJI])).slice(0, 18),
+    [favoriteEmojiOptions, recentEmojiOptions, serverEmojiOptions],
+  );
   const allDividerPresets = useMemo(() => [...(draft?.design?.dividerPresets || [])], [draft]);
   const allStyleBlocks = useMemo(() => [...STYLE_BLOCK_STARTERS, ...(draft?.design?.styleBlocks || [])], [draft]);
   const allThemePacks = useMemo(() => [...THEME_PACK_STARTERS, ...(draft?.design?.themePacks || [])], [draft]);
@@ -1668,7 +1706,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       if (node?.type === "text_display") {
         node.props.text = `${String(node.props.text || "")}${emoji}`;
       } else if (node?.type === "button") {
-        node.props.label = `${String(node.props.label || "")}${emoji}`;
+        node.props.emoji = emoji;
       } else if (node?.type === "divider") {
         node.props.mode = "emoji";
         node.props.emoji = emoji;
@@ -1983,6 +2021,98 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <p className="text-xs text-muted-foreground">{helperText}</p>
     </div>
   );
+
+  const applyEmojiFieldValue = (emoji: string, onChange: (value: string) => void) => {
+    onChange(emoji);
+    setEmojiState(upsertRecentEmoji(serverId, emoji));
+  };
+
+  const renderEmojiTokenButton = (
+    emoji: string,
+    onClick: () => void,
+    options?: { compact?: boolean; muted?: boolean },
+  ) => {
+    const parsed = parseDiscordEmojiToken(emoji);
+    const label = parsed?.custom ? `:${parsed.name}:` : emoji;
+
+    return (
+      <button
+        key={`${emoji}-${options?.compact ? "compact" : "default"}`}
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "group flex items-center gap-2 rounded-2xl border text-left transition hover:border-primary/35 hover:bg-white/[0.06]",
+          options?.compact
+            ? "min-w-0 px-2.5 py-2"
+            : "min-w-0 px-3 py-2.5",
+          options?.muted ? "border-white/8 bg-white/[0.02]" : "border-white/10 bg-background/30",
+        )}
+      >
+        <EmojiSwatch emoji={emoji} size={options?.compact ? 18 : 20} />
+        <span className="truncate text-xs font-medium text-white/85">{label}</span>
+      </button>
+    );
+  };
+
+  const renderEmojiField = ({
+    label,
+    value,
+    onChange,
+    helperText,
+    placeholder = "Paste a native emoji or <:name:id> token",
+  }: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    helperText: string;
+    placeholder?: string;
+  }) => {
+    const parsed = parseDiscordEmojiToken(value);
+    const previewLabel = parsed?.custom ? `:${parsed.name}:` : value || "No emoji selected";
+
+    return (
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-background/25 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <Label>{label}</Label>
+            <p className="text-xs text-muted-foreground">{helperText}</p>
+          </div>
+          <div className="flex min-w-[120px] items-center justify-end gap-2 rounded-xl border border-white/10 bg-black/20 px-2.5 py-2 text-xs text-white/80">
+            {value ? <EmojiSwatch emoji={value} size={18} /> : null}
+            <span className="truncate">{previewLabel}</span>
+          </div>
+        </div>
+
+        <Input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+
+        <div className="space-y-2">
+          {favoriteEmojiOptions.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Favorites</p>
+              <div className="flex flex-wrap gap-2">
+                {favoriteEmojiOptions.slice(0, 6).map((emoji) =>
+                  renderEmojiTokenButton(emoji, () => applyEmojiFieldValue(emoji, onChange), { compact: true }),
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Quick Picks</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {emojiQuickPickOptions.slice(0, 9).map((emoji) =>
+                renderEmojiTokenButton(emoji, () => applyEmojiFieldValue(emoji, onChange), { compact: true, muted: true }),
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const publishDocument = () => {
     if (!draft) return;
@@ -2616,7 +2746,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display text-base">Style Blocks and Emoji Shelf</CardTitle>
-          <CardDescription>Drop in reusable message chunks and insert emojis into the active target.</CardDescription>
+          <CardDescription>Drop in reusable message chunks and pick real Discord emoji without staring at raw token strings.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -2631,20 +2761,62 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             ))}
           </div>
           <Separator className="bg-white/10" />
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Favorites</p>
-            <div className="flex flex-wrap gap-2">
-              {emojiState.favorites.length === 0 ? <span className="text-xs text-muted-foreground">No favorites saved yet.</span> : null}
-              {emojiState.favorites.map((emoji) => <Button key={`fav-${emoji}`} variant="outline" size="sm" onClick={() => insertEmoji(emoji)}>{emoji}</Button>)}
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-            {[...QUICK_EMOJI, ...emojiOptions].slice(0, 30).map((emoji) => (
-              <div key={emoji} className="rounded-xl border border-white/10 bg-background/30 p-2">
-                <Button variant="ghost" className="w-full text-lg" onClick={() => insertEmoji(emoji)}>{emoji}</Button>
-                <Button variant="ghost" className="mt-1 h-7 w-full text-xs text-muted-foreground" onClick={() => setEmojiState(toggleFavoriteEmoji(serverId, emoji))}>Favorite</Button>
+          <div className="grid gap-4 xl:grid-cols-[1.2fr,1fr]">
+            <div className="space-y-4 rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(20,22,26,0.88),rgba(10,11,13,0.96))] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Emoji Builder</p>
+                  <p className="text-xs text-muted-foreground">Tap an emoji to insert it into the active target. Buttons now use their real emoji field instead of stuffing the label.</p>
+                </div>
+                <div className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-white/80">
+                  Studio
+                </div>
               </div>
-            ))}
+
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Favorites</p>
+                <div className="flex flex-wrap gap-2">
+                  {favoriteEmojiOptions.length === 0 ? <span className="text-xs text-muted-foreground">No favorites saved yet.</span> : null}
+                  {favoriteEmojiOptions.map((emoji) =>
+                    renderEmojiTokenButton(emoji, () => insertEmoji(emoji)),
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Recently Used</p>
+                <div className="flex flex-wrap gap-2">
+                  {recentEmojiOptions.length === 0 ? <span className="text-xs text-muted-foreground">Your recent emoji picks will show up here.</span> : null}
+                  {recentEmojiOptions.map((emoji) =>
+                    renderEmojiTokenButton(emoji, () => insertEmoji(emoji), { compact: true, muted: true }),
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,20,24,0.86),rgba(8,9,11,0.96))] p-4">
+              <div>
+                <p className="text-sm font-semibold text-white">Server Emoji</p>
+                <p className="text-xs text-muted-foreground">Custom emoji from this Discord server render in Studio preview and in the published message.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {[...QUICK_EMOJI, ...serverEmojiOptions].slice(0, 16).map((emoji) => {
+                  const favorite = emojiState.favorites.includes(emoji);
+                  return (
+                    <div key={emoji} className="rounded-2xl border border-white/10 bg-background/25 p-2">
+                      {renderEmojiTokenButton(emoji, () => insertEmoji(emoji), { compact: true })}
+                      <Button
+                        variant="ghost"
+                        className="mt-1 h-7 w-full text-[11px] text-muted-foreground"
+                        onClick={() => setEmojiState(toggleFavoriteEmoji(serverId, emoji))}
+                      >
+                        {favorite ? "Unfavorite" : "Favorite"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -3388,10 +3560,19 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Input value={String(selectedNode.props.text || "")} onChange={(event) => updateSelectedNode((node) => { node.props.text = event.target.value; })} placeholder="Text / line" />
-                  <Input value={String(selectedNode.props.symbol || selectedNode.props.emoji || "")} onChange={(event) => updateSelectedNode((node) => {
-                    if (String(node.props.mode || "line") === "emoji") node.props.emoji = event.target.value;
-                    else node.props.symbol = event.target.value;
-                  })} placeholder="Symbol / emoji" />
+                  {String(selectedNode.props.mode || "line") === "emoji" ? (
+                    renderEmojiField({
+                      label: "Divider Emoji",
+                      value: String(selectedNode.props.emoji || ""),
+                      onChange: (value) => updateSelectedNode((node) => { node.props.emoji = value; }),
+                      helperText: "Pick the emoji that repeats across this divider.",
+                      placeholder: "Paste <:name:id> or choose below",
+                    })
+                  ) : (
+                    <Input value={String(selectedNode.props.symbol || "")} onChange={(event) => updateSelectedNode((node) => {
+                      node.props.symbol = event.target.value;
+                    })} placeholder="Symbol / emoji" />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Repeat</Label>
@@ -3482,10 +3663,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                 {selectedNode.type === "button" ? (
                   <>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Emoji</Label>
-                        <Input value={String(selectedNode.props.emoji || "")} onChange={(event) => updateSelectedNode((node) => { node.props.emoji = event.target.value; })} placeholder="Optional emoji" />
-                      </div>
+                      {renderEmojiField({
+                        label: "Emoji",
+                        value: String(selectedNode.props.emoji || ""),
+                        onChange: (value) => updateSelectedNode((node) => { node.props.emoji = value; }),
+                        helperText: "Pick a server emoji or paste a Discord token like <:archivist:123>.",
+                      })}
                       <div className="space-y-2">
                         <Label>Style</Label>
                         <Select value={String(selectedNode.props.style || 1)} onValueChange={(value) => updateSelectedNode((node) => { node.props.style = Number(value); })}>
@@ -3580,7 +3763,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
             {selectedNode.type === "string_select" ? (
               <>
-                <div className="space-y-3">
+                    <div className="space-y-3">
                   {((selectedNode.props.options as any[]) || []).map((option, index) => (
                     <div key={`${selectedNode.id}-option-${index}`} className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-2">
                       <Input value={String(option.label || "")} onChange={(event) => updateSelectedNode((node) => {
@@ -3598,11 +3781,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
                         options[index] = { ...options[index], description: event.target.value };
                         node.props.options = options;
                       })} placeholder="Option description" />
-                      <Input value={String(option.emoji || "")} onChange={(event) => updateSelectedNode((node) => {
-                        const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
-                        options[index] = { ...options[index], emoji: event.target.value };
-                        node.props.options = options;
-                      })} placeholder="Option emoji" />
+                      {renderEmojiField({
+                        label: "Option Emoji",
+                        value: String(option.emoji || ""),
+                        onChange: (value) => updateSelectedNode((node) => {
+                          const options = Array.isArray(node.props.options) ? [...(node.props.options as any[])] : [];
+                          options[index] = { ...options[index], emoji: value };
+                          node.props.options = options;
+                        }),
+                        helperText: "This appears beside the option inside the Discord menu.",
+                      })}
                       <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2">
                         <Label>Default</Label>
                         <Switch checked={Boolean(option.default)} onCheckedChange={(checked) => updateSelectedNode((node) => {

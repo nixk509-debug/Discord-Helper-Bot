@@ -1,4 +1,10 @@
 import type { StudioDiagnostic, StudioDocument, StudioEmbedDraft, StudioNode } from "@shared/schema";
+import {
+  getDiscordEmojiAssetUrl,
+  parseDiscordEmojiToken,
+  splitTextWithDiscordEmoji,
+  type ParsedDiscordEmoji,
+} from "@shared/discord-emoji";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -13,6 +19,54 @@ interface StudioPreviewProps {
 
 function getView(document: StudioDocument, viewId: string) {
   return document.views[viewId] || document.views[document.meta.entryViewId];
+}
+
+function InlineDiscordEmoji({
+  emoji,
+  className,
+  size = 18,
+}: {
+  emoji: ParsedDiscordEmoji;
+  className?: string;
+  size?: number;
+}) {
+  const url = getDiscordEmojiAssetUrl(emoji, size * 2);
+  if (!url) {
+    return <span className={className}>{emoji.raw}</span>;
+  }
+
+  return (
+    <img
+      src={url}
+      alt={`:${emoji.name}:`}
+      className={cn("inline-block shrink-0 align-[-0.22em]", className)}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function DiscordRichText({
+  text,
+  className,
+  emojiSize = 18,
+}: {
+  text: string;
+  className?: string;
+  emojiSize?: number;
+}) {
+  const segments = splitTextWithDiscordEmoji(text);
+
+  return (
+    <span className={className}>
+      {segments.map((segment, index) =>
+        segment.type === "text" ? (
+          <span key={`text-${index}`}>{segment.value}</span>
+        ) : (
+          <InlineDiscordEmoji key={`emoji-${segment.value.raw}-${index}`} emoji={segment.value} size={emojiSize} className="mx-[0.04em]" />
+        ),
+      )}
+    </span>
+  );
 }
 
 function dividerText(node: StudioNode) {
@@ -72,16 +126,20 @@ function EmbedPreviewCard({ embed }: { embed: StudioEmbedDraft }) {
                   }}
                 />
               ) : null}
-              <span className={cn(embed.authorUrl ? "text-[#00A8FC]" : "text-white")}>{embed.authorName}</span>
+              <DiscordRichText text={String(embed.authorName)} className={cn(embed.authorUrl ? "text-[#00A8FC]" : "text-white")} emojiSize={16} />
             </div>
           ) : null}
 
           {embed.title ? (
-            <p className={cn("text-sm font-semibold", embed.url ? "text-[#00A8FC]" : "text-white")}>{embed.title}</p>
+            <p className={cn("text-sm font-semibold", embed.url ? "text-[#00A8FC]" : "text-white")}>
+              <DiscordRichText text={String(embed.title)} emojiSize={18} />
+            </p>
           ) : null}
 
           {embed.description ? (
-            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-[#dbdee1]">{embed.description}</p>
+            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-[#dbdee1]">
+              <DiscordRichText text={String(embed.description)} emojiSize={16} />
+            </p>
           ) : null}
 
           {fields.length > 0 ? (
@@ -93,8 +151,12 @@ function EmbedPreviewCard({ embed }: { embed: StudioEmbedDraft }) {
             >
               {fields.map((field, index) => (
                 <div key={`preview-field-${index}`} className={field.inline ? "" : "col-span-full"}>
-                  <p className="text-xs font-semibold text-white">{field.name || "\u200B"}</p>
-                  <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">{field.value || "\u200B"}</p>
+                  <p className="text-xs font-semibold text-white">
+                    <DiscordRichText text={String(field.name || "\u200B")} emojiSize={15} />
+                  </p>
+                  <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">
+                    <DiscordRichText text={String(field.value || "\u200B")} emojiSize={15} />
+                  </p>
                 </div>
               ))}
             </div>
@@ -126,7 +188,7 @@ function EmbedPreviewCard({ embed }: { embed: StudioEmbedDraft }) {
                 />
               ) : null}
               <span>
-                {embed.footerText || ""}
+                {embed.footerText ? <DiscordRichText text={String(embed.footerText)} emojiSize={14} /> : null}
                 {embed.footerText && embed.timestamp ? " - " : ""}
                 {embed.timestamp ? new Date().toLocaleDateString() : ""}
               </span>
@@ -169,10 +231,12 @@ function NodePreview({
     return (
       <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge)}>
         <div className="text-xs font-semibold uppercase tracking-wide text-[#b5bac1]">
-          {String(node.props.heading || node.type.replace(/_/g, " "))}
+          <DiscordRichText text={String(node.props.heading || node.type.replace(/_/g, " "))} emojiSize={15} />
         </div>
         {node.props.description ? (
-          <p className="whitespace-pre-wrap text-sm text-[#dbdee1]">{String(node.props.description)}</p>
+          <p className="whitespace-pre-wrap text-sm text-[#dbdee1]">
+            <DiscordRichText text={String(node.props.description)} emojiSize={16} />
+          </p>
         ) : null}
         <div className="space-y-2">
           {node.childIds.map((childId) => (
@@ -184,19 +248,31 @@ function NodePreview({
   }
 
   if (node.type === "text_display") {
-    return <p className={cn("whitespace-pre-wrap text-sm text-[#dbdee1]", edge)}>{String(node.props.text || "") || "Text block"}</p>;
+    return (
+      <p className={cn("whitespace-pre-wrap text-sm text-[#dbdee1]", edge)}>
+        <DiscordRichText text={String(node.props.text || "") || "Text block"} emojiSize={16} />
+      </p>
+    );
   }
 
   if (node.type === "divider") {
-    return <p className={cn("whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]", edge)}>{dividerText(node)}</p>;
+    return (
+      <p className={cn("whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]", edge)}>
+        <DiscordRichText text={dividerText(node)} emojiSize={14} />
+      </p>
+    );
   }
 
   if (node.type === "style_block") {
     const accent = String(node.props.accentColor || "#5865F2");
     return (
       <div className={cn("rounded-lg border border-white/10 bg-[#2b2d31] p-3", edge)} style={{ borderLeftColor: accent, borderLeftWidth: 4 }}>
-        <p className="text-sm font-semibold text-white">{String(node.props.title || "Style Block")}</p>
-        <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">{String(node.props.description || "Style block description")}</p>
+        <p className="text-sm font-semibold text-white">
+          <DiscordRichText text={String(node.props.title || "Style Block")} emojiSize={16} />
+        </p>
+        <p className="whitespace-pre-wrap text-xs text-[#dbdee1]">
+          <DiscordRichText text={String(node.props.description || "Style block description")} emojiSize={15} />
+        </p>
       </div>
     );
   }
@@ -205,7 +281,9 @@ function NodePreview({
     const items = Array.isArray(node.props.items) ? node.props.items : [];
     return (
       <div className={cn("space-y-2", edge)}>
-        <p className="text-xs font-medium text-[#b5bac1]">{String(node.props.title || "Media Gallery")}</p>
+        <p className="text-xs font-medium text-[#b5bac1]">
+          <DiscordRichText text={String(node.props.title || "Media Gallery")} emojiSize={15} />
+        </p>
         <div className="grid grid-cols-2 gap-2">
           {items.length === 0 ? <div className="rounded border border-dashed border-white/10 p-2 text-xs text-[#949ba4]">No media items</div> : null}
           {items.slice(0, 4).map((item: any, index: number) => (
@@ -237,8 +315,9 @@ function NodePreview({
   if (node.type === "file") {
     return (
       <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}>
-        Attachment {String(node.props.label || "File")}
-        {node.props.url ? ` - ${String(node.props.url)}` : ""}
+        <span>Attachment </span>
+        <DiscordRichText text={String(node.props.label || "File")} emojiSize={14} />
+        {node.props.url ? <span>{` - ${String(node.props.url)}`}</span> : null}
       </div>
     );
   }
@@ -255,6 +334,7 @@ function NodePreview({
 
   if (node.type === "button") {
     const style = Number(node.props.style || 1);
+    const parsedEmoji = node.props.emoji ? parseDiscordEmojiToken(String(node.props.emoji)) : null;
     const styleClass =
       style === 1
         ? "bg-[#5865F2] text-white"
@@ -268,8 +348,8 @@ function NodePreview({
 
     return (
       <button type="button" className={cn("rounded-md px-3 py-1.5 text-xs font-medium", styleClass, edge)}>
-        {node.props.emoji ? `${String(node.props.emoji)} ` : ""}
-        {String(node.props.label || "Button")}
+        {parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}
+        <DiscordRichText text={String(node.props.label || "Button")} emojiSize={15} />
       </button>
     );
   }
@@ -277,7 +357,7 @@ function NodePreview({
   if (["string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(node.type)) {
     return (
       <div className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}>
-        {String(node.props.placeholder || node.props.label || "Select Menu")}
+        <DiscordRichText text={String(node.props.placeholder || node.props.label || "Select Menu")} emojiSize={15} />
       </div>
     );
   }
@@ -311,7 +391,9 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
 
         <div className="space-y-3">
           {view?.messageContent ? (
-            <div className="whitespace-pre-wrap text-sm text-[#dbdee1]">{view.messageContent}</div>
+            <div className="whitespace-pre-wrap text-sm text-[#dbdee1]">
+              <DiscordRichText text={String(view.messageContent)} emojiSize={17} />
+            </div>
           ) : (
             <div className="text-sm text-[#949ba4]">No message content yet.</div>
           )}
@@ -334,7 +416,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
             ) : (
               interactionRows.map((row, index) => (
                 <Badge key={`${row.label}-${index}`} variant="outline" className="border-white/10 bg-white/5 text-[#dbdee1]">
-                  {row.label}
+                  <DiscordRichText text={row.label} emojiSize={14} />
                 </Badge>
               ))
             )}
@@ -353,7 +435,7 @@ export function StudioPreview({ document, viewId, interactionRows, diagnostics, 
             ) : (
               interactionRows.map((row, index) => (
                 <div key={`${row.label}-${index}`} className="rounded-xl border border-white/10 bg-background/50 px-3 py-2 text-sm">
-                  <span className="font-medium text-white">{row.label}</span>
+                  <span className="font-medium text-white"><DiscordRichText text={row.label} emojiSize={15} /></span>
                   <span className="text-muted-foreground">{" -> "}{row.action}</span>
                 </div>
               ))

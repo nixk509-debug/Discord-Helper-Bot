@@ -1,196 +1,629 @@
-import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { useUpdateSettings, useAutoRoles, useCreateAutoRole, useDeleteAutoRole, useEmbeds, useDiscordContext, useCreateStudioDocument, usePublishStudio, useStudioPublications } from "@/hooks/use-bot";
-import { EmbedComposer, type EmbedData } from "@/components/embed-builder/embed-composer";
-import { useToast } from "@/hooks/use-toast";
-import {
-  UserPlus,
-  LogOut,
-  Save,
-  Eye,
-  Plus,
-  Trash2,
-  Clock,
-  Bot,
-  Users,
-  User,
-  Hash,
-  MessageSquare,
-  Mail,
-  Info,
-  Sparkles,
-  ArrowRight,
-} from "lucide-react";
-import type { ServerSettings, AutoRole } from "@shared/schema";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { StudioSurfaceCard } from "@/components/design-studio/studio-surface-card";
-import { createStudioDocument as createStudioDocumentDraft } from "@/components/design-studio/studio-defaults";
+import {
+  ArrowUpRight,
+  Bot,
+  Clock3,
+  Eye,
+  Hash,
+  Mail,
+  MessageSquareText,
+  Plus,
+  Rocket,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StudioPreview } from "@/components/design-studio/studio-preview";
+import { createStudioPrimaryDocument, inferStudioPrimarySurfaceType } from "@/components/design-studio/studio-defaults";
+import {
+  useAutoRoles,
+  useCreateAutoRole,
+  useCreateStudioDocument,
+  useDeleteAutoRole,
+  useDiscordContext,
+  usePublishStudio,
+  useStudioDocuments,
+  useStudioPublications,
+  useTestStudio,
+  useUpdateSettings,
+} from "@/hooks/use-bot";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import type {
+  AutoRole,
+  ServerSettings,
+  StudioDiagnostic,
+  StudioDocument,
+  StudioDocumentRecord,
+} from "@shared/schema";
+import { collectStudioDiagnostics } from "@shared/studio-document";
+import { buildStudioPreviewTokenContext, resolveStudioTokensInValue } from "@shared/studio-tokens";
 
 interface WelcomeTabProps {
   serverId: number;
   settings?: ServerSettings;
 }
 
-const VARIABLES = [
-  { key: "{user}", desc: "Username" },
-  { key: "{user.name}", desc: "Display name" },
-  { key: "{user.id}", desc: "User ID" },
-  { key: "{user.mention}", desc: "Mention" },
-  { key: "{user.avatar}", desc: "Avatar URL" },
-  { key: "{server}", desc: "Server name" },
-  { key: "{server.name}", desc: "Server name" },
-  { key: "{server.id}", desc: "Server ID" },
-  { key: "{server.membercount}", desc: "Member count" },
-  { key: "{channel}", desc: "Channel name" },
-  { key: "{channel.mention}", desc: "Channel mention" },
-  { key: "{date}", desc: "Current date" },
-  { key: "{time}", desc: "Current time" },
+type WelcomeSectionTab = "join" | "dm" | "leave" | "roles";
+type WelcomeSurfaceKey = "join" | "dm" | "leave";
+
+const TOKEN_HELP = [
+  "{username}",
+  "{mention}",
+  "{server}",
+  "{random:Welcome|Glad you're here|Good to have you}",
 ];
 
-function replaceVariables(text: string): string {
-  return text
-    .replace(/\{user\}/g, "CoolUser")
-    .replace(/\{user\.name\}/g, "CoolUser")
-    .replace(/\{user\.id\}/g, "123456789012345678")
-    .replace(/\{user\.mention\}/g, "@CoolUser")
-    .replace(/\{user\.avatar\}/g, "https://cdn.discordapp.com/embed/avatars/0.png")
-    .replace(/\{server\}/g, "My Awesome Server")
-    .replace(/\{server\.name\}/g, "My Awesome Server")
-    .replace(/\{server\.id\}/g, "987654321098765432")
-    .replace(/\{server\.membercount\}/g, "1,234")
-    .replace(/\{channel\}/g, "welcome")
-    .replace(/\{channel\.mention\}/g, "#welcome")
-    .replace(/\{date\}/g, new Date().toLocaleDateString())
-    .replace(/\{time\}/g, new Date().toLocaleTimeString());
+function parseDate(value: unknown) {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
+function formatRelativeEditTime(value: unknown) {
+  const date = parseDate(value);
+  if (!date) return "Edited recently";
+
+  const diffMs = date.getTime() - Date.now();
+  const absMinutes = Math.round(Math.abs(diffMs) / 60000);
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  if (absMinutes < 60) return `Edited ${formatter.format(Math.round(diffMs / 60000), "minute")}`;
+  const absHours = Math.round(absMinutes / 60);
+  if (absHours < 24) return `Edited ${formatter.format(Math.round(diffMs / 3600000), "hour")}`;
+  const absDays = Math.round(absHours / 24);
+  if (absDays < 7) return `Edited ${formatter.format(Math.round(diffMs / 86400000), "day")}`;
+  return `Edited ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+}
+
+function getByPath(input: unknown, path?: string) {
+  if (!path) return undefined;
+  const segments = path.replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+  let current: any = input;
+  for (const segment of segments) {
+    if (current == null) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function humanizeDiagnostic(diag: StudioDiagnostic, document: StudioDocument) {
+  const value = getByPath(document, diag.path);
+  const length = typeof value === "string" ? value.length : Array.isArray(value) ? value.length : null;
+
+  switch (diag.code) {
+    case "MESSAGE_CONTENT_LIMIT":
+      return `Message content is ${length ?? "over"} characters. Discord max is 2000.`;
+    case "EMBED_TITLE_LIMIT":
+      return `Embed title is ${length ?? "over"} characters. Discord max is 256.`;
+    case "EMBED_DESCRIPTION_LIMIT":
+      return `Embed description is ${length ?? "over"} characters. Discord max is 4096.`;
+    case "EMBED_FIELD_NAME_LIMIT":
+      return `Embed field name is ${length ?? "over"} characters. Discord max is 256.`;
+    case "EMBED_FIELD_VALUE_LIMIT":
+      return `Embed field value is ${length ?? "over"} characters. Discord max is 1024.`;
+    case "EMBED_TOTAL_LIMIT":
+      return "Combined embed text is too long. Discord max is 6000 characters across one embed.";
+    case "BUTTON_LABEL_LIMIT":
+      return `Button label is ${length ?? "over"} characters. Discord max is 80.`;
+    case "BUTTON_CUSTOM_ID_LIMIT":
+      return `Button custom ID is ${length ?? "over"} characters. Discord max is 100.`;
+    case "SELECT_PLACEHOLDER_LIMIT":
+      return `Select placeholder is ${length ?? "over"} characters. Discord max is 150.`;
+    case "SELECT_OPTIONS_LIMIT":
+      return `Select menu has ${length ?? "too many"} options. Discord max is 25.`;
+    case "SELECT_OPTION_LABEL_LIMIT":
+      return `A select option label is ${length ?? "over"} characters. Discord max is 100.`;
+    case "SELECT_OPTION_DESCRIPTION_LIMIT":
+      return `A select option description is ${length ?? "over"} characters. Discord max is 100.`;
+    case "MODAL_TITLE_LIMIT":
+      return `Modal title is ${length ?? "over"} characters. Discord max is 45.`;
+    case "MODAL_FIELDS_LIMIT":
+      return `Modal has ${length ?? "too many"} fields. Discord max is 5.`;
+    case "MODAL_FIELD_LABEL_LIMIT":
+      return `Modal field label is ${length ?? "over"} characters. Discord max is 45.`;
+    case "MODAL_FIELD_PLACEHOLDER_LIMIT":
+      return `Modal field placeholder is ${length ?? "over"} characters. Discord max is 100.`;
+    case "TOKEN_MEMBER_CONTEXT_ONLY":
+      return "This token only resolves during member-triggered sends. Static publish leaves it as raw text.";
+    case "TOKEN_POST_SEND_ONLY":
+      return "This token only resolves after the message exists, so first publish leaves it as raw text.";
+    case "TOKEN_UNKNOWN":
+      return diag.message.replace("supported Studio token", "recognized Welcome or Studio token");
+    default:
+      return diag.message;
+  }
+}
+
+function summarizeDocument(document: StudioDocument) {
+  const entryView = document.views[document.meta.entryViewId];
+  const parts = [
+    String(entryView?.messageContent || "").trim(),
+    String(entryView?.embeds?.[0]?.title || "").trim(),
+    String(entryView?.embeds?.[0]?.description || "").trim(),
+  ].filter(Boolean);
+
+  if (parts.length > 0) return parts.join(" ").slice(0, 140);
+
+  const rootNodeCount = entryView?.rootNodeIds?.length || 0;
+  if (rootNodeCount > 0) {
+    return `${rootNodeCount} interactive block${rootNodeCount === 1 ? "" : "s"} ready in the primary screen.`;
+  }
+
+  return "No content added yet.";
+}
+
+function WelcomeTokenHelper() {
+  return (
+    <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(12,14,18,0.96),rgba(8,9,11,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <CardHeader className="space-y-2 pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm text-white">
+          <Sparkles className="h-4 w-4 text-primary" />
+          Token Help
+        </CardTitle>
+        <CardDescription>
+          Use simple inline tokens inside Studio. Random text is supported too, and previews sample the first option.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {TOKEN_HELP.map((token) => (
+            <Badge key={token} variant="outline" className="border-white/10 bg-white/[0.03] text-xs text-white/90">
+              {token}
+            </Badge>
+          ))}
+        </div>
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
+            <p className="font-medium text-white/90">Static-friendly</p>
+            <p>{"{server}, {channel}, {date}, and {time} resolve in preview and publish when channel context exists."}</p>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2">
+            <p className="font-medium text-white/90">Member-aware</p>
+            <p>{"{username} and {mention} resolve in test sends and real join/leave events, not plain static publish."}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WelcomeValidationCard({
+  title,
+  diagnostics,
+  document,
+}: {
+  title: string;
+  diagnostics: StudioDiagnostic[];
+  document: StudioDocument;
+}) {
+  if (diagnostics.length === 0) {
+    return (
+      <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+        <div className="flex items-center gap-2 font-medium">
+          <Sparkles className="h-4 w-4" />
+          {title} is publish-safe right now.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-400/15 bg-amber-400/10 px-4 py-4">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-amber-50">
+        <ShieldAlert className="h-4 w-4" />
+        Validation Summary
+      </div>
+      <div className="space-y-2">
+        {diagnostics.slice(0, 4).map((diag, index) => (
+          <div
+            key={`${diag.code}-${index}`}
+            className={cn(
+              "rounded-xl border px-3 py-2 text-xs",
+              diag.level === "error"
+                ? "border-red-400/20 bg-red-500/10 text-red-100"
+                : "border-white/10 bg-white/[0.04] text-white/80",
+            )}
+          >
+            {humanizeDiagnostic(diag, document)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SurfaceCard({
+  title,
+  description,
+  documentRecord,
+  publication,
+  diagnostics,
+  summary,
+  enabled,
+  channelLabel,
+  onEdit,
+  onPreview,
+  onTest,
+  onPublish,
+  publishLabel = "Publish",
+  publishing = false,
+  testing = false,
+}: {
+  title: string;
+  description: string;
+  documentRecord: StudioDocumentRecord | null;
+  publication: any | null;
+  diagnostics: StudioDiagnostic[];
+  summary: string;
+  enabled: boolean;
+  channelLabel?: string | null;
+  onEdit: () => void;
+  onPreview: () => void;
+  onTest: () => void;
+  onPublish: () => void;
+  publishLabel?: string;
+  publishing?: boolean;
+  testing?: boolean;
+}) {
+  const document = documentRecord?.document || null;
+  const primaryType = document ? inferStudioPrimarySurfaceType(document) : null;
+  const hasWarnings = diagnostics.some((diag) => diag.level !== "info");
+  const hasTokens = document ? /\{(?:random:[^{}]+|[a-zA-Z0-9._]+)\}/.test(JSON.stringify(document)) : false;
+  const published = Boolean(publication?.active) && publication?.status !== "failed";
+
+  return (
+    <Card className="overflow-hidden border-white/10 bg-[linear-gradient(180deg,rgba(11,13,16,0.98),rgba(7,8,10,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+      <CardHeader className="border-b border-white/8 bg-[linear-gradient(180deg,rgba(177,18,38,0.16),rgba(177,18,38,0.02))]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle className="text-base text-white">{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              "border-white/10 px-2.5 py-1",
+              enabled ? "bg-emerald-400/10 text-emerald-100" : "bg-white/[0.04] text-white/70",
+            )}
+          >
+            {enabled ? "Enabled" : "Off"}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4">
+        <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+          <div className="mb-3 flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">
+                {documentRecord?.name || "No Studio draft bound yet"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {documentRecord ? formatRelativeEditTime(documentRecord.updatedAt) : "Create a Studio draft and edit it full-screen."}
+              </p>
+            </div>
+            {channelLabel ? (
+              <Badge variant="outline" className="border-white/10 bg-white/[0.04] text-white/80">
+                <Hash className="mr-1 h-3 w-3" />
+                {channelLabel}
+              </Badge>
+            ) : null}
+          </div>
+
+          <div className="mb-3 flex flex-wrap gap-2">
+            <Badge variant={published ? "default" : "outline"}>{published ? "Published" : "Draft"}</Badge>
+            {hasWarnings ? <Badge variant="secondary">Warnings</Badge> : null}
+            {primaryType === "embed" ? <Badge variant="outline">Embed</Badge> : null}
+            {primaryType === "components" ? <Badge variant="outline">Interactive</Badge> : null}
+            {primaryType === "message" ? <Badge variant="outline">Message</Badge> : null}
+            {hasTokens ? <Badge variant="outline">Tokens</Badge> : null}
+          </div>
+
+          <div className="rounded-xl border border-white/8 bg-[#101317] px-3 py-3 text-sm text-white/82">
+            {summary}
+          </div>
+        </div>
+
+        {document ? <WelcomeValidationCard title={title} diagnostics={diagnostics} document={document} /> : null}
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Button onClick={onEdit} className="gap-2">
+            <ArrowUpRight className="h-4 w-4" />
+            {documentRecord ? "Edit in Studio" : "Create in Studio"}
+          </Button>
+          <Button variant="outline" onClick={onPreview} disabled={!documentRecord} className="gap-2">
+            <Eye className="h-4 w-4" />
+            Preview
+          </Button>
+          <Button variant="outline" onClick={onTest} disabled={!documentRecord || testing} className="gap-2">
+            <Bot className="h-4 w-4" />
+            {testing ? "Sending..." : "Send Test"}
+          </Button>
+          <Button variant="outline" onClick={onPublish} disabled={!documentRecord || publishing} className="gap-2">
+            <Rocket className="h-4 w-4" />
+            {publishing ? "Publishing..." : publishLabel}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState<WelcomeSectionTab>("join");
+  const [previewSurface, setPreviewSurface] = useState<WelcomeSurfaceKey | null>(null);
+
   const updateSettings = useUpdateSettings(serverId);
   const createStudioDocument = useCreateStudioDocument(serverId);
   const publishStudio = usePublishStudio(serverId);
+  const testStudio = useTestStudio(serverId);
+  const { data: studioDocuments = [] } = useStudioDocuments(serverId);
   const { data: studioPublications = [] } = useStudioPublications(serverId);
   const { data: autoRoles = [], isLoading: autoRolesLoading } = useAutoRoles(serverId);
   const createAutoRole = useCreateAutoRole(serverId);
   const deleteAutoRole = useDeleteAutoRole(serverId);
-  const { data: embeds = [] } = useEmbeds(serverId);
   const { data: discordContext, isLoading: discordContextLoading } = useDiscordContext(serverId);
-  const channelOptions = (discordContext?.channels || []).map((channel: any) => ({ id: channel.id, name: channel.name }));
-  const roleOptions = (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name }));
-  const roleNameById = Object.fromEntries(roleOptions.map((role) => [role.id, role.name]));
-  const welcomePublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.welcomeStudioDocumentId) || null;
-  const welcomeDmPublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.welcomeDmStudioDocumentId) || null;
-  const leavePublication = (studioPublications as any[]).find((entry) => entry.documentId === settings?.leaveStudioDocumentId) || null;
 
   const [welcomeEnabled, setWelcomeEnabled] = useState(settings?.welcomeEnabled ?? false);
   const [welcomeChannelId, setWelcomeChannelId] = useState(settings?.welcomeChannelId ?? "");
-  const [welcomeMessage, setWelcomeMessage] = useState(settings?.welcomeMessage ?? "Welcome {user.mention} to **{server}**! You are member #{server.membercount}.");
-  const [welcomeEmbedId, setWelcomeEmbedId] = useState<number | null>(settings?.welcomeEmbedId ?? null);
-  const [welcomeEmbedData, setWelcomeEmbedData] = useState<EmbedData | undefined>(undefined);
   const [welcomeDmEnabled, setWelcomeDmEnabled] = useState(settings?.welcomeDmEnabled ?? false);
-  const [welcomeDmMessage, setWelcomeDmMessage] = useState(settings?.welcomeDmMessage ?? "Welcome to {server}! Please read the rules.");
-
   const [leaveEnabled, setLeaveEnabled] = useState(settings?.leaveEnabled ?? false);
   const [leaveChannelId, setLeaveChannelId] = useState(settings?.leaveChannelId ?? "");
-  const [leaveMessage, setLeaveMessage] = useState(settings?.leaveMessage ?? "{user.name} has left the server. We now have {server.membercount} members.");
-  const [leaveEmbedId, setLeaveEmbedId] = useState<number | null>(settings?.leaveEmbedId ?? null);
-  const [leaveEmbedData, setLeaveEmbedData] = useState<EmbedData | undefined>(undefined);
+  const [welcomeStudioDocumentId, setWelcomeStudioDocumentId] = useState<number | null>(settings?.welcomeStudioDocumentId ?? null);
+  const [welcomeDmStudioDocumentId, setWelcomeDmStudioDocumentId] = useState<number | null>(settings?.welcomeDmStudioDocumentId ?? null);
+  const [leaveStudioDocumentId, setLeaveStudioDocumentId] = useState<number | null>(settings?.leaveStudioDocumentId ?? null);
 
-  const [showPreview, setShowPreview] = useState(false);
   const [addRoleOpen, setAddRoleOpen] = useState(false);
   const [newRoleId, setNewRoleId] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDelay, setNewRoleDelay] = useState(0);
   const [newRoleType, setNewRoleType] = useState("join");
 
-  const openStudio = (documentId: number, intent: "welcome" | "ticket" | "verify" | "template" | "blank" = "welcome") => {
-    navigate(`/dashboard/servers/${serverId}/studio?intent=${intent}&documentId=${documentId}`);
+  useEffect(() => {
+    setWelcomeEnabled(settings?.welcomeEnabled ?? false);
+    setWelcomeChannelId(settings?.welcomeChannelId ?? "");
+    setWelcomeDmEnabled(settings?.welcomeDmEnabled ?? false);
+    setLeaveEnabled(settings?.leaveEnabled ?? false);
+    setLeaveChannelId(settings?.leaveChannelId ?? "");
+    setWelcomeStudioDocumentId(settings?.welcomeStudioDocumentId ?? null);
+    setWelcomeDmStudioDocumentId(settings?.welcomeDmStudioDocumentId ?? null);
+    setLeaveStudioDocumentId(settings?.leaveStudioDocumentId ?? null);
+  }, [settings]);
+
+  const documents = studioDocuments as StudioDocumentRecord[];
+  const publications = studioPublications as any[];
+  const documentById = useMemo(() => new Map(documents.map((entry) => [entry.id, entry])), [documents]);
+  const publicationByDocumentId = useMemo(
+    () => new Map(publications.map((entry) => [entry.documentId, entry])),
+    [publications],
+  );
+
+  const channelOptions = useMemo(
+    () =>
+      (discordContext?.channels || [])
+        .filter((channel: any) => channel.isTextBased !== false && !channel.isThread && !channel.isCategory)
+        .map((channel: any) => ({ id: channel.id, name: channel.name })),
+    [discordContext],
+  );
+  const roleOptions = useMemo(
+    () => (discordContext?.roles || []).map((role: any) => ({ id: role.id, name: role.name, managed: role.managed })),
+    [discordContext],
+  );
+  const roleNameById = useMemo(() => Object.fromEntries(roleOptions.map((role) => [role.id, role.name])), [roleOptions]);
+
+  const saveSettings = async (patch: Record<string, unknown>) => {
+    await updateSettings.mutateAsync(patch);
   };
 
-  const createSurface = (binding: "welcome" | "welcome_dm" | "leave", field: "welcomeStudioDocumentId" | "welcomeDmStudioDocumentId" | "leaveStudioDocumentId") => {
-    const name = binding === "welcome" ? "Welcome Message" : binding === "welcome_dm" ? "Welcome DM Message" : "Leave Message";
-    createStudioDocument.mutate(
-      {
-        scope: "server",
-        kind: "surface",
-        name,
-        moduleBinding: binding,
-        document: createStudioDocumentDraft(binding, name),
+  const openStudio = (documentId: number) => {
+    navigate(`/dashboard/servers/${serverId}/studio?intent=welcome&documentId=${documentId}`);
+  };
+
+  const getChannelName = (channelId?: string | null) =>
+    channelOptions.find((channel) => channel.id === channelId)?.name || (channelId ? channelId : null);
+
+  const getSurfaceRecord = (surface: WelcomeSurfaceKey) => {
+    if (surface === "join") return welcomeStudioDocumentId ? documentById.get(welcomeStudioDocumentId) || null : null;
+    if (surface === "dm") return welcomeDmStudioDocumentId ? documentById.get(welcomeDmStudioDocumentId) || null : null;
+    return leaveStudioDocumentId ? documentById.get(leaveStudioDocumentId) || null : null;
+  };
+
+  const getSurfacePublication = (surface: WelcomeSurfaceKey) => {
+    const record = getSurfaceRecord(surface);
+    return record ? publicationByDocumentId.get(record.id) || null : null;
+  };
+
+  const buildPreviewContext = (surface: WelcomeSurfaceKey) => {
+    const channelId = surface === "leave" ? leaveChannelId || welcomeChannelId : welcomeChannelId;
+    const channelName = getChannelName(channelId) || (surface === "dm" ? "Direct Message" : "welcome");
+    return buildStudioPreviewTokenContext({
+      serverName: discordContext?.guildName || "Archivist HQ",
+      memberCount: discordContext?.memberCount || "1,248",
+      channelId: surface === "dm" ? null : channelId || null,
+      channelName,
+      channelMention: surface === "dm" ? "Direct Message" : channelName ? `#${channelName}` : "#welcome",
+    });
+  };
+
+  const getSurfaceDiagnostics = (surface: WelcomeSurfaceKey) => {
+    const record = getSurfaceRecord(surface);
+    if (!record) return [];
+    return collectStudioDiagnostics(record.document, record.document.meta.entryViewId, {
+      tokenAvailability: {
+        static: true,
+        member: true,
+        postSend: false,
       },
-      {
-        onSuccess: (created: any) => {
-          updateSettings.mutate(
-            { [field]: created.id },
-            {
-              onSuccess: () => openStudio(created.id, "welcome"),
-            }
-          );
-        },
-        onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-      }
-    );
+    });
   };
 
-  const publishSurface = (documentId: number | null | undefined, channelIdValue: string, label: string) => {
-    if (!documentId) {
-      toast({ title: "No message bound", description: `Create a ${label.toLowerCase()} first.`, variant: "destructive" });
-      return;
+  const createSurfaceDocument = async (surface: WelcomeSurfaceKey) => {
+    const nameBySurface: Record<WelcomeSurfaceKey, string> = {
+      join: "Welcome Message",
+      dm: "Welcome DM Message",
+      leave: "Leave Message",
+    };
+    const fieldBySurface: Record<WelcomeSurfaceKey, "welcomeStudioDocumentId" | "welcomeDmStudioDocumentId" | "leaveStudioDocumentId"> = {
+      join: "welcomeStudioDocumentId",
+      dm: "welcomeDmStudioDocumentId",
+      leave: "leaveStudioDocumentId",
+    };
+    const bindingBySurface = {
+      join: "welcome",
+      dm: "welcome_dm",
+      leave: "leave",
+    } as const;
+
+    const document = createStudioPrimaryDocument("embed", nameBySurface[surface]);
+    document.meta.category = bindingBySurface[surface];
+    const created = await createStudioDocument.mutateAsync({
+      scope: "server",
+      kind: "surface",
+      name: nameBySurface[surface],
+      moduleBinding: bindingBySurface[surface],
+      document,
+    });
+
+    await saveSettings({ [fieldBySurface[surface]]: created.id });
+
+    if (surface === "join") setWelcomeStudioDocumentId(created.id);
+    if (surface === "dm") setWelcomeDmStudioDocumentId(created.id);
+    if (surface === "leave") setLeaveStudioDocumentId(created.id);
+
+    return created as StudioDocumentRecord;
+  };
+
+  const ensureSurfaceDocument = async (surface: WelcomeSurfaceKey) => {
+    const existing = getSurfaceRecord(surface);
+    if (existing) return existing;
+    return await createSurfaceDocument(surface);
+  };
+
+  const openSurfaceInStudio = async (surface: WelcomeSurfaceKey) => {
+    try {
+      const record = await ensureSurfaceDocument(surface);
+      openStudio(record.id);
+    } catch (error: any) {
+      toast({ title: "Could not open Studio", description: error.message || "Try again in a moment.", variant: "destructive" });
     }
-    if (!channelIdValue) {
-      toast({ title: "No channel selected", description: `Choose a channel for ${label.toLowerCase()} publishing.`, variant: "destructive" });
-      return;
+  };
+
+  const humanizeActionError = (error: any, diagnostics: StudioDiagnostic[], document?: StudioDocument | null) => {
+    const errorDiagnostic = diagnostics.find((diag) => diag.level === "error");
+    if (errorDiagnostic && document) return humanizeDiagnostic(errorDiagnostic, document);
+    const message = String(error?.message || "Something went wrong.");
+    if (/invalid string length/i.test(message)) {
+      return "Discord rejected one of the text fields for being too long. Check the validation summary and shorten the highlighted content.";
     }
-    publishStudio.mutate(
-      {
-        documentId,
+    return message;
+  };
+
+  const handlePreview = async (surface: WelcomeSurfaceKey) => {
+    try {
+      await ensureSurfaceDocument(surface);
+      setPreviewSurface(surface);
+    } catch (error: any) {
+      toast({ title: "Preview unavailable", description: error.message || "Try again in a moment.", variant: "destructive" });
+    }
+  };
+
+  const handleTest = async (surface: WelcomeSurfaceKey) => {
+    try {
+      const record = await ensureSurfaceDocument(surface);
+      const target =
+        surface === "dm"
+          ? { kind: "dm" as const, viewId: "entry" }
+          : { kind: "channel" as const, channelId: surface === "leave" ? leaveChannelId || welcomeChannelId : welcomeChannelId, viewId: "entry" };
+
+      if (target.kind === "channel" && !target.channelId) {
+        toast({
+          title: "Choose a channel first",
+          description: surface === "leave" ? "Set a leave channel or reuse the join channel before sending a test." : "Pick the join channel before sending a test.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await testStudio.mutateAsync({
+        documentId: record.id,
+        target,
+      });
+      const warningCount = (response?.diagnostics || []).filter((entry: StudioDiagnostic) => entry.level !== "info").length;
+      toast({
+        title: "Test sent",
+        description: warningCount > 0 ? `Sent with ${warningCount} warning${warningCount === 1 ? "" : "s"}.` : "A test message was sent successfully.",
+      });
+    } catch (error: any) {
+      const record = getSurfaceRecord(surface);
+      toast({
+        title: "Test failed",
+        description: humanizeActionError(error, getSurfaceDiagnostics(surface), record?.document),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePublish = async (surface: WelcomeSurfaceKey) => {
+    try {
+      const record = await ensureSurfaceDocument(surface);
+      if (surface === "dm") {
+        await saveSettings({
+          welcomeDmEnabled,
+          welcomeDmStudioDocumentId: record.id,
+        });
+        toast({
+          title: "DM surface ready",
+          description: "This DM message is now bound to Welcome. It sends whenever Welcome DM is enabled.",
+        });
+        return;
+      }
+
+      const channelId = surface === "leave" ? leaveChannelId || welcomeChannelId : welcomeChannelId;
+      if (!channelId) {
+        toast({
+          title: "Choose a channel first",
+          description: surface === "leave" ? "Set a leave channel or reuse the join channel before publishing." : "Pick a join channel before publishing.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await publishStudio.mutateAsync({
+        documentId: record.id,
         target: {
-          channelId: channelIdValue,
+          channelId,
           viewId: "entry",
         },
-      },
-      {
-        onSuccess: () => toast({ title: "Message published", description: `${label} sent to ${channelIdValue}.` }),
-        onError: (err: any) => toast({ title: "Publish failed", description: err.message, variant: "destructive" }),
-      }
-    );
-  };
-
-  const handleSave = () => {
-    updateSettings.mutate(
-      {
-        welcomeEnabled,
-        welcomeChannelId: welcomeChannelId || undefined,
-        welcomeMessage: welcomeMessage || undefined,
-        welcomeEmbedId: welcomeEmbedId ?? undefined,
-        welcomeDmEnabled,
-        welcomeDmMessage: welcomeDmMessage || undefined,
-        leaveEnabled,
-        leaveChannelId: leaveChannelId || undefined,
-        leaveMessage: leaveMessage || undefined,
-        leaveEmbedId: leaveEmbedId ?? undefined,
-      },
-      {
-        onSuccess: () =>
-          toast({ title: "Settings saved", description: "Welcome & leave settings updated successfully." }),
-        onError: (err: any) =>
-          toast({ title: "Error", description: err.message, variant: "destructive" }),
-      }
-    );
-  };
-
-  const handleSelectAutoRole = (roleId: string) => {
-    setNewRoleId(roleId);
-    setNewRoleName(roleNameById[roleId] || "");
+      });
+      const warningCount = (response?.diagnostics || []).filter((entry: StudioDiagnostic) => entry.level !== "info").length;
+      toast({
+        title: "Published",
+        description: warningCount > 0 ? `Published with ${warningCount} warning${warningCount === 1 ? "" : "s"}.` : "Welcome surface published successfully.",
+      });
+    } catch (error: any) {
+      const record = getSurfaceRecord(surface);
+      toast({
+        title: "Publish failed",
+        description: humanizeActionError(error, getSurfaceDiagnostics(surface), record?.document),
+        variant: "destructive",
+      });
+    }
   };
 
   const handleAddAutoRole = () => {
@@ -204,504 +637,400 @@ export function WelcomeTab({ serverId, settings }: WelcomeTabProps) {
       },
       {
         onSuccess: () => {
-          toast({ title: "Auto role added", description: `${newRoleName} will be assigned on ${newRoleType}.` });
+          toast({ title: "Role rule added", description: `${newRoleName} will be assigned automatically.` });
           setNewRoleId("");
           setNewRoleName("");
           setNewRoleDelay(0);
           setNewRoleType("join");
           setAddRoleOpen(false);
         },
-        onError: (err: any) =>
-          toast({ title: "Error", description: err.message, variant: "destructive" }),
-      }
+        onError: (error: any) => {
+          toast({ title: "Could not add role", description: error.message || "Try again in a moment.", variant: "destructive" });
+        },
+      },
     );
   };
 
-  const handleDeleteAutoRole = (id: number) => {
-    deleteAutoRole.mutate(id, {
-      onSuccess: () => toast({ title: "Auto role removed" }),
-    });
-  };
+  const welcomeRecord = getSurfaceRecord("join");
+  const welcomeDmRecord = getSurfaceRecord("dm");
+  const leaveRecord = getSurfaceRecord("leave");
+  const welcomeSummary = welcomeRecord ? summarizeDocument(resolveStudioTokensInValue(welcomeRecord.document, buildPreviewContext("join"))) : "Create the main welcome post that new members will see in your chosen channel.";
+  const welcomeDmSummary = welcomeDmRecord ? summarizeDocument(resolveStudioTokensInValue(welcomeDmRecord.document, buildPreviewContext("dm"))) : "Create the optional direct message for onboarding and follow-up instructions.";
+  const leaveSummary = leaveRecord ? summarizeDocument(resolveStudioTokensInValue(leaveRecord.document, buildPreviewContext("leave"))) : "Create the message members see when someone leaves your server.";
+
+  const previewRecord = previewSurface ? getSurfaceRecord(previewSurface) : null;
+  const previewDocument = previewSurface && previewRecord
+    ? resolveStudioTokensInValue(previewRecord.document, buildPreviewContext(previewSurface))
+    : null;
+  const previewDiagnostics = previewSurface && previewRecord
+    ? getSurfaceDiagnostics(previewSurface).map((diag) => ({
+        ...diag,
+        message: humanizeDiagnostic(diag, previewRecord.document),
+      }))
+    : [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-display font-bold" data-testid="text-welcome-heading">
-            Welcome & Leave
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Configure messages sent when members join or leave your server.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowPreview(!showPreview)} data-testid="button-toggle-preview">
-            <Eye className="w-4 h-4 mr-2" />
-            {showPreview ? "Hide Preview" : "Show Preview"}
-          </Button>
-          <Button onClick={handleSave} disabled={updateSettings.isPending} data-testid="button-save-welcome">
-            <Save className="w-4 h-4 mr-2" />
-            {updateSettings.isPending ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <div className="relative overflow-hidden rounded-[30px] border border-white/10 bg-[#07080a] shadow-[0_30px_120px_rgba(0,0,0,0.45)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,55,90,0.14),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(177,18,38,0.22),transparent_42%)]" />
+        <div className="absolute inset-x-0 top-0 h-32 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)]" />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <StudioSurfaceCard
-          title="Welcome Message"
-          description="Use Design Studio for the shared welcome/orientation message. It will auto-send on member join when welcome messages are enabled."
-          documentId={settings?.welcomeStudioDocumentId}
-          publication={welcomePublication}
-          onCreate={() => createSurface("welcome", "welcomeStudioDocumentId")}
-          onOpen={() => settings?.welcomeStudioDocumentId && openStudio(settings.welcomeStudioDocumentId, "welcome")}
-          onPublish={() => publishSurface(settings?.welcomeStudioDocumentId, welcomeChannelId, "Welcome message")}
-        />
-        <StudioSurfaceCard
-          title="Welcome DM Message"
-          description="Design the DM onboarding flow with views, modals, and reusable blocks. It auto-sends when welcome DMs are enabled."
-          documentId={settings?.welcomeDmStudioDocumentId}
-          publication={welcomeDmPublication}
-          onCreate={() => createSurface("welcome_dm", "welcomeDmStudioDocumentId")}
-          onOpen={() => settings?.welcomeDmStudioDocumentId && openStudio(settings.welcomeDmStudioDocumentId, "welcome")}
-          actionLabel="Create DM Message"
-        />
-        <StudioSurfaceCard
-          title="Leave Message"
-          description="Use Studio for leave notices, archive instructions, or offboarding copy. It auto-sends on member leave when leave messages are enabled."
-          documentId={settings?.leaveStudioDocumentId}
-          publication={leavePublication}
-          onCreate={() => createSurface("leave", "leaveStudioDocumentId")}
-          onOpen={() => settings?.leaveStudioDocumentId && openStudio(settings.leaveStudioDocumentId, "welcome")}
-          onPublish={() => publishSurface(settings?.leaveStudioDocumentId, leaveChannelId, "Leave message")}
-        />
-      </div>
-
-      {showPreview && (
-        <Card className="glass-card">
-          <CardHeader>
-            <CardTitle className="font-display text-base flex items-center gap-2">
-              <Eye className="w-4 h-4" />
-              Message Preview
-            </CardTitle>
-            <CardDescription>Preview with sample data</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {welcomeEnabled && welcomeMessage && (
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground/70 font-medium">Welcome Message</p>
-                <div className="rounded-md bg-background/50 border border-white/5 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                      <Bot className="w-5 h-5 text-primary" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm" data-testid="text-preview-bot-name">Archivist</span>
-                        <Badge variant="secondary" className="text-[10px]">BOT</Badge>
-                        <span className="text-xs text-muted-foreground">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                      <p className="text-sm mt-1" data-testid="text-preview-welcome">{replaceVariables(welcomeMessage)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {welcomeDmEnabled && welcomeDmMessage && (
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground/70 font-medium">Welcome DM</p>
-                <div className="rounded-md bg-background/50 border border-white/5 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
-                      <Mail className="w-5 h-5 text-accent" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm">Archivist</span>
-                        <Badge variant="secondary" className="text-[10px]">BOT</Badge>
-                      </div>
-                      <p className="text-sm mt-1" data-testid="text-preview-dm">{replaceVariables(welcomeDmMessage)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {leaveEnabled && leaveMessage && (
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground/70 font-medium">Leave Message</p>
-                <div className="rounded-md bg-background/50 border border-white/5 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-destructive/20 flex items-center justify-center shrink-0">
-                      <LogOut className="w-5 h-5 text-destructive" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-display font-bold text-sm">Archivist</span>
-                        <Badge variant="secondary" className="text-[10px]">BOT</Badge>
-                        <span className="text-xs text-muted-foreground">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                      <p className="text-sm mt-1" data-testid="text-preview-leave">{replaceVariables(leaveMessage)}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {!welcomeEnabled && !leaveEnabled && (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                Enable welcome or leave messages to see a preview.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="glass-card">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-green-500/10 flex items-center justify-center">
-                <UserPlus className="w-5 h-5 text-green-500" />
-              </div>
+        <div className="relative space-y-5 p-4 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-2">
+              <Badge className="border-none bg-primary/18 text-primary-foreground">Studio-powered Welcome</Badge>
               <div>
-                <CardTitle className="font-display">Welcome Messages</CardTitle>
-                <CardDescription>Greet new members when they join</CardDescription>
+                <h2 className="font-display text-2xl font-bold text-white">Welcome</h2>
+                <p className="max-w-2xl text-sm text-muted-foreground">
+                  Route join, DM, and leave surfaces through Studio instead of editing cramped inline forms. The module controls bindings, validation, testing, and publish state.
+                </p>
               </div>
             </div>
-            <Switch
-              checked={welcomeEnabled}
-              onCheckedChange={setWelcomeEnabled}
-              data-testid="switch-welcome-enabled"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className={`space-y-6 transition-opacity duration-300 ${!welcomeEnabled ? "opacity-50 pointer-events-none" : ""}`}>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Welcome Channel</label>
-            <div className="flex items-center gap-2">
-              <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Select value={welcomeChannelId || "__none__"} onValueChange={(value) => setWelcomeChannelId(value === "__none__" ? "" : value)}>
-                <SelectTrigger className="bg-background max-w-md" data-testid="select-welcome-channel-id">
-                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Not Set</SelectItem>
-                  {channelOptions.map((channel) => (
-                    <SelectItem key={channel.id} value={channel.id}>
-                      # {channel.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/80">
+              <p className="font-medium text-white">Beginner-safe setup</p>
+              <p className="mt-1 text-xs text-muted-foreground">Pick a destination, open the bound Studio draft, then preview, test, and publish from here.</p>
             </div>
-            <p className="text-xs text-muted-foreground">Pick the channel where welcome messages will be sent.</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Welcome Message</label>
-            <Textarea
-              value={welcomeMessage}
-              onChange={(e) => setWelcomeMessage(e.target.value)}
-              placeholder="Welcome {user.mention} to {server}!"
-              className="bg-background min-h-[100px]"
-              data-testid="input-welcome-message"
-            />
-            <VariableHints />
-          </div>
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as WelcomeSectionTab)} className="space-y-4">
+            <TabsList className="grid h-auto w-full grid-cols-4 rounded-[22px] border border-white/10 bg-white/[0.03] p-1">
+              <TabsTrigger value="join" className="rounded-[18px] py-2.5 data-[state=active]:bg-primary data-[state=active]:text-white">Join</TabsTrigger>
+              <TabsTrigger value="dm" className="rounded-[18px] py-2.5 data-[state=active]:bg-primary data-[state=active]:text-white">DM</TabsTrigger>
+              <TabsTrigger value="leave" className="rounded-[18px] py-2.5 data-[state=active]:bg-primary data-[state=active]:text-white">Leave</TabsTrigger>
+              <TabsTrigger value="roles" className="rounded-[18px] py-2.5 data-[state=active]:bg-primary data-[state=active]:text-white">Roles</TabsTrigger>
+            </TabsList>
 
-          <EmbedComposer
-            label="Welcome Embed (Optional)"
-            value={welcomeEmbedData}
-            onChange={setWelcomeEmbedData}
-          />
-
-          <Separator className="bg-white/5" />
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4 rounded-md border border-white/5 bg-background/30 p-4">
-              <div className="flex items-center gap-3">
-                <Mail className="w-4 h-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Welcome DM</p>
-                  <p className="text-xs text-muted-foreground">Send a direct message to new members</p>
-                </div>
-              </div>
-              <Switch
-                checked={welcomeDmEnabled}
-                onCheckedChange={setWelcomeDmEnabled}
-                data-testid="switch-welcome-dm"
-              />
-            </div>
-            {welcomeDmEnabled && (
-              <div className="space-y-2 pl-4 border-l-2 border-primary/20">
-                <label className="text-sm font-medium">DM Message</label>
-                <Textarea
-                  value={welcomeDmMessage}
-                  onChange={(e) => setWelcomeDmMessage(e.target.value)}
-                  placeholder="Welcome to {server}! Here are some things to get started..."
-                  className="bg-background min-h-[80px]"
-                  data-testid="input-welcome-dm-message"
-                />
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="glass-card">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-destructive/10 flex items-center justify-center">
-                <LogOut className="w-5 h-5 text-destructive" />
-              </div>
-              <div>
-                <CardTitle className="font-display">Leave Messages</CardTitle>
-                <CardDescription>Notify when members leave the server</CardDescription>
-              </div>
-            </div>
-            <Switch
-              checked={leaveEnabled}
-              onCheckedChange={setLeaveEnabled}
-              data-testid="switch-leave-enabled"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className={`space-y-6 transition-opacity duration-300 ${!leaveEnabled ? "opacity-50 pointer-events-none" : ""}`}>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Leave Channel</label>
-            <div className="flex items-center gap-2">
-              <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
-              <Select value={leaveChannelId || "__none__"} onValueChange={(value) => setLeaveChannelId(value === "__none__" ? "" : value)}>
-                <SelectTrigger className="bg-background max-w-md" data-testid="select-leave-channel-id">
-                  <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Use Welcome Channel</SelectItem>
-                  {channelOptions.map((channel) => (
-                    <SelectItem key={channel.id} value={channel.id}>
-                      # {channel.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="text-xs text-muted-foreground">Pick where leave messages will be sent. Leave blank to reuse the welcome channel.</p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Leave Message</label>
-            <Textarea
-              value={leaveMessage}
-              onChange={(e) => setLeaveMessage(e.target.value)}
-              placeholder="{user.name} has left the server."
-              className="bg-background min-h-[100px]"
-              data-testid="input-leave-message"
-            />
-            <VariableHints />
-          </div>
-
-          <EmbedComposer
-            label="Leave Embed (Optional)"
-            value={leaveEmbedData}
-            onChange={setLeaveEmbedData}
-          />
-        </CardContent>
-      </Card>
-
-      <Card className="glass-card">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-md bg-accent/10 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-accent" />
-              </div>
-              <div>
-                <CardTitle className="font-display">Auto Roles</CardTitle>
-                <CardDescription>Automatically assign roles when members join</CardDescription>
-              </div>
-            </div>
-            <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" data-testid="button-add-auto-role">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Role
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="glass-panel">
-                <DialogHeader>
-                  <DialogTitle className="font-display">Add Auto Role</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Role</label>
-                    <Select value={newRoleId || "__none__"} onValueChange={(value) => handleSelectAutoRole(value === "__none__" ? "" : value)}>
-                      <SelectTrigger className="bg-background" data-testid="select-auto-role-id">
-                        <SelectValue placeholder={discordContextLoading ? "Loading roles..." : "Select a role"} />
+            <TabsContent value="join" className="space-y-4">
+              <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(13,15,18,0.96),rgba(8,9,12,0.98))]">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-200">
+                        <UserPlus className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-white">Join Flow</CardTitle>
+                        <CardDescription>Main welcome message and channel delivery.</CardDescription>
+                      </div>
+                    </div>
+                    <Switch checked={welcomeEnabled} onCheckedChange={setWelcomeEnabled} />
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-[1.2fr_0.8fr]">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="mb-2 text-sm font-medium text-white">Welcome channel</p>
+                    <Select value={welcomeChannelId || "__none__"} onValueChange={(value) => setWelcomeChannelId(value === "__none__" ? "" : value)}>
+                      <SelectTrigger className="border-white/10 bg-[#0d1014]">
+                        <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select Role</SelectItem>
-                        {roleOptions.map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.name}
-                          </SelectItem>
+                        <SelectItem value="__none__">Not set</SelectItem>
+                        {channelOptions.map((channel) => (
+                          <SelectItem key={channel.id} value={channel.id}># {channel.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <Input
-                      value={newRoleId}
-                      onChange={(e) => setNewRoleId(e.target.value)}
-                      placeholder="Role ID (manual fallback)"
-                      className="bg-background"
-                      data-testid="input-auto-role-id"
-                    />
+                    <p className="mt-2 text-xs text-muted-foreground">This is where the join message will publish and where channel-aware tokens resolve.</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Role Name</label>
-                    <Input
-                      value={newRoleName}
-                      onChange={(e) => setNewRoleName(e.target.value)}
-                      placeholder="e.g. Member"
-                      className="bg-background"
-                      data-testid="input-auto-role-name"
-                    />
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
+                      <Clock3 className="h-4 w-4 text-primary" />
+                      Send delay
+                    </div>
+                    <p className="text-sm text-white/80">Instant send is currently the supported path.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">If delayed welcome sends are added later, this slot is where they should live.</p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Delay (seconds)</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={newRoleDelay}
-                      onChange={(e) => setNewRoleDelay(parseInt(e.target.value) || 0)}
-                      className="bg-background max-w-[200px]"
-                      data-testid="input-auto-role-delay"
-                    />
-                    <p className="text-xs text-muted-foreground">0 = assign instantly on join</p>
+                </CardContent>
+              </Card>
+
+              <SurfaceCard
+                title="Welcome Message"
+                description="The main public welcome message for new members."
+                documentRecord={welcomeRecord}
+                publication={getSurfacePublication("join")}
+                diagnostics={getSurfaceDiagnostics("join")}
+                summary={welcomeSummary}
+                enabled={welcomeEnabled}
+                channelLabel={getChannelName(welcomeChannelId)}
+                onEdit={() => openSurfaceInStudio("join")}
+                onPreview={() => handlePreview("join")}
+                onTest={() => handleTest("join")}
+                onPublish={() => handlePublish("join")}
+                publishing={publishStudio.isPending}
+                testing={testStudio.isPending}
+              />
+
+              <WelcomeTokenHelper />
+            </TabsContent>
+
+            <TabsContent value="dm" className="space-y-4">
+              <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(13,15,18,0.96),rgba(8,9,12,0.98))]">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/12 text-sky-200">
+                        <Mail className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-white">Welcome DM</CardTitle>
+                        <CardDescription>Optional onboarding message delivered in direct messages.</CardDescription>
+                      </div>
+                    </div>
+                    <Switch checked={welcomeDmEnabled} onCheckedChange={setWelcomeDmEnabled} />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Assign To</label>
-                    <Select value={newRoleType} onValueChange={setNewRoleType}>
-                      <SelectTrigger className="bg-background" data-testid="select-auto-role-type">
-                        <SelectValue />
+                </CardHeader>
+              </Card>
+
+              <SurfaceCard
+                title="Welcome DM"
+                description="A separate Studio draft for private onboarding or next-step instructions."
+                documentRecord={welcomeDmRecord}
+                publication={getSurfacePublication("dm")}
+                diagnostics={getSurfaceDiagnostics("dm")}
+                summary={welcomeDmSummary}
+                enabled={welcomeDmEnabled}
+                channelLabel="Direct Message"
+                onEdit={() => openSurfaceInStudio("dm")}
+                onPreview={() => handlePreview("dm")}
+                onTest={() => handleTest("dm")}
+                onPublish={() => handlePublish("dm")}
+                publishLabel="Bind Live"
+                publishing={updateSettings.isPending}
+                testing={testStudio.isPending}
+              />
+
+              <WelcomeTokenHelper />
+            </TabsContent>
+
+            <TabsContent value="leave" className="space-y-4">
+              <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(13,15,18,0.96),rgba(8,9,12,0.98))]">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-500/12 text-rose-200">
+                        <MessageSquareText className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-white">Leave Notices</CardTitle>
+                        <CardDescription>Separate offboarding notices from your main join flow.</CardDescription>
+                      </div>
+                    </div>
+                    <Switch checked={leaveEnabled} onCheckedChange={setLeaveEnabled} />
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-[1.2fr_0.8fr]">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="mb-2 text-sm font-medium text-white">Leave channel</p>
+                    <Select value={leaveChannelId || "__inherit__"} onValueChange={(value) => setLeaveChannelId(value === "__inherit__" ? "" : value)}>
+                      <SelectTrigger className="border-white/10 bg-[#0d1014]">
+                        <SelectValue placeholder={discordContextLoading ? "Loading channels..." : "Select a channel"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="join">All Joins</SelectItem>
-                        <SelectItem value="human">Humans Only</SelectItem>
-                        <SelectItem value="bot">Bots Only</SelectItem>
+                        <SelectItem value="__inherit__">Reuse join channel</SelectItem>
+                        {channelOptions.map((channel) => (
+                          <SelectItem key={channel.id} value={channel.id}># {channel.name}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
+                    <p className="mt-2 text-xs text-muted-foreground">Leave blank to reuse the join channel for faster setup.</p>
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setAddRoleOpen(false)} data-testid="button-cancel-auto-role">
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleAddAutoRole}
-                    disabled={!newRoleId.trim() || !newRoleName.trim() || createAutoRole.isPending}
-                    data-testid="button-confirm-auto-role"
-                  >
-                    {createAutoRole.isPending ? "Adding..." : "Add Role"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {autoRolesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : (autoRoles as AutoRole[]).length === 0 ? (
-            <div className="text-center py-10">
-              <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No auto roles configured.</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">Add roles that will be automatically assigned to new members.</p>
-            </div>
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="mb-2 text-sm font-medium text-white">Delivery note</p>
+                    <p className="text-sm text-white/80">Leave is intentionally kept separate so the main Join experience stays clean.</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <SurfaceCard
+                title="Leave Message"
+                description="A dedicated Studio draft for departures, archive notes, or offboarding reminders."
+                documentRecord={leaveRecord}
+                publication={getSurfacePublication("leave")}
+                diagnostics={getSurfaceDiagnostics("leave")}
+                summary={leaveSummary}
+                enabled={leaveEnabled}
+                channelLabel={getChannelName(leaveChannelId || welcomeChannelId)}
+                onEdit={() => openSurfaceInStudio("leave")}
+                onPreview={() => handlePreview("leave")}
+                onTest={() => handleTest("leave")}
+                onPublish={() => handlePublish("leave")}
+                publishing={publishStudio.isPending}
+                testing={testStudio.isPending}
+              />
+
+              <WelcomeTokenHelper />
+            </TabsContent>
+
+            <TabsContent value="roles" className="space-y-4">
+              <Card className="border-white/10 bg-[linear-gradient(180deg,rgba(13,15,18,0.96),rgba(8,9,12,0.98))]">
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-500/12 text-violet-200">
+                        <Users className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-white">Auto Roles</CardTitle>
+                        <CardDescription>Keep role assignment practical and separate from the message builder.</CardDescription>
+                      </div>
+                    </div>
+                    <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2">
+                          <Plus className="h-4 w-4" />
+                          Add Role
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="border-white/10 bg-[#090b0e] text-white">
+                        <DialogHeader>
+                          <DialogTitle>Add Auto Role</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-white">Role</label>
+                            <Select value={newRoleId || "__none__"} onValueChange={(value) => {
+                              const nextValue = value === "__none__" ? "" : value;
+                              setNewRoleId(nextValue);
+                              setNewRoleName(roleNameById[nextValue] || "");
+                            }}>
+                              <SelectTrigger className="border-white/10 bg-[#0f1318]">
+                                <SelectValue placeholder={discordContextLoading ? "Loading roles..." : "Select a role"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Select role</SelectItem>
+                                {roleOptions.map((role) => (
+                                  <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input value={newRoleId} onChange={(event) => setNewRoleId(event.target.value)} placeholder="Role ID fallback" className="border-white/10 bg-[#0f1318]" />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-white">Role name</label>
+                            <Input value={newRoleName} onChange={(event) => setNewRoleName(event.target.value)} placeholder="Member" className="border-white/10 bg-[#0f1318]" />
+                          </div>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-white">Delay (seconds)</label>
+                              <Input type="number" min={0} value={newRoleDelay} onChange={(event) => setNewRoleDelay(parseInt(event.target.value, 10) || 0)} className="border-white/10 bg-[#0f1318]" />
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-white">Assign to</label>
+                              <Select value={newRoleType} onValueChange={setNewRoleType}>
+                                <SelectTrigger className="border-white/10 bg-[#0f1318]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="join">All joins</SelectItem>
+                                  <SelectItem value="human">Humans only</SelectItem>
+                                  <SelectItem value="bot">Bots only</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setAddRoleOpen(false)}>Cancel</Button>
+                          <Button onClick={handleAddAutoRole} disabled={!newRoleId.trim() || !newRoleName.trim() || createAutoRole.isPending}>
+                            {createAutoRole.isPending ? "Adding..." : "Add Role"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4 text-sm text-muted-foreground">
+                    Auto roles are active whenever at least one rule exists. Delay and target filters stay here instead of cluttering the Join builder.
+                  </div>
+
+                  {autoRolesLoading ? (
+                    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-10 text-center text-sm text-muted-foreground">
+                      Loading role rules...
+                    </div>
+                  ) : (autoRoles as AutoRole[]).length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-12 text-center">
+                      <Users className="mx-auto mb-3 h-10 w-10 text-white/25" />
+                      <p className="text-sm text-white/80">No auto roles configured yet.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Add a rule to assign roles automatically after join.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(autoRoles as AutoRole[]).map((role) => {
+                        const linkedRole = roleOptions.find((entry) => entry.id === role.roleId);
+                        return (
+                          <div key={role.id} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-semibold text-white">{role.roleName}</p>
+                                  <Badge variant="outline" className="border-white/10 bg-white/[0.04] text-white/75">
+                                    {role.type === "join" ? "All joins" : role.type === "human" ? "Humans only" : "Bots only"}
+                                  </Badge>
+                                  {role.delay > 0 ? (
+                                    <Badge variant="outline" className="border-white/10 bg-white/[0.04] text-white/75">
+                                      {role.delay}s delay
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="text-xs text-muted-foreground">Role ID: {role.roleId}</p>
+                                {linkedRole?.managed ? (
+                                  <div className="rounded-xl border border-amber-400/15 bg-amber-400/10 px-3 py-2 text-xs text-amber-50">
+                                    This role is managed by another integration and may not be assignable.
+                                  </div>
+                                ) : null}
+                              </div>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => deleteAutoRole.mutate(role.id, {
+                                  onSuccess: () => toast({ title: "Role rule removed" }),
+                                  onError: (error: any) => toast({ title: "Could not remove role", description: error.message || "Try again in a moment.", variant: "destructive" }),
+                                })}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-300" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+
+      <Dialog open={Boolean(previewSurface && previewDocument)} onOpenChange={(open) => setPreviewSurface(open ? previewSurface : null)}>
+        <DialogContent className="max-w-[720px] border-white/10 bg-[#08090c] text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4 text-primary" />
+              Preview {previewSurface === "join" ? "Welcome Message" : previewSurface === "dm" ? "Welcome DM" : "Leave Message"}
+            </DialogTitle>
+          </DialogHeader>
+          {previewDocument ? (
+            <StudioPreview
+              document={previewDocument}
+              viewId={previewDocument.meta.entryViewId}
+              interactionRows={[]}
+              diagnostics={previewDiagnostics}
+              mode="mobile"
+            />
           ) : (
-            <div className="space-y-2">
-              {(autoRoles as AutoRole[]).map((role) => (
-                <div
-                  key={role.id}
-                  className="flex items-center justify-between gap-4 rounded-md border border-white/5 bg-background/30 p-3"
-                  data-testid={`card-auto-role-${role.id}`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-md bg-accent/10 flex items-center justify-center shrink-0">
-                      <User className="w-4 h-4 text-accent" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate" data-testid={`text-auto-role-name-${role.id}`}>{role.roleName}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        ID: {role.roleId}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {role.delay && role.delay > 0 ? (
-                      <Badge variant="secondary" className="text-[10px]">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {role.delay}s delay
-                      </Badge>
-                    ) : null}
-                    <Badge variant="secondary" className="text-[10px]">
-                      {role.type === "join" ? (
-                        <><Users className="w-3 h-3 mr-1" />All</>
-                      ) : role.type === "human" ? (
-                        <><User className="w-3 h-3 mr-1" />Humans</>
-                      ) : (
-                        <><Bot className="w-3 h-3 mr-1" />Bots</>
-                      )}
-                    </Badge>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleDeleteAutoRole(role.id)}
-                      data-testid={`button-delete-auto-role-${role.id}`}
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-10 text-center text-sm text-muted-foreground">
+              No Studio draft bound yet.
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <Card className="glass-card">
-        <CardHeader>
-          <CardTitle className="font-display text-base flex items-center gap-2">
-            <Info className="w-4 h-4" />
-            Available Variables
-          </CardTitle>
-          <CardDescription>Use these in your welcome and leave messages</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {VARIABLES.map((v) => (
-              <div
-                key={v.key}
-                className="flex items-center gap-2 rounded-md bg-background/30 border border-white/5 px-3 py-2"
-              >
-                <code className="text-xs text-primary font-mono" data-testid={`text-var-${v.key}`}>{v.key}</code>
-                <ArrowRight className="w-3 h-3 text-muted-foreground/50 shrink-0" />
-                <span className="text-xs text-muted-foreground truncate">{v.desc}</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewSurface(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-function VariableHints() {
-  return (
-    <p className="text-xs text-muted-foreground">
-      Use variables like <code className="text-primary/80">{"{user.mention}"}</code>,{" "}
-      <code className="text-primary/80">{"{server}"}</code>,{" "}
-      <code className="text-primary/80">{"{server.membercount}"}</code>
-    </p>
-  );
-}
-

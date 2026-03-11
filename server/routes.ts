@@ -374,6 +374,30 @@ export async function registerRoutes(_server: Server, app: Express) {
     }
   });
 
+  app.post(api.servers.studioPublish.test.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioPublish.test.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    try {
+      const result = await sendStudioTestMessage({
+        serverId,
+        actorUserId: req.user!.id,
+        actorDiscordId: req.user!.discordId,
+        documentId: parsed.data.documentId,
+        documentInput: parsed.data.document,
+        target: parsed.data.target,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to send Studio test." });
+    }
+  });
+
   app.post(api.studio.publications.clone.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
@@ -2176,6 +2200,41 @@ function buildStudioStaticTokenContext(input: {
     date: now.toLocaleDateString(),
     time: now.toLocaleTimeString(),
     unix: Math.floor(now.getTime() / 1000),
+    randomMode: "runtime",
+  };
+}
+
+async function buildStudioMemberTokenContext(input: {
+  guild: any;
+  memberDiscordId?: string;
+  channel?: any | null;
+  messageId?: string | null;
+}): Promise<StudioTokenContext> {
+  const now = new Date();
+  const member = input.memberDiscordId
+    ? await input.guild.members.fetch(input.memberDiscordId).catch(() => null)
+    : null;
+  const user = member?.user || null;
+  const channelName = input.channel && "name" in input.channel ? String(input.channel.name || "") : "";
+  const channelId = String(input.channel?.id || "");
+
+  return {
+    username: user?.username || member?.displayName || null,
+    displayName: member?.displayName || user?.username || null,
+    userId: user?.id || null,
+    userMention: user?.id ? `<@${user.id}>` : null,
+    userAvatar: user?.displayAvatarURL?.() || user?.avatarURL?.() || null,
+    serverName: String(input.guild?.name || ""),
+    serverId: String(input.guild?.id || ""),
+    memberCount: Number.isFinite(Number(input.guild?.memberCount)) ? Number(input.guild.memberCount) : undefined,
+    channelName: channelName || (input.channel ? String(input.channel.id || "") : "Direct Message"),
+    channelId,
+    channelMention: channelId ? `<#${channelId}>` : (channelName || "Direct Message"),
+    messageId: input.messageId || null,
+    date: now.toLocaleDateString(),
+    time: now.toLocaleTimeString(),
+    unix: Math.floor(now.getTime() / 1000),
+    randomMode: "runtime",
   };
 }
 
@@ -2356,6 +2415,133 @@ async function publishStudioMessage(input: {
     });
     throw err;
   }
+}
+
+async function sendStudioTestMessage(input: {
+  serverId: number;
+  actorUserId: number;
+  actorDiscordId?: string;
+  documentId?: number;
+  documentInput?: unknown;
+  target: {
+    kind: "channel" | "dm";
+    channelId?: string;
+    viewId?: string;
+  };
+}) {
+  let documentRecord = input.documentId ? await getStudioDocumentById(input.documentId) : null;
+  if (documentRecord && documentRecord.serverId !== input.serverId) {
+    throw studioHttpError(404, "Studio document not found for this server.");
+  }
+
+  let document: StudioDocument;
+  if (documentRecord) {
+    document = input.documentInput
+      ? normalizeStudioDocument(input.documentInput, documentRecord.name)
+      : normalizeStudioDocument(documentRecord.document, documentRecord.name);
+  } else if (input.documentInput) {
+    document = normalizeStudioDocument(input.documentInput, "Untitled Studio Document");
+  } else {
+    throw studioHttpError(400, "Test send requires a documentId or document payload.");
+  }
+
+  const client = getBotClient();
+  if (!client?.isReady()) throw studioHttpError(503, "Bot is offline. Start the bot before sending a test.");
+
+  const server = await storage.getServer(input.serverId);
+  if (!server) throw studioHttpError(404, "Server not found");
+  const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+  if (!guild) throw studioHttpError(404, "Bot is not in this Discord server.");
+
+  const rendered = renderStudioDocumentView(document, input.target.viewId, {
+    tokenAvailability: {
+      static: true,
+      member: true,
+      postSend: false,
+    },
+  });
+
+  if (!rendered.content && rendered.embeds.length === 0 && rendered.interactiveComponents.length === 0) {
+    throw studioHttpError(400, "Nothing to test. Add content, embeds, or interactive components.");
+  }
+
+  if (input.target.kind === "dm") {
+    if (!input.actorDiscordId) {
+      throw studioHttpError(400, "Your Discord account is not linked for DM test sends.");
+    }
+
+    const user = await client.users.fetch(input.actorDiscordId).catch(() => null);
+    if (!user) throw studioHttpError(404, "Could not find your Discord user for the DM test.");
+
+    const tokenContext = await buildStudioMemberTokenContext({
+      guild,
+      memberDiscordId: input.actorDiscordId,
+      channel: null,
+      messageId: null,
+    });
+
+    const payload = buildStudioDiscordPayload({
+      documentId: documentRecord?.id || 0,
+      documentName: documentRecord?.name || document.meta.name,
+      documentVersion: document.version,
+      publishedViewId: rendered.viewId,
+      channelId: "dm",
+      guildId: guild.id,
+      render: {
+        content: rendered.content,
+        embeds: rendered.embeds,
+        components: rendered.interactiveComponents,
+      },
+      diagnostics: rendered.diagnostics,
+      document,
+    } as any, 0, tokenContext);
+
+    await user.send({
+      content: payload.content,
+      embeds: payload.embeds,
+      components: payload.components,
+    }).catch((err: any) => {
+      throw studioHttpError(400, err?.message || "Could not send the Studio DM test.");
+    });
+
+    return { ok: true, mode: "dm", diagnostics: payload.diagnostics };
+  }
+
+  const channelId = String(input.target.channelId || "").trim();
+  if (!channelId) throw studioHttpError(400, "Choose a channel before sending a test.");
+  const { channel } = await resolveStudioGuildChannel(input.serverId, channelId);
+  const tokenContext = await buildStudioMemberTokenContext({
+    guild,
+    memberDiscordId: input.actorDiscordId,
+    channel,
+    messageId: null,
+  });
+
+  const payload = buildStudioDiscordPayload({
+    documentId: documentRecord?.id || 0,
+    documentName: documentRecord?.name || document.meta.name,
+    documentVersion: document.version,
+    publishedViewId: rendered.viewId,
+    channelId,
+    guildId: guild.id,
+    render: {
+      content: rendered.content,
+      embeds: rendered.embeds,
+      components: rendered.interactiveComponents,
+    },
+    diagnostics: rendered.diagnostics,
+    document,
+  } as any, 0, tokenContext);
+
+  await (channel as any).send({
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components,
+  }).catch((err: any) => {
+    throw studioHttpError(400, err?.message || "Could not send the Studio test message.");
+  });
+
+  return { ok: true, mode: "channel", diagnostics: payload.diagnostics, channelId };
 }
 
 async function cloneStudioPublication(input: {

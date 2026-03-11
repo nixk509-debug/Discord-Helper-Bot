@@ -106,6 +106,16 @@ const studioPublishSchema = z.object({
   }),
 });
 
+const studioTestSchema = z.object({
+  documentId: z.number().optional(),
+  document: z.any().optional(),
+  target: z.object({
+    kind: z.enum(["channel", "dm"]).default("channel"),
+    channelId: optionalStringInput,
+    viewId: optionalStringInput,
+  }),
+});
+
 export const studioEntryIntentSchema = z.enum(["blank", "ticket", "welcome", "verify", "template"]);
 
 const studioLibraryItemInputSchema = z.object({
@@ -139,6 +149,7 @@ export const api = {
     },
     studioPublish: {
       publish: { method: 'POST' as const, path: '/api/servers/:serverId/studio/publish' as const, input: studioPublishSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
+      test: { method: 'POST' as const, path: '/api/servers/:serverId/studio/test' as const, input: studioTestSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
     },
     studioLibrary: {
       list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/library' as const, responses: { 200: z.array(z.custom<StudioLibraryItem>()) } },
@@ -264,4 +275,5 @@ export type DiscordContext = z.infer<typeof discordContextSchema>;
 export type StudioEntryIntentQuery = z.infer<typeof studioEntryIntentSchema>;
 export type StudioDocumentInput = z.infer<typeof studioDocumentInputSchema>;
 export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
+export type StudioTestInput = z.infer<typeof studioTestSchema>;
 export type StudioLibraryItemInput = z.infer<typeof studioLibraryItemInputSchema>;

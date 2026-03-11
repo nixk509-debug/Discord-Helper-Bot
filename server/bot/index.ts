@@ -335,6 +335,7 @@ function buildStudioRuntimeTokenContext(input: {
     date: now.toLocaleDateString(),
     time: now.toLocaleTimeString(),
     unix: Math.floor(now.getTime() / 1000),
+    randomMode: "runtime",
   };
 }
 

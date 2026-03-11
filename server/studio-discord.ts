@@ -11,6 +11,7 @@ import type {
   StudioDiagnostic,
   StudioPublicationSnapshot,
 } from "@shared/schema";
+import { toDiscordEmojiObject } from "@shared/discord-emoji";
 import { resolveStudioTokensInValue, type StudioTokenContext } from "@shared/studio-tokens";
 import { encodeStudioActionToken } from "./bot/studio-action-token";
 
@@ -20,23 +21,6 @@ function parseColor(value: unknown) {
   const normalized = value.trim().replace(/^#/, "");
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
   return parseInt(normalized, 16);
-}
-
-function toEmoji(emoji: unknown) {
-  if (typeof emoji !== "string") return undefined;
-  const raw = emoji.trim();
-  if (!raw) return undefined;
-
-  const customMatch = raw.match(/^<?(a?):([a-zA-Z0-9_]+):(\d+)>?$/);
-  if (customMatch) {
-    return {
-      id: customMatch[3],
-      name: customMatch[2],
-      animated: customMatch[1] === "a",
-    };
-  }
-
-  return { name: raw };
 }
 
 export function buildStudioEmbedBuilders(snapshot: StudioPublicationSnapshot, tokenContext?: StudioTokenContext) {
@@ -112,7 +96,7 @@ function buildButton(component: EmbedComponentType, publicationId: number, diagn
     .setLabel(String(component.label || "Action").slice(0, 80))
     .setDisabled(Boolean(component.disabled));
 
-  const emoji = toEmoji(component.emoji);
+  const emoji = toDiscordEmojiObject(component.emoji);
   if (emoji) button.setEmoji(emoji);
 
   if (component.action?.type === "open_url" || component.style === 5) {
@@ -169,7 +153,7 @@ function buildStringSelect(component: EmbedComponentType, publicationId: number,
         optionValue: String(option.value || option.label || "option"),
       }),
       description: option.description ? String(option.description).slice(0, 100) : undefined,
-      emoji: toEmoji(option.emoji),
+      emoji: toDiscordEmojiObject(option.emoji),
       default: Boolean((option as any).default),
     }];
   });

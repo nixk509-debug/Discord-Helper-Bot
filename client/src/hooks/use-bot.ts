@@ -468,6 +468,25 @@ export function usePublishStudio(serverId: number) {
   });
 }
 
+export function useTestStudio(serverId: number) {
+  return useMutation({
+    mutationFn: async (data: any) => {
+      const url = buildUrl(api.servers.studioPublish.test.path, { serverId });
+      const res = await fetch(buildApiUrl(url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || "Failed to send Studio test");
+      }
+      return await res.json();
+    },
+  });
+}
+
 export function useCloneStudioPublication(serverId: number) {
   const qc = useQueryClient();
   return useMutation({

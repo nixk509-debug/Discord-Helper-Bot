@@ -31,6 +31,7 @@ export interface StudioTokenContext {
   date?: string | null;
   time?: string | null;
   unix?: string | number | null;
+  randomMode?: "sample" | "runtime";
 }
 
 export interface StudioTokenAvailability {
@@ -229,6 +230,7 @@ for (const definition of STUDIO_TOKEN_DEFINITIONS) {
 }
 
 const TOKEN_PATTERN = /\{[a-zA-Z0-9._]+\}/g;
+const RANDOM_PATTERN = /\{random:([^{}]+)\}/gi;
 
 function normalizeAvailability(availability?: StudioTokenAvailability): Required<StudioTokenAvailability> {
   return {
@@ -280,6 +282,21 @@ function replacementForDefinition(definition: StudioTokenDefinition, context: St
   }
 }
 
+function resolveRandomSegments(value: string, mode: StudioTokenContext["randomMode"] = "runtime") {
+  return value.replace(RANDOM_PATTERN, (_match, group: string) => {
+    const options = String(group || "")
+      .split("|")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (options.length === 0) return _match;
+    if (mode === "sample") return options[0];
+
+    const index = Math.floor(Math.random() * options.length);
+    return options[index] || options[0];
+  });
+}
+
 export function getStudioFeaturedTokens() {
   return STUDIO_TOKEN_DEFINITIONS.filter((definition) => definition.featured);
 }
@@ -310,6 +327,7 @@ export function buildStudioPreviewTokenContext(overrides: Partial<StudioTokenCon
     date: current.toLocaleDateString(),
     time: current.toLocaleTimeString(),
     unix: Math.floor(current.getTime() / 1000),
+    randomMode: "sample",
     ...overrides,
   };
 }
@@ -329,7 +347,7 @@ export function resolveStudioTokensInString(
     }
   }
 
-  return output;
+  return resolveRandomSegments(output, context.randomMode || "runtime");
 }
 
 export function resolveStudioTokensInValue<T>(value: T, context: StudioTokenContext): T {
