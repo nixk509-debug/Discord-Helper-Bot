@@ -52,9 +52,8 @@ import { DesignStudioHome } from "@/components/design-studio/design-studio-home"
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import {
   STUDIO_COMMUNITY_STARTERS,
-  createStudioBlankDocument,
   createStudioDocument as createStudioDocumentDraft,
-  defaultStudioDesignName,
+  createStudioPrimaryDocument,
   defaultSurfaceName,
   inferStudioPrimarySurfaceType,
   type StudioPrimarySurfaceType,
@@ -118,6 +117,20 @@ type LibraryScopeFilter = "all" | "personal" | "server";
 type LibraryCategoryFilter = "all" | "divider" | "symbol" | "emoji" | "format" | "style_block" | "style_pack" | "asset_link" | "snippet";
 type BuildFocusId = "content" | "embeds" | "components" | "actions" | "assets";
 type MobilePrimaryBuildFocusId = Exclude<BuildFocusId, "assets">;
+const PRIMARY_TYPE_COPY: Record<StudioPrimarySurfaceType, { title: string; description: string }> = {
+  message: {
+    title: "Plain Message",
+    description: "Start with message text and add richer parts only when you need them.",
+  },
+  embed: {
+    title: "Embed",
+    description: "Open directly into a rich Discord embed with fields, media, and color.",
+  },
+  components: {
+    title: "Components v2",
+    description: "Start from a live message with interactive parts and structured layout blocks.",
+  },
+};
 type LibraryModeId = "shelf" | "tools" | "templates";
 
 type PublicationWithMeta = StudioPublication & {
@@ -965,6 +978,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     title: string;
     description: string;
   } | null>(null);
+  const [createPickerOpen, setCreatePickerOpen] = useState(false);
   const loadedDocumentIdRef = useRef<number | null>(null);
   const mediaUploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1017,13 +1031,54 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   }, [serverId]);
 
   useEffect(() => {
-    if (currentDocumentId) return;
     const params = new URLSearchParams(window.location.search);
     const requested = Number(params.get("documentId") || "0");
     if (requested > 0 && documents.some((record) => record.id === requested)) {
-      setCurrentDocumentId(requested);
+      if (currentDocumentId !== requested) {
+        setCurrentDocumentId(requested);
+      }
+      return;
+    }
+
+    if (currentDocumentId !== null) {
+      setCurrentDocumentId(null);
     }
   }, [documents, currentDocumentId]);
+
+  useEffect(() => {
+    if (currentDocumentId !== null) return;
+    setDraft(null);
+    setDirty(false);
+    setSelectedViewId("entry");
+    setSelectedNodeId(null);
+    setSelectedActionId(null);
+    setSelectedModalId(null);
+    setSelectedEmbedIndex(null);
+    setMessageEditorOpen(false);
+    setEditorFocusLabel("message");
+    setPreviewOpen(false);
+    setInspectorOpen(false);
+    setQuickAddOpen(false);
+    setQuickAddParentId(null);
+    setActiveInsertTarget(null);
+    loadedDocumentIdRef.current = null;
+  }, [currentDocumentId]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const requested = Number(params.get("documentId") || "0");
+      setPreviewOpen(false);
+      setInspectorOpen(false);
+      setQuickAddOpen(false);
+      setQuickAddParentId(null);
+      setCreatePickerOpen(false);
+      setCurrentDocumentId(requested > 0 ? requested : null);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     if (!currentRecord) return;
@@ -1415,13 +1470,66 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     }
   };
 
+  const syncStudioRoute = (documentId: number | null, mode: "push" | "replace" = "replace") => {
+    const url = new URL(window.location.href);
+    if (documentId) {
+      url.searchParams.set("documentId", String(documentId));
+    } else {
+      url.searchParams.delete("documentId");
+    }
+    const search = url.searchParams.toString();
+    const target = search ? `${url.pathname}?${search}` : url.pathname;
+    if (mode === "push") {
+      window.history.pushState({ documentId }, "", target);
+      return;
+    }
+    window.history.replaceState({ documentId }, "", target);
+  };
+
+  const closeStudioOverlays = () => {
+    setPreviewOpen(false);
+    setInspectorOpen(false);
+    setQuickAddOpen(false);
+    setQuickAddParentId(null);
+  };
+
+  const returnToStudioHome = () => {
+    if (dirty && !window.confirm("Discard unsaved changes and return to Studio home?")) return;
+    closeStudioOverlays();
+    setHomeStatusBanner(null);
+    setCreatePickerOpen(false);
+    setCurrentDocumentId(null);
+    syncStudioRoute(null, "push");
+  };
+
+  const handleStudioBack = () => {
+    if (quickAddOpen) {
+      setQuickAddOpen(false);
+      setQuickAddParentId(null);
+      return;
+    }
+    if (inspectorOpen) {
+      setInspectorOpen(false);
+      return;
+    }
+    if (previewOpen) {
+      setPreviewOpen(false);
+      return;
+    }
+    if (currentDocumentId) {
+      returnToStudioHome();
+      return;
+    }
+    (onOpenServerSettings || (() => window.history.back()))();
+  };
+
   const loadDocument = (documentId: number) => {
     if (documentId === currentDocumentId) return;
     if (dirty && !window.confirm("Discard unsaved changes and switch documents?")) return;
+    closeStudioOverlays();
+    setCreatePickerOpen(false);
     setCurrentDocumentId(documentId);
-    const url = new URL(window.location.href);
-    url.searchParams.set("documentId", String(documentId));
-    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+    syncStudioRoute(documentId, currentDocumentId ? "replace" : "push");
   };
 
   const openCreatedRecord = (
@@ -1432,6 +1540,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     const defaultFocus = getBuildFocusFromPrimaryType(inferStudioPrimarySurfaceType(normalized));
     const entryView = normalized.views[normalized.meta.entryViewId];
 
+    setCreatePickerOpen(false);
     setCurrentDocumentId(created.id);
     setDraft(cloneDocument(normalized));
     setDirty(false);
@@ -1450,9 +1559,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     setActiveInsertTarget(null);
     loadedDocumentIdRef.current = created.id;
 
-    const url = new URL(window.location.href);
-    url.searchParams.set("documentId", String(created.id));
-    window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+    syncStudioRoute(created.id, currentDocumentId ? "replace" : "push");
 
     if (options?.noticeTitle) {
       toast({
@@ -1516,14 +1623,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     );
   };
 
-  const createNewDesign = () => {
+  const createPrimaryDesign = (primaryType: StudioPrimarySurfaceType) => {
+    const starter = PRIMARY_TYPE_COPY[primaryType];
+    setCreatePickerOpen(false);
     setHomeStatusBanner({
       tone: "working",
-      title: "Creating new design...",
-      description: "Studio is opening a blank live message canvas for you.",
+      title: `Opening ${starter.title}...`,
+      description: "Studio is loading the live message editor for this starter.",
     });
-    const name = defaultStudioDesignName();
-    const document = createStudioBlankDocument(name);
+    const document = createStudioPrimaryDocument(primaryType);
+    const name = document.meta.name;
     createDocumentMutation.mutate(
       {
         scope: "server",
@@ -1535,20 +1644,24 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         onSuccess: (created: StudioDocumentRecord) => {
           setHomeStatusBanner(null);
           openCreatedRecord(created, {
-            noticeTitle: "New design ready",
-            noticeDescription: "Your live message canvas is ready. Tap any visible part to start editing.",
+            noticeTitle: `${starter.title} ready`,
+            noticeDescription: "Your live message is ready. Tap any visible part to edit it directly.",
           });
         },
         onError: (error: any) => {
           setHomeStatusBanner({
             tone: "error",
-            title: "New design could not open",
-            description: error.message || "Studio could not create the blank design.",
+            title: `${starter.title} could not open`,
+            description: error.message || "Studio could not create this starter.",
           });
           toast({ title: "Create failed", description: error.message, variant: "destructive" });
         },
       },
     );
+  };
+  const createNewDesign = () => {
+    setHomeStatusBanner(null);
+    setCreatePickerOpen(true);
   };
 
   const importCommunityStarter = (starterId: string) => {
@@ -2445,8 +2558,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     const assetChoices = [
       ...(draft?.assets || []).filter((asset) => asset.type === "image"),
       ...libraryItems
-        .filter((item) => item.category === "asset_link" && typeof item.payload?.url === "string")
-        .map((item) => ({ id: `lib-${item.id}`, name: item.name, url: String(item.payload.url), type: "image" as const })),
+        .map((item) => ({ item, payload: (item.payload || null) as { url?: string } | null }))
+        .filter(({ item, payload }) => item.category === "asset_link" && typeof payload?.url === "string")
+        .map(({ item, payload }) => ({ id: `lib-${item.id}`, name: item.name, url: String(payload?.url || ""), type: "image" as const })),
     ].slice(0, 18);
 
     return (
@@ -3999,7 +4113,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle className="font-display text-base">Message Canvas</CardTitle>
+              <CardTitle className="font-display text-base">Live Message</CardTitle>
               <CardDescription>Tap the live Discord message to edit the exact part you want to change.</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -4008,7 +4122,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </Badge>
               {canvasSummaryChips.length > 0 ? canvasSummaryChips.map((chip) => (
                 <Badge key={`canvas-chip-${chip}`} variant="outline">{chip}</Badge>
-              )) : <Badge variant="outline">Blank canvas</Badge>}
+              )) : <Badge variant="outline">New message</Badge>}
             </div>
           </div>
         </CardHeader>
@@ -4937,27 +5051,61 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     </div>
   );
 
+  const createPicker = (
+    <Drawer open={createPickerOpen} onOpenChange={setCreatePickerOpen}>
+      <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-[#090a0d]/95 px-4 pb-6">
+        <DrawerHeader className="px-0">
+          <DrawerTitle className="font-display text-xl text-white">Start a new design</DrawerTitle>
+          <DrawerDescription className="text-sm text-muted-foreground">
+            Pick the kind of live message you want to edit. Studio will open the message itself, not a separate canvas.
+          </DrawerDescription>
+        </DrawerHeader>
+        <div className="space-y-3 pb-2">
+          {(Object.entries(PRIMARY_TYPE_COPY) as Array<[StudioPrimarySurfaceType, (typeof PRIMARY_TYPE_COPY)[StudioPrimarySurfaceType]]>).map(([primaryType, copy]) => (
+            <button
+              key={`starter-${primaryType}`}
+              type="button"
+              onClick={() => createPrimaryDesign(primaryType)}
+              disabled={createDocumentMutation.isPending}
+              className="w-full rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(21,24,29,0.94),rgba(10,11,13,0.98))] px-4 py-4 text-left transition hover:border-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">{copy.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{copy.description}</p>
+                </div>
+                <Badge variant="outline" className="border-white/10 bg-white/[0.03] text-white/70">{primaryType === "components" ? "v2" : "starter"}</Badge>
+              </div>
+            </button>
+          ))}
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
   if (!draft) {
     return (
-      <DesignStudioHome
-        documents={documents}
-        publications={publications}
-        isLoading={studioDocumentsQuery.isLoading}
-        isWorking={createDocumentMutation.isPending}
-        statusBanner={homeStatusBanner}
-        onBack={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
-        onOpenSettings={isMobile ? (onOpenServerSettings || (() => window.history.back())) : undefined}
-        onOpenDocument={loadDocument}
-        onCreateNewDesign={createNewDesign}
-        onImportCommunityStarter={importCommunityStarter}
-      />
+      <>
+        <DesignStudioHome
+          documents={documents}
+          publications={publications}
+          isLoading={studioDocumentsQuery.isLoading}
+          isWorking={createDocumentMutation.isPending}
+          statusBanner={homeStatusBanner}
+          onBack={isMobile ? handleStudioBack : undefined}
+          onOpenSettings={isMobile ? handleStudioBack : undefined}
+          onOpenDocument={loadDocument}
+          onCreateNewDesign={createNewDesign}
+          onImportCommunityStarter={importCommunityStarter}
+        />
+        {createPicker}
+      </>
     );
   }
 
   const topBar = (
     <Card className={cn("sticky top-0 z-20 border-white/10 backdrop-blur", isMobile ? "overflow-hidden bg-[#060709]/95 shadow-[0_20px_60px_rgba(0,0,0,0.38)]" : "glass-card bg-background/95")}>
       <CardContent className="flex items-center gap-2 p-3">
-        <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+        <Button variant="ghost" size="icon" onClick={handleStudioBack}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="min-w-0 flex-1">
@@ -5256,7 +5404,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               <div className="flex items-center justify-between gap-3">
                 <Button variant="ghost" size="sm" onClick={() => setInspectorOpen(false)} className="gap-2 px-0 text-white/80 hover:bg-transparent hover:text-white">
                   <ChevronLeft className="h-4 w-4" />
-                  Back to canvas
+                  Back to message
                 </Button>
                 <span className="max-w-[45vw] truncate text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
                   {selectedEditorType === "none" ? "Editor" : selectedEditorLabel}

@@ -74,7 +74,7 @@ export function DesignStudioLaunchCard({ serverId }: { serverId: number }) {
       isLoading={studioDocumentsQuery.isLoading}
       isWorking={createDocumentMutation.isPending}
       onOpenDocument={(documentId) => openStudioDocument(documentId)}
-      onCreatePrimary={createPrimaryDraft}
+      onCreateNewDesign={() => openStudioDocument()}
       onImportCommunityStarter={importCommunityStarter}
       embedded
     />

@@ -244,7 +244,7 @@ function NodePreview({
     return (
       <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge, selected ? "ring-1 ring-primary/60 bg-primary/10" : "")}>
         <PreviewRegion label={`Edit ${node.type}`} onClick={edit} selected={selected} className="p-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#b5bac1]"><DiscordRichText text={String(node.props.heading || node.type.replace(/_/g, " "))} emojiSize={15} /></p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#b5bac1]"><DiscordRichText text={String(node.props.heading || (node.type === "section" ? "Add section heading" : "Add layout heading"))} emojiSize={15} /></p>
           {node.props.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-[#dbdee1]"><DiscordRichText text={String(node.props.description)} emojiSize={16} /></p> : editable ? <p className="mt-2 text-xs text-[#949ba4]">Tap to add section copy.</p> : null}
         </PreviewRegion>
         <div className="space-y-2">
@@ -257,21 +257,22 @@ function NodePreview({
   }
 
   if (node.type === "text_display") {
-    return <PreviewRegion label="Edit text block" onClick={edit} selected={selected} className={cn("p-2", edge)}><p className="whitespace-pre-wrap text-sm text-[#dbdee1]"><DiscordRichText text={String(node.props.text || "") || "Text block"} emojiSize={16} /></p></PreviewRegion>;
+    const textValue = String(node.props.text || "");
+    return <PreviewRegion label="Edit text block" onClick={edit} selected={selected} className={cn("p-2", edge)}><p className={cn("whitespace-pre-wrap text-sm", textValue ? "text-[#dbdee1]" : "text-[#949ba4]")}><DiscordRichText text={textValue || (editable ? "Tap to add text" : "")} emojiSize={16} /></p></PreviewRegion>;
   }
   if (node.type === "divider") {
     return <PreviewRegion label="Edit divider" onClick={edit} selected={selected} className={cn("p-2", edge)}><p className="whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]"><DiscordRichText text={dividerText(node)} emojiSize={14} /></p></PreviewRegion>;
   }
   if (node.type === "style_block") {
     const accent = String(node.props.accentColor || "#5865F2");
-    return <PreviewRegion label="Edit notice panel" onClick={edit} selected={selected} className={edge}><div className="rounded-lg border border-white/10 bg-[#2b2d31] p-3" style={{ borderLeftColor: accent, borderLeftWidth: 4 }}><p className="text-sm font-semibold text-white"><DiscordRichText text={String(node.props.title || "Notice")} emojiSize={16} /></p><p className="whitespace-pre-wrap text-xs text-[#dbdee1]"><DiscordRichText text={String(node.props.description || "")} emojiSize={15} /></p></div></PreviewRegion>;
+    return <PreviewRegion label="Edit notice panel" onClick={edit} selected={selected} className={edge}><div className="rounded-lg border border-white/10 bg-[#2b2d31] p-3" style={{ borderLeftColor: accent, borderLeftWidth: 4 }}><p className="text-sm font-semibold text-white"><DiscordRichText text={String(node.props.title || "Add notice heading")} emojiSize={16} /></p><p className={cn("whitespace-pre-wrap text-xs", node.props.description ? "text-[#dbdee1]" : "text-[#949ba4]")}><DiscordRichText text={String(node.props.description || (editable ? "Tap to add notice details" : ""))} emojiSize={15} /></p></div></PreviewRegion>;
   }
   if (node.type === "media_gallery") {
     const items = Array.isArray(node.props.items) ? node.props.items : [];
-    return <PreviewRegion label="Edit media gallery" onClick={edit} selected={selected} className={cn("space-y-2 p-2", edge)}><p className="text-xs font-medium text-[#b5bac1]"><DiscordRichText text={String(node.props.title || "Media Gallery")} emojiSize={15} /></p><div className="grid grid-cols-2 gap-2">{items.length === 0 ? <div className="rounded border border-dashed border-white/10 p-2 text-xs text-[#949ba4]">No media items</div> : null}{items.slice(0, 4).map((item: any, index: number) => <div key={`media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">{item?.url ? <img src={String(item.url)} alt={String(item?.description || "")} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-[#949ba4]">Missing image</div>}</div>)}</div></PreviewRegion>;
+    return <PreviewRegion label="Edit media gallery" onClick={edit} selected={selected} className={cn("space-y-2 p-2", edge)}><p className="text-xs font-medium text-[#b5bac1]"><DiscordRichText text={String(node.props.title || "Add gallery title")} emojiSize={15} /></p><div className="grid grid-cols-2 gap-2">{items.length === 0 ? <div className="rounded border border-dashed border-white/10 p-2 text-xs text-[#949ba4]">Tap to add images</div> : null}{items.slice(0, 4).map((item: any, index: number) => <div key={`media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]">{item?.url ? <img src={String(item.url)} alt={String(item?.description || "")} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-[#949ba4]">Add image</div>}</div>)}</div></PreviewRegion>;
   }
   if (node.type === "file") {
-    return <PreviewRegion label="Edit file block" onClick={edit} selected={selected} className={cn("p-2", edge)}><div className="rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]"><span>Attachment </span><DiscordRichText text={String(node.props.label || "File")} emojiSize={14} />{node.props.url ? <span>{` - ${String(node.props.url)}`}</span> : null}</div></PreviewRegion>;
+    return <PreviewRegion label="Edit file block" onClick={edit} selected={selected} className={cn("p-2", edge)}><div className="rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]"><span>Attachment </span><DiscordRichText text={String(node.props.label || "Add attachment label")} emojiSize={14} />{node.props.url ? <span>{` - ${String(node.props.url)}`}</span> : editable ? <span className="text-[#949ba4]"> - add file URL</span> : null}</div></PreviewRegion>;
   }
   if (node.type === "action_row") {
     return <div className={cn("space-y-2", edge, selected ? "rounded-lg ring-1 ring-primary/60" : "")}>{editable ? <button type="button" onClick={edit || undefined} className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#949ba4]">Edit button row</button> : null}<div className="flex flex-wrap gap-2">{node.childIds.map((childId) => <NodePreview key={childId} document={document} nodeId={childId} editable={editable} onEditNode={onEditNode} selectedNodeId={selectedNodeId} depth={depth + 1} />)}</div></div>;
@@ -280,22 +281,22 @@ function NodePreview({
     const style = Number(node.props.style || 1);
     const parsedEmoji = node.props.emoji ? parseDiscordEmojiToken(String(node.props.emoji)) : null;
     const styleClass = style === 1 ? "bg-[#5865F2] text-white" : style === 2 ? "bg-[#4e5058] text-white" : style === 3 ? "bg-[#248046] text-white" : style === 4 ? "bg-[#da373c] text-white" : "bg-[#00a8fc] text-[#101114]";
-    return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/40" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || "Button")} emojiSize={15} /></button>;
+    return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/40" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || (editable ? "Add button label" : "Button"))} emojiSize={15} /></button>;
   }
 
-  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-primary/35", edge, selected ? "ring-2 ring-primary/45" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || "Select Menu")} emojiSize={15} /></button>;
+  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-primary/35", edge, selected ? "ring-2 ring-primary/45" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || (editable ? "Add dropdown placeholder" : "Select menu"))} emojiSize={15} /></button>;
 }
 
 function PlannedComponentPreview({ component, depth = 0 }: { component: EmbedComponentType; depth?: number }) {
   const edge = depth > 0 ? "border-l border-white/10 pl-3" : "";
   if (component.type === COMPONENT_TYPES.CONTAINER || component.type === COMPONENT_TYPES.SECTION) return <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge)}>{(component.components || []).map((child, index) => <PlannedComponentPreview key={`${component.id || component.type}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />)}{component.accessory ? <PlannedComponentPreview component={component.accessory} depth={depth + 1} /> : null}</div>;
-  if (component.type === COMPONENT_TYPES.TEXT_DISPLAY) return <p className={cn("whitespace-pre-wrap text-sm text-[#dbdee1]", edge)}><DiscordRichText text={String(component.content || "") || "Text block"} emojiSize={16} /></p>;
+  if (component.type === COMPONENT_TYPES.TEXT_DISPLAY) return <p className={cn("whitespace-pre-wrap text-sm", component.content ? "text-[#dbdee1]" : "text-[#949ba4]", edge)}><DiscordRichText text={String(component.content || "") || "Add text"} emojiSize={16} /></p>;
   if (component.type === COMPONENT_TYPES.SEPARATOR) return <p className={cn("whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]", edge)}>{component.spacing === "large" ? "------------" : "--------"}</p>;
   if (component.type === COMPONENT_TYPES.MEDIA_GALLERY) return <div className={cn("grid grid-cols-2 gap-2", edge)}>{(component.items || []).slice(0, 4).map((item, index) => <div key={`planned-media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]"><img src={String(item.url)} alt={String(item.description || "")} className="h-full w-full object-cover" /></div>)}</div>;
-  if (component.type === COMPONENT_TYPES.FILE) return <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><span>Attachment </span><DiscordRichText text={String(component.label || "File")} emojiSize={14} /></div>;
+  if (component.type === COMPONENT_TYPES.FILE) return <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><span>Attachment </span><DiscordRichText text={String(component.label || "Add attachment label")} emojiSize={14} /></div>;
   if (component.type === COMPONENT_TYPES.ACTION_ROW) return <div className={cn("flex flex-wrap gap-2", edge)}>{(component.components || []).map((child, index) => <PlannedComponentPreview key={`${component.id || "row"}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />)}</div>;
-  if (component.type === COMPONENT_TYPES.BUTTON) return <button type="button" className={cn("rounded-md bg-[#5865F2] px-3 py-1.5 text-xs font-medium text-white", edge)}><DiscordRichText text={String(component.label || "Button")} emojiSize={15} /></button>;
-  return <div className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><DiscordRichText text={String(component.placeholder || component.label || "Select Menu")} emojiSize={15} /></div>;
+  if (component.type === COMPONENT_TYPES.BUTTON) return <button type="button" className={cn("rounded-md bg-[#5865F2] px-3 py-1.5 text-xs font-medium text-white", edge)}><DiscordRichText text={String(component.label || "Add button label")} emojiSize={15} /></button>;
+  return <div className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><DiscordRichText text={String(component.placeholder || component.label || "Add dropdown placeholder")} emojiSize={15} /></div>;
 }
 
 export function StudioPreview({
