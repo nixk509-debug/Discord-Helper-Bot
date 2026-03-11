@@ -138,10 +138,11 @@ function EmbedPreviewCard({
 }) {
   const fields = Array.isArray(embed.fields) ? embed.fields : [];
   const edit = (region: StudioEmbedEditRegion, fieldIndex?: number) => onEdit?.(index, region, fieldIndex);
+  const hasInlineFields = fields.some((field) => field.inline);
 
   return (
     <div className={cn("overflow-hidden rounded-xl border border-white/10 bg-[#2b2d31]", selected ? "ring-1 ring-primary/65" : "")} style={{ borderLeft: `4px solid ${embed.color || "#5865F2"}` }}>
-      <div className={cn("gap-4 p-4", embed.thumbnailUrl ? "grid grid-cols-[minmax(0,1fr),84px]" : "block")}>
+      <div className={cn("gap-4 p-4", embed.thumbnailUrl ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr),84px]" : "block")}>
         <div className="min-w-0 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <PreviewRegion label="Edit embed color" onClick={editable ? () => edit("color") : null} className="inline-flex items-center gap-2 px-2 py-1">
@@ -179,14 +180,19 @@ function EmbedPreviewCard({
             ) : null}
           </PreviewRegion>
           {fields.length > 0 || editable ? (
-            <div className="grid gap-2" style={{ gridTemplateColumns: fields.some((field) => field.inline) ? "repeat(3, minmax(0, 1fr))" : "1fr" }}>
+            <div className={cn("grid gap-2", hasInlineFields ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1")}>
               {fields.length === 0 && editable ? (
                 <PreviewRegion label="Add field" onClick={() => edit("field", 0)} className="col-span-full border border-dashed border-white/10 p-3">
                   <p className="text-xs text-[#949ba4]">Tap to add fields</p>
                 </PreviewRegion>
               ) : null}
               {fields.map((field, fieldIndex) => (
-                <PreviewRegion key={`field-${fieldIndex}`} label={`Edit field ${fieldIndex + 1}`} onClick={editable ? () => edit("field", fieldIndex) : null} className={cn(field.inline ? "p-2" : "col-span-full p-2")}>
+                <PreviewRegion
+                  key={`field-${fieldIndex}`}
+                  label={`Edit field ${fieldIndex + 1}`}
+                  onClick={editable ? () => edit("field", fieldIndex) : null}
+                  className={cn(field.inline ? "p-2" : "sm:col-span-2 lg:col-span-3 p-2")}
+                >
                   <p className="text-xs font-semibold text-white"><DiscordRichText text={String(field.name || "\u200B")} emojiSize={15} /></p>
                   <p className="whitespace-pre-wrap text-xs text-[#dbdee1]"><DiscordRichText text={String(field.value || "\u200B")} emojiSize={15} /></p>
                 </PreviewRegion>

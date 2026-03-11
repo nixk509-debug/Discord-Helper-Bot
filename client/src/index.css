@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&family=Syne:wght@400;500;600;700;800&display=swap');
+﻿@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Syne:wght@500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,49 +6,57 @@
 
 @layer base {
   :root {
-    --font-sans: 'Inter', sans-serif;
+    --font-sans: 'Outfit', sans-serif;
     --font-display: 'Syne', sans-serif;
     --font-mono: 'Fira Code', monospace;
 
-    /* Archivist — Obsidian Black + Rich Red Palette */
-    --background: 210 18% 7%; /* #0B0D10 main */
-    --foreground: 0 0% 95%;
+    --background: 220 22% 5%;
+    --foreground: 0 0% 96%;
 
-    --card: 210 17% 8%; /* #111418 panels */
-    --card-foreground: 0 0% 95%;
+    --card: 220 18% 8%;
+    --card-foreground: 0 0% 96%;
+    --card-border: 0 0% 100% / 0.08;
 
-    --popover: 210 17% 8%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 220 18% 8%;
+    --popover-foreground: 0 0% 96%;
+    --popover-border: 0 0% 100% / 0.08;
 
-    --primary: 352 82% 38%; /* #B11226 base crimson */
+    --primary: 352 82% 38%;
     --primary-foreground: 0 0% 98%;
-
-    --secondary: 217 24% 11%; /* #151922 hover state */
-    --secondary-foreground: 0 0% 90%;
-
-    --muted: 217 24% 11%;
-    --muted-foreground: 0 5% 55%;
-
-    --accent: 351 100% 59%; /* #FF2D4D highlight */
+    --secondary: 220 18% 12%;
+    --secondary-foreground: 0 0% 92%;
+    --muted: 220 16% 12%;
+    --muted-foreground: 0 0% 62%;
+    --accent: 351 100% 59%;
     --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 347 77% 48%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 210 17% 12%;
-    --input: 210 17% 12%;
+    --border: 220 12% 18%;
+    --input: 220 12% 18%;
     --ring: 352 82% 38%;
 
-    --sidebar-background: 210 18% 5%;
+    --primary-border: rgba(177, 18, 38, 0.34);
+    --secondary-border: rgba(255, 255, 255, 0.08);
+    --destructive-border: rgba(225, 29, 72, 0.32);
+    --button-outline: rgba(255, 255, 255, 0.1);
+    --badge-outline: rgba(255, 255, 255, 0.1);
+    --muted-border: rgba(255, 255, 255, 0.08);
+    --accent-border: rgba(255, 45, 77, 0.22);
+
+    --sidebar: 220 22% 5%;
     --sidebar-foreground: 0 0% 90%;
     --sidebar-primary: 352 82% 38%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 217 24% 9%;
+    --sidebar-primary-border: rgba(177, 18, 38, 0.34);
+    --sidebar-accent: 220 18% 9%;
     --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 210 17% 10%;
+    --sidebar-accent-border: rgba(255, 255, 255, 0.08);
+    --sidebar-border: 220 14% 12%;
     --sidebar-ring: 352 82% 38%;
 
-    --radius: 0.75rem;
+    --radius: 1rem;
 
     --chart-1: 352 82% 38%;
     --chart-2: 351 100% 59%;
@@ -57,33 +65,51 @@
     --chart-5: 10 85% 50%;
   }
 
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground selection:bg-primary/30 selection:text-primary-foreground;
-    background-image: 
-      linear-gradient(to right, rgba(177, 18, 38, 0.04) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(177, 18, 38, 0.04) 1px, transparent 1px);
-    background-size: 40px 40px;
+    background-color: #07080b;
+    background-image:
+      radial-gradient(circle at top right, rgba(255, 45, 77, 0.12), transparent 28%),
+      radial-gradient(circle at bottom left, rgba(127, 12, 28, 0.22), transparent 34%),
+      linear-gradient(to right, rgba(255, 45, 77, 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 45, 77, 0.03) 1px, transparent 1px),
+      linear-gradient(180deg, #07080b 0%, #090b0f 48%, #060709 100%);
+    background-size: auto, auto, 48px 48px, 48px 48px, auto;
     background-attachment: fixed;
     position: relative;
+    min-height: 100vh;
   }
 
   body::before {
-    content: '';
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 22%);
+    mix-blend-mode: screen;
+  }
+
+  body::after {
+    content: "";
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     height: 1px;
     z-index: 9999;
-    background: linear-gradient(90deg, transparent, #B11226, #FF2D4D, #B11226, transparent);
+    background: linear-gradient(90deg, transparent, #b11226, #ff2d4d, #b11226, transparent);
     background-size: 200% 100%;
     animation: top-line-shimmer 8s linear infinite;
-    box-shadow: 0 0 10px rgba(255, 45, 77, 0.5);
-  }
-
-  @keyframes top-line-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    box-shadow: 0 0 12px rgba(255, 45, 77, 0.4);
+    pointer-events: none;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -92,55 +118,87 @@
   }
 
   .section-header {
-    @apply uppercase text-xs font-bold tracking-widest text-muted-foreground/60;
+    @apply uppercase text-xs font-bold tracking-[0.28em] text-muted-foreground/60;
+  }
+
+  @keyframes top-line-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 }
 
 @layer utilities {
   .text-glow {
-    text-shadow: 0 0 20px hsl(352 82% 38% / 0.6);
+    text-shadow: 0 0 24px rgba(255, 45, 77, 0.4);
   }
-  
+
   .box-glow {
-    box-shadow: 0 0 25px -5px hsl(352 82% 38% / 0.4), 0 0 10px -5px hsl(351 100% 59% / 0.3);
+    box-shadow: 0 0 28px -8px rgba(177, 18, 38, 0.42), 0 0 12px -8px rgba(255, 45, 77, 0.35);
+  }
+
+  .hover-elevate {
+    transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .hover-elevate:hover {
+    transform: translateY(-2px);
+  }
+
+  .active-elevate-2:active {
+    transform: translateY(0);
   }
 
   .glass-card {
-    @apply bg-card/80 backdrop-blur-md border border-white/5;
+    @apply border border-white/10 bg-white/[0.03] backdrop-blur-xl;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
   }
-  
+
   .glass-panel {
-    @apply bg-background/80 backdrop-blur-xl border-white/5;
+    @apply border border-white/10 bg-[#090b0f]/[0.88] backdrop-blur-xl;
   }
 
   .gradient-brand {
-    background: linear-gradient(135deg, #B11226, #FF2D4D);
+    background: linear-gradient(135deg, #b11226, #ff2d4d);
   }
 
   .gradient-hero {
-    background: linear-gradient(135deg, #0B0D10 0%, #111418 40%, #151922 70%, #0B0D10 100%);
+    background: linear-gradient(135deg, #07080b 0%, #101217 42%, #1a1d22 70%, #07080b 100%);
   }
 
   .feature-card {
-    @apply relative overflow-hidden;
-    transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
-    background: #111418;
-    border: 1px solid rgba(255, 45, 77, 0.15);
+    @apply relative overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(20,22,27,0.96),rgba(8,9,12,0.98))] hover-elevate;
+    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.24);
   }
 
   .feature-card:hover {
-    @apply -translate-y-1;
-    border-color: rgba(255, 45, 77, 0.4);
-    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 45, 77, 0.1);
+    border-color: rgba(255, 45, 77, 0.22);
+    box-shadow: 0 26px 66px rgba(0, 0, 0, 0.34), 0 0 26px rgba(255, 45, 77, 0.08);
   }
 
-  .feature-card .icon-container {
-    transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  .archivist-panel {
+    @apply relative overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(19,22,27,0.97),rgba(8,9,12,0.99))];
+    box-shadow: 0 26px 70px rgba(0, 0, 0, 0.28);
   }
 
-  .feature-card:hover .icon-container {
-    @apply text-accent;
-    filter: drop-shadow(0 0 8px rgba(255, 45, 77, 0.6));
+  .archivist-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%);
+  }
+
+  .archivist-panel-muted {
+    background-image: linear-gradient(180deg, rgba(17, 19, 24, 0.96), rgba(8, 9, 12, 0.99));
+  }
+
+  .archivist-stage {
+    @apply rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(9,10,13,0.78),rgba(7,8,11,0.56))] p-3 sm:p-4;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .archivist-hero-shell {
+    position: relative;
   }
 
   .glitch-fragment {
@@ -149,7 +207,7 @@
     right: 4px;
     width: 8px;
     height: 2px;
-    background: #FF2D4D;
+    background: #ff2d4d;
     opacity: 0;
     pointer-events: none;
   }
@@ -168,3 +226,4 @@
     font-family: var(--font-mono);
   }
 }
+

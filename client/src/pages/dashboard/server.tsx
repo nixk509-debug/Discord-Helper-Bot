@@ -1,6 +1,6 @@
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
+﻿import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { MODULE_CATEGORIES, ServerSettingsLayout } from "@/components/layout/server-settings-layout";
-import { useServer, useUpdateSettings, useBotStatus } from "@/hooks/use-bot";
+import { useServer, useUpdateSettings, useBotStatus, useStudioDocuments, useStudioPublications } from "@/hooks/use-bot";
 import { useRoute } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Construction, Server, Users, Calendar, Copy, Check } from "lucide-react";
+import { Save, Construction, Server, Users, Calendar, Copy, Check, ShieldCheck, Sparkles, PlugZap, SlidersHorizontal } from "lucide-react";
 import { EmbedBuilderTab } from "@/components/embed-builder/embed-builder-tab";
 import { CommandsTab } from "@/components/commands/commands-tab";
 import { AutomodTab } from "@/components/automod/automod-tab";
@@ -44,6 +44,13 @@ import { useDiscordContext } from "@/hooks/use-bot";
 import { DiscordEntityListPicker, DiscordEntityPicker } from "@/components/discord/entity-pickers";
 import { DiscordChannelListPicker, DiscordChannelPicker } from "@/components/discord/channel-picker";
 import { DesignStudioLaunchCard } from "@/components/design-studio/design-studio-launch-card";
+import { ServerActionBar, ServerDashboardHero, ServerOverviewTab } from "@/components/server-shell/server-dashboard-shell";
+
+function normalizeModuleId(moduleId: string | null | undefined) {
+  if (!moduleId) return "general";
+  if (moduleId === "overview") return "general";
+  return moduleId;
+}
 
 export default function ServerSettings() {
   const [, params] = useRoute("/dashboard/servers/:id");
@@ -52,30 +59,33 @@ export default function ServerSettings() {
   const [activeModule, setActiveModule] = useState("general");
   const validModules = useMemo(
     () => new Set(MODULE_CATEGORIES.flatMap((category) => category.modules.map((module) => module.id))),
-    []
+    [],
   );
   useWebSocket(serverId);
 
   const { data: server, isLoading } = useServer(serverId);
   const updateSettings = useUpdateSettings(serverId);
   const { data: botStatus } = useBotStatus();
+  const studioDocumentsQuery = useStudioDocuments(serverId, { enabled: !!serverId });
+  const studioPublicationsQuery = useStudioPublications(serverId, { enabled: !!serverId });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const requestedModule = new URLSearchParams(window.location.search).get("module");
+    const requestedModule = normalizeModuleId(new URLSearchParams(window.location.search).get("module"));
     if (requestedModule && validModules.has(requestedModule) && requestedModule !== activeModule) {
       setActiveModule(requestedModule);
     }
   }, [activeModule, serverId, validModules]);
 
   const handleModuleChange = (moduleId: string) => {
-    setActiveModule(moduleId);
+    const normalizedModule = normalizeModuleId(moduleId);
+    setActiveModule(normalizedModule);
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    if (moduleId === "general") {
+    if (normalizedModule === "general") {
       url.searchParams.delete("module");
     } else {
-      url.searchParams.set("module", moduleId);
+      url.searchParams.set("module", normalizedModule);
     }
     const query = url.searchParams.toString();
     window.history.replaceState({}, "", `${url.pathname}${query ? `?${query}` : ""}`);
@@ -84,44 +94,75 @@ export default function ServerSettings() {
   if (isLoading || !server) {
     return (
       <DashboardLayout>
-        <div className="flex items-center gap-6 mb-8">
-          <Skeleton className="w-20 h-20 rounded-2xl bg-white/5" />
-          <div className="space-y-3">
-            <Skeleton className="h-8 w-64 bg-white/5" />
-            <Skeleton className="h-4 w-32 bg-white/5" />
+        <div className="space-y-6">
+          <Skeleton className="h-[240px] w-full rounded-[32px] bg-white/5" />
+          <Skeleton className="h-16 w-full rounded-[24px] bg-white/5" />
+          <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <Skeleton className="h-[680px] w-full rounded-[28px] bg-white/5" />
+            <Skeleton className="h-[680px] w-full rounded-[28px] bg-white/5" />
           </div>
         </div>
-        <Skeleton className="h-12 w-full bg-white/5 rounded-xl mb-6" />
-        <Skeleton className="h-[400px] w-full bg-white/5 rounded-2xl" />
       </DashboardLayout>
     );
   }
 
+  const studioDocuments = Array.isArray(studioDocumentsQuery.data) ? studioDocumentsQuery.data : [];
+  const studioPublications = Array.isArray(studioPublicationsQuery.data) ? studioPublicationsQuery.data : [];
+  const activeStudioPublications = studioPublications.filter((entry: any) => entry?.active !== false);
+  const publishedDocumentIds = new Set(activeStudioPublications.map((entry: any) => entry.documentId));
+  const draftCount = studioDocuments.filter((record: any) => record?.kind !== "template" && !record?.isArchived).length;
+  const pendingPublish = studioDocuments.some((record: any) => record?.kind !== "template" && !record?.isArchived && !publishedDocumentIds.has(record.id));
+
   const moduleStatuses: Record<string, boolean> = {
     general: true,
+    settings: true,
     "design-studio": true,
     channels: false,
-    permissions: false,
+    "smart-permissions": false,
+    members: false,
+    "server-control": (server.settings?.raidProtectionEnabled ?? false) || (server.settings?.automodEnabled ?? false),
     automod: server.settings?.automodEnabled ?? false,
     warnings: false,
     "raid-protection": server.settings?.raidProtectionEnabled ?? false,
     welcome: server.settings?.welcomeEnabled ?? false,
-    leveling: false,
-    "reaction-roles": false,
+    verify: server.settings?.verifyEnabled ?? false,
+    nsfw: server.settings?.nsfwEnabled ?? false,
+    leveling: server.settings?.levelingEnabled ?? false,
+    economy: server.settings?.economyEnabled ?? false,
+    "reaction-roles": (server.reactionRoles?.length ?? 0) > 0,
     starboard: false,
+    polls: false,
+    giveaways: (server.giveaways?.length ?? 0) > 0,
+    automations: false,
     commands: (server.customCommands?.length ?? 0) > 0,
-    embeds: (server.embeds?.length ?? 0) > 0,
-    scheduled: false,
-    tickets: false,
-    "audit-logs": !!(server.settings?.logChannelId),
-    "economy": server.settings?.economyEnabled ?? false,
+    variables: false,
+    scheduled: (server.scheduledMessages?.length ?? 0) > 0,
+    embeds: (server.embeds?.length ?? 0) > 0 || draftCount > 0,
+    tickets: Boolean(server.ticketConfig?.enabled) || (server.ticketPanels?.length ?? 0) > 0,
+    webhooks: false,
+    "channel-sync": false,
+    "audit-logs": Boolean(server.settings?.logChannelId || server.settings?.modLogChannelId || server.settings?.verifyLogChannelId),
+    "audit-log-viewer": false,
+    insights: false,
+    codes: false,
   };
 
-  const currentServer = server!;
+  const activeModules = Object.entries(moduleStatuses).filter(([moduleId, enabled]) => enabled && !["general", "settings", "design-studio"].includes(moduleId)).length;
+  const currentServer = server;
 
   function renderActiveModule() {
     switch (activeModule) {
       case "general":
+        return (
+          <ServerOverviewTab
+            serverId={serverId}
+            server={currentServer}
+            botReady={Boolean(botStatus?.ready)}
+            activeModules={activeModules}
+            onModuleChange={handleModuleChange}
+          />
+        );
+      case "settings":
         return <GeneralSettingsTab serverId={serverId} server={currentServer} settings={currentServer.settings} updateSettings={updateSettings} toast={toast} />;
       case "design-studio":
         return <DesignStudioLaunchCard serverId={serverId} />;
@@ -184,51 +225,58 @@ export default function ServerSettings() {
 
   return (
     <DashboardLayout>
-      <div className="flex items-center gap-6 mb-8">
-        {server.iconUrl ? (
-          <img src={server.iconUrl} alt={server.name} className="w-20 h-20 rounded-2xl shadow-lg shadow-primary/20" data-testid="img-server-icon" />
-        ) : (
-          <div className="w-20 h-20 rounded-2xl bg-secondary flex items-center justify-center text-2xl font-display font-bold shadow-lg" data-testid="img-server-icon-fallback">
-            {server.name.substring(0, 2).toUpperCase()}
-          </div>
-        )}
-        <div>
-          <h1 className="text-3xl font-display font-bold" data-testid="text-server-name">{server.name}</h1>
-          <p className="text-muted-foreground flex items-center gap-2 mt-1" data-testid="text-server-info">
-            <span className={`w-2 h-2 rounded-full ${botStatus?.ready ? "bg-green-500" : "bg-red-500"}`}></span>
-            {botStatus?.ready ? "Connected" : "Bot Offline"} &middot; {server.memberCount} Members
-          </p>
-        </div>
-      </div>
+      <div className="space-y-6">
+        <ServerDashboardHero
+          server={server}
+          serverId={serverId}
+          activeModules={activeModules}
+          draftCount={draftCount}
+          publicationCount={activeStudioPublications.length}
+          pendingPublish={pendingPublish}
+          botReady={Boolean(botStatus?.ready)}
+          onModuleChange={handleModuleChange}
+        />
 
-      <ServerSettingsLayout
-        activeModule={activeModule}
-        onModuleChange={handleModuleChange}
-        moduleStatuses={moduleStatuses}
-        serverId={serverId}
-      >
-        {renderActiveModule()}
-      </ServerSettingsLayout>
+        <ServerActionBar
+          serverId={serverId}
+          pendingPublish={pendingPublish}
+          publicationCount={activeStudioPublications.length}
+          draftCount={draftCount}
+          onModuleChange={handleModuleChange}
+        />
+
+        <ServerSettingsLayout
+          activeModule={activeModule}
+          onModuleChange={handleModuleChange}
+          moduleStatuses={moduleStatuses}
+          serverId={serverId}
+        >
+          {renderActiveModule()}
+        </ServerSettingsLayout>
+      </div>
     </DashboardLayout>
   );
 }
 
 function PlaceholderModule({ moduleId }: { moduleId: string }) {
   return (
-    <Card className="glass-card">
-      <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
-        <Construction className="w-12 h-12 text-muted-foreground/50" />
-        <h3 className="text-lg font-display font-bold" data-testid={`text-placeholder-${moduleId}`}>
-          Coming Soon
-        </h3>
-        <p className="text-sm text-muted-foreground text-center max-w-md">
-          This module is under development and will be available in a future update.
-        </p>
+    <Card className="archivist-panel archivist-panel-muted overflow-hidden">
+      <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-[24px] border border-white/10 bg-white/[0.04] text-white/70">
+          <Construction className="h-7 w-7" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-xl font-display font-bold text-white" data-testid={`text-placeholder-${moduleId}`}>
+            Surface incoming
+          </h3>
+          <p className="mx-auto max-w-md text-sm text-muted-foreground">
+            This module already lives inside the upgraded Archivist shell. Its dedicated internal redesign will land in a follow-up pass.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
 }
-
 function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast }: any) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { data: discordContext } = useDiscordContext(serverId);
@@ -393,15 +441,20 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
     );
   };
 
+  const configuredIdentityCount = [prefix.trim(), locale.trim(), timezone.trim(), defaultEmbedColor.trim()].filter(Boolean).length;
+  const permissionSignals = [dashboardAccessRoleIds.length > 0, Boolean(defaultModerationRoleId), Boolean(defaultStaffRoleId)].filter(Boolean).length;
+  const integrationSignals = [Boolean(auditLogChannelId), Boolean(systemLogChannelId), notificationChannelIds.length > 0, loggingEnabled].filter(Boolean).length;
+  const advancedSignals = [dmUsageEnabled, commandCooldownSeconds > 0, Object.values(moduleToggles).some(Boolean)].filter(Boolean).length;
+
   return (
     <div className="space-y-6">
-      <Card className="glass-card">
+      <Card className="glass-card border-white/10 bg-background/40">
         <CardHeader>
           <CardTitle className="font-display flex items-center gap-2">
-            <Server className="w-5 h-5 text-primary" />
-            Server Information
+            <Sparkles className="w-5 h-5 text-primary" />
+            Server Snapshot
           </CardTitle>
-          <CardDescription>Overview of your server and current operational profile.</CardDescription>
+          <CardDescription>Quick reference for the server Archivist is operating in right now.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -436,14 +489,61 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
         </CardContent>
       </Card>
 
-      <Card className="glass-card">
+      <Card className="glass-card border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(177,18,38,0.16),transparent_32%),linear-gradient(180deg,rgba(20,23,27,0.94),rgba(10,11,13,0.98))]">
         <CardHeader>
-          <CardTitle className="font-display">Bot Configuration</CardTitle>
-          <CardDescription>
-            Operational defaults for command behavior, embeds, moderation policy, and channel routing.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <CardTitle className="font-display">Bot Settings</CardTitle>
+              <CardDescription>
+                Control Archivist identity, defaults, permissions, routing, and deeper operating behavior from one surface.
+              </CardDescription>
+            </div>
+            <Button onClick={handleSave} disabled={updateSettings.isPending} data-testid="button-save-general" className="gap-2">
+              <Save className="w-4 h-4" />
+              {updateSettings.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-8">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
+                <Server className="h-3.5 w-3.5" />
+                Identity
+              </div>
+              <p className="mt-2 text-2xl font-display font-semibold text-white">{configuredIdentityCount}/4</p>
+              <p className="mt-1 text-sm text-muted-foreground">Core defaults configured</p>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Permissions
+              </div>
+              <p className="mt-2 text-2xl font-display font-semibold text-white">{permissionSignals}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Access signals active</p>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
+                <PlugZap className="h-3.5 w-3.5" />
+                Integrations
+              </div>
+              <p className="mt-2 text-2xl font-display font-semibold text-white">{integrationSignals}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Channel and log links</p>
+            </div>
+            <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/40">
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Advanced
+              </div>
+              <p className="mt-2 text-2xl font-display font-semibold text-white">{advancedSignals}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Operational behaviors tuned</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-white/40">Identity</p>
+            <p className="text-sm text-muted-foreground">How Archivist appears and behaves by default across your server.</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div>
@@ -524,6 +624,10 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
             </div>
           </div>
 
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-white/40">Permissions</p>
+            <p className="text-sm text-muted-foreground">Set trusted roles and define how Archivist should fall back when access rules are incomplete.</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <DiscordEntityListPicker
               values={dashboardAccessRoleIds}
@@ -553,6 +657,10 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
             </div>
           </div>
 
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-white/40">Integrations</p>
+            <p className="text-sm text-muted-foreground">Choose the channels and defaults Archivist should plug into first.</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-4">
               <DiscordChannelPicker
@@ -603,6 +711,10 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
             </div>
           </div>
 
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-white/40">Advanced</p>
+            <p className="text-sm text-muted-foreground">Tune deeper behavior, notification routing, and module defaults once the foundation is set.</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div>
@@ -696,12 +808,10 @@ function GeneralSettingsTab({ serverId, server, settings, updateSettings, toast 
             </div>
           </div>
 
-          <Button onClick={handleSave} disabled={updateSettings.isPending} data-testid="button-save-general" className="gap-2">
-            <Save className="w-4 h-4" />
-            {updateSettings.isPending ? "Saving..." : "Save Configuration"}
-          </Button>
         </CardContent>
       </Card>
     </div>
   );
 }
+
+

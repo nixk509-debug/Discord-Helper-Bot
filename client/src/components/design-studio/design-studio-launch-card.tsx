@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+﻿import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import {
   useCreateStudioDocument,
@@ -9,7 +9,6 @@ import { DesignStudioHome } from "@/components/design-studio/design-studio-home"
 import {
   STUDIO_COMMUNITY_STARTERS,
   createStudioPrimaryDocument,
-  type StudioPrimarySurfaceType,
 } from "@/components/design-studio/studio-defaults";
 import type { StudioDocumentRecord } from "@shared/schema";
 
@@ -29,8 +28,8 @@ export function DesignStudioLaunchCard({ serverId }: { serverId: number }) {
     navigate(`${target.pathname}${target.search}`);
   };
 
-  const createPrimaryDraft = (primaryType: StudioPrimarySurfaceType) => {
-    const document = createStudioPrimaryDocument(primaryType);
+  const createPrimaryDraft = () => {
+    const document = createStudioPrimaryDocument("message");
     createDocumentMutation.mutate(
       {
         scope: "server",
@@ -74,9 +73,10 @@ export function DesignStudioLaunchCard({ serverId }: { serverId: number }) {
       isLoading={studioDocumentsQuery.isLoading}
       isWorking={createDocumentMutation.isPending}
       onOpenDocument={(documentId) => openStudioDocument(documentId)}
-      onCreateNewDesign={() => openStudioDocument()}
+      onCreateNewDesign={createPrimaryDraft}
       onImportCommunityStarter={importCommunityStarter}
       embedded
     />
   );
 }
+

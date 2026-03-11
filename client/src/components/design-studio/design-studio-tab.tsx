@@ -178,6 +178,29 @@ const NODE_TYPE_OPTIONS: Array<{ type: StudioNodeType; label: string; detail: st
   { type: "mentionable_select", label: "Mentionable Menu", detail: "Schema-ready, runtime gated." },
 ];
 
+type CanvasRootPart =
+  | "text"
+  | "embed"
+  | "container"
+  | "button_row"
+  | "dropdown"
+  | "image"
+  | "gallery"
+  | "divider"
+  | "notice";
+
+const CANVAS_ROOT_PART_OPTIONS: Array<{ id: CanvasRootPart; label: string; detail: string }> = [
+  { id: "text", label: "Text", detail: "Message copy or a text block." },
+  { id: "embed", label: "Embed", detail: "Rich Discord content with live region editing." },
+  { id: "container", label: "Container", detail: "Group parts and nest sections." },
+  { id: "button_row", label: "Button Row", detail: "Start an interactive row." },
+  { id: "dropdown", label: "Dropdown", detail: "Add a select menu with actions." },
+  { id: "image", label: "Image", detail: "Single image slot or media card." },
+  { id: "gallery", label: "Gallery", detail: "Multiple images in one message." },
+  { id: "divider", label: "Divider", detail: "Create a clean section break." },
+  { id: "notice", label: "Notice Panel", detail: "Highlight rules, alerts, or callouts." },
+];
+
 const ACTION_TYPE_OPTIONS: Array<{ type: InteractiveActionConfig["type"]; label: string; detail: string }> = [
   { type: "reply_message", label: "Reply", detail: "Reply to the user with content or embeds." },
   { type: "follow_up_message", label: "Follow Up", detail: "Send a follow-up message after the interaction." },
@@ -4047,7 +4070,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
     openNodeEditor(galleryPayload.node.id);
   };
 
-  const addCanvasPart = (part: "text" | "embed" | "button_row" | "dropdown" | "image" | "gallery" | "divider" | "notice") => {
+  const addCanvasPart = (part: CanvasRootPart) => {
     if (part === "text") {
       if (!(currentView?.messageContent || "").trim() && (currentView?.embeds?.length || 0) === 0 && currentViewNodeCount === 0) {
         openMessageEditor("message body");
@@ -4059,6 +4082,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
     if (part === "embed") {
       addEmbedCanvasPart("embed");
+      return;
+    }
+
+    if (part === "container") {
+      addNodeToCurrentView("container");
       return;
     }
 
@@ -4095,15 +4123,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   };
 
   const renderCanvasAddActions = () => (
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <Button variant="outline" onClick={() => addCanvasPart("text")}>Text</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("embed")}>Embed</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("button_row")}>Button Row</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("dropdown")}>Dropdown</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("image")}>Image</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("gallery")}>Gallery</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("divider")}>Divider</Button>
-      <Button variant="outline" onClick={() => addCanvasPart("notice")}>Notice Panel</Button>
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      {CANVAS_ROOT_PART_OPTIONS.map((option) => (
+        <Button
+          key={`canvas-root-part-${option.id}`}
+          variant="outline"
+          className="h-auto justify-start rounded-2xl px-3 py-3 text-left"
+          onClick={() => addCanvasPart(option.id)}
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-white">{option.label}</div>
+            <div className="mt-1 hidden text-xs leading-5 text-muted-foreground sm:block">{option.detail}</div>
+          </div>
+        </Button>
+      ))}
     </div>
   );
 
@@ -5217,7 +5250,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
   );
   const quickAddDrawer = (
     <Drawer open={quickAddOpen} onOpenChange={handleQuickAddOpenChange}>
-      <DrawerContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-background/95">
+      <DrawerContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-background/95">
         <DrawerHeader>
           <DrawerTitle>{quickAddParentNode ? `Add Inside ${getStudioNodeTypeLabel(quickAddParentNode.type)}` : "Add Part"}</DrawerTitle>
           <DrawerDescription>
@@ -5226,7 +5259,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               : "Add a visible part to this message without leaving the live canvas."}
           </DrawerDescription>
         </DrawerHeader>
-        <div className="space-y-4 px-4 pb-6">
+        <div className="space-y-4 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
           {quickAddParentNode ? (
             <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3">
               <p className="text-[10px] uppercase tracking-[0.3em] text-white/45">Target</p>
@@ -5235,66 +5268,40 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             </div>
           ) : null}
           {quickAddParentNode ? (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {quickAddNodeOptions.map((option) => (
-                <Button key={`quick-add-${option.type}`} variant="outline" className="h-auto justify-start py-3" onClick={() => addNodeFromQuickAdd(option.type)}>
-                  <div className="text-left">
+                <Button key={`quick-add-${option.type}`} variant="outline" className="h-auto justify-start rounded-2xl px-3 py-3 text-left" onClick={() => addNodeFromQuickAdd(option.type)}>
+                  <div className="min-w-0 text-left">
                     <div className="text-sm font-medium text-white">{option.label}</div>
-                    <div className="text-xs text-muted-foreground">{option.detail}</div>
+                    <div className="mt-1 text-xs leading-5 text-muted-foreground sm:block">{option.detail}</div>
                   </div>
                 </Button>
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("text"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Text</div>
-                  <div className="text-xs text-muted-foreground">Write message copy or add a text block.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("embed"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Embed</div>
-                  <div className="text-xs text-muted-foreground">Add a rich Discord embed with direct on-canvas editing.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("button_row"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Button Row</div>
-                  <div className="text-xs text-muted-foreground">Insert a starter row with a button you can edit directly.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("dropdown"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Dropdown</div>
-                  <div className="text-xs text-muted-foreground">Add a select menu with options, emoji, and actions.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("image"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Image</div>
-                  <div className="text-xs text-muted-foreground">Add an image slot to an embed or a visible media card.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("gallery"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Gallery</div>
-                  <div className="text-xs text-muted-foreground">Stack multiple images into one message gallery.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("divider"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Divider</div>
-                  <div className="text-xs text-muted-foreground">Separate sections with a visible line or symbol break.</div>
-                </div>
-              </Button>
-              <Button variant="outline" className="h-auto justify-start py-3" onClick={() => { addCanvasPart("notice"); setQuickAddOpen(false); }}>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-white">Notice Panel</div>
-                  <div className="text-xs text-muted-foreground">Highlight warnings, rules, or callout copy.</div>
-                </div>
-              </Button>
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/10 bg-background/35 px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-white/45">Root parts</p>
+                <p className="mt-1 text-sm text-white/80">Everything here is valid at the message root, including structural parts like Container.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {CANVAS_ROOT_PART_OPTIONS.map((option) => (
+                  <Button
+                    key={`quick-add-root-${option.id}`}
+                    variant="outline"
+                    className="h-auto justify-start rounded-2xl px-3 py-3 text-left"
+                    onClick={() => {
+                      addCanvasPart(option.id);
+                      setQuickAddOpen(false);
+                    }}
+                  >
+                    <div className="min-w-0 text-left">
+                      <div className="text-sm font-medium text-white">{option.label}</div>
+                      <div className="mt-1 text-xs leading-5 text-muted-foreground sm:block">{option.detail}</div>
+                    </div>
+                  </Button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -5332,7 +5339,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
   const visibleMobileBuildWorkspaces = MOBILE_BUILD_WORKSPACES.filter((workspace) => workspace.id !== "actions" || showBehaviorWorkspace);
   const mobileBuildNav = (
-    <div className={cn("grid gap-2", visibleMobileBuildWorkspaces.length >= 4 ? "grid-cols-4" : "grid-cols-3")}>
+    <div className={cn("grid gap-2", visibleMobileBuildWorkspaces.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-3")}>
       {visibleMobileBuildWorkspaces.map(({ id, label, detail, icon: Icon }) => {
         const isActive = activeArea === "build" && buildFocusId === id;
         const detailText =
@@ -5350,7 +5357,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
             type="button"
             onClick={() => activateBuildFocus(id)}
             className={cn(
-              "rounded-[22px] border px-2.5 py-3 text-left transition",
+              "rounded-[22px] border px-3 py-3 text-left transition",
               isActive
                 ? "border-primary/45 bg-primary/12 shadow-[0_16px_30px_rgba(177,18,38,0.22)]"
                 : "border-white/10 bg-[linear-gradient(180deg,rgba(21,24,29,0.92),rgba(10,11,13,0.98))] hover:border-white/20",
@@ -5359,7 +5366,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
           >
             <Icon className={cn("mb-2 h-4 w-4", isActive ? "text-primary" : "text-white/65")} />
             <p className="text-xs font-semibold text-white">{label}</p>
-            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-white/45">{detailText}</p>
+            <p className="mt-1 text-[11px] leading-4 text-white/45">{detailText}</p>
           </button>
         );
       })}
@@ -5378,13 +5385,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
   if (isMobile) {
     return (
-      <div className="space-y-4 pb-28">
+      <div className="space-y-4 pb-[calc(env(safe-area-inset-bottom)+7rem)]">
         {topBar}
         {activeArea === "build" && hasMultiplePages ? mobileViewChips : null}
         {renderActiveWorkspace()}
 
         <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
-          <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
+          <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
             <SheetHeader>
               <SheetTitle>Live Preview</SheetTitle>
               <SheetDescription>Switch between mobile, desktop, and compact preview modes.</SheetDescription>
@@ -5399,7 +5406,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         </Sheet>
 
         <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
-          <SheetContent side="bottom" className="h-[96vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4">
+          <SheetContent side="bottom" className="h-[92vh] overflow-y-auto rounded-t-3xl border-white/10 bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
             <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-white/10 bg-background/95 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <Button variant="ghost" size="sm" onClick={() => setInspectorOpen(false)} className="gap-2 px-0 text-white/80 hover:bg-transparent hover:text-white">
@@ -5412,9 +5419,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
               </div>
             </div>
             <SheetHeader>
-              <SheetTitle>Editor</SheetTitle>
+              <SheetTitle>Inspector</SheetTitle>
               <SheetDescription>
-                {selectedEditorType === "none" ? "Pick an embed, component, behavior, or modal to edit." : `Editing ${selectedEditorLabel}`}
+                {selectedEditorType === "none" ? "Tap a visible part on the live message to inspect and edit it." : `Inspecting ${selectedEditorLabel}`}
               </SheetDescription>
             </SheetHeader>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -5459,7 +5466,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
 
         {activeArea === "build" ? (
           <Button
-            className="fixed bottom-20 right-4 z-30 gap-2 rounded-full shadow-xl"
+            className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] right-4 z-30 gap-2 rounded-full shadow-xl"
             onClick={() => openQuickAddDrawer(null)}
           >
             <Plus className="h-4 w-4" />
@@ -5468,7 +5475,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
         ) : null}
 
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-background/95 backdrop-blur">
-          <div className="grid grid-cols-4 gap-2 p-2">
+          <div className="grid grid-cols-4 gap-2 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2">
             {MOBILE_UTILITY_AREAS.map(({ id, label, icon: Icon }) => (
               <button
                 key={`mobile-utility-${id}`}
@@ -5500,9 +5507,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: { serverId: 
       <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen}>
         <SheetContent side="right" className="w-full max-w-[540px] overflow-y-auto border-white/10 bg-background/95 px-4">
           <SheetHeader>
-            <SheetTitle>Editor</SheetTitle>
+            <SheetTitle>Inspector</SheetTitle>
             <SheetDescription>
-              {selectedEditorType === "none" ? "Pick a visible message part to edit it directly." : `Editing ${selectedEditorLabel}`}
+              {selectedEditorType === "none" ? "Pick a visible message part to inspect and edit it directly." : `Inspecting ${selectedEditorLabel}`}
             </SheetDescription>
           </SheetHeader>
           <div className="mt-3 flex flex-wrap items-center gap-2">
