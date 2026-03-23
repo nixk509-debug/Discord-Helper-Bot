@@ -1,19 +1,38 @@
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, useAuthOptions, useOwnerLogin } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { SiDiscord } from "react-icons/si";
-import { Loader2, Check } from "lucide-react";
+import { Loader2, Check, LockKeyhole, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useEffect, useState } from "react";
 import archivistAvatar from "@assets/archivist-avatar.png";
 import heroBg from "@assets/hero-art.png";
 
 export default function Login() {
   const { data: user, isLoading } = useAuth();
+  const { data: authOptions } = useAuthOptions();
+  const ownerLogin = useOwnerLogin();
   const [, setLocation] = useLocation();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [ownerError, setOwnerError] = useState("");
 
   useEffect(() => {
     if (user) setLocation("/dashboard");
   }, [user, setLocation]);
+
+  async function handleOwnerLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setOwnerError("");
+
+    try {
+      const result = await ownerLogin.mutateAsync({ username, password });
+      setLocation(result.redirectTo || "/dashboard");
+    } catch (error) {
+      setOwnerError(error instanceof Error ? error.message : "Owner login failed");
+    }
+  }
 
   if (isLoading) {
     return (
@@ -53,6 +72,85 @@ export default function Login() {
               <p className="text-muted-foreground text-center text-sm">
                 Sign in with Discord to manage your servers
               </p>
+            </div>
+
+            {authOptions?.ownerLoginEnabled ? (
+              <div className="rounded-[20px] border border-white/10 bg-white/[0.03] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]" data-testid="owner-access-card">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/10 bg-[#171a20] text-white">
+                    <ShieldCheck className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">Owner Access</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      Internal login for direct dashboard access when Discord OAuth gets in the way.
+                    </p>
+                  </div>
+                </div>
+
+                <form className="mt-4 space-y-3" onSubmit={handleOwnerLogin}>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-username" className="text-foreground/90">
+                      Username
+                    </Label>
+                    <Input
+                      id="owner-username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder="Owner username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-password" className="text-foreground/90">
+                      Password
+                    </Label>
+                    <Input
+                      id="owner-password"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Owner password"
+                    />
+                  </div>
+
+                  {ownerError ? (
+                    <div className="rounded-[14px] border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+                      {ownerError}
+                    </div>
+                  ) : null}
+
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="w-full justify-center"
+                    disabled={ownerLogin.isPending || !username.trim() || !password}
+                  >
+                    {ownerLogin.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Signing in...
+                      </>
+                    ) : (
+                      <>
+                        <LockKeyhole className="h-4 w-4" />
+                        Continue with Owner Access
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </div>
+            ) : null}
+
+            <div className="my-6 flex items-center gap-3 text-white/28">
+              <div className="h-px flex-1 bg-white/8" />
+              <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/38">
+                {authOptions?.ownerLoginEnabled ? "Or use Discord" : "Discord"}
+              </span>
+              <div className="h-px flex-1 bg-white/8" />
             </div>
 
             <Button

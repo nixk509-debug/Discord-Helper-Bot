@@ -1,14 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { StudioDocument } from "./schema";
+import type { StudioDocument, StudioDraftMode } from "./schema";
+import { createMigratedStudioDocument } from "./studio/migrate";
 import { buildStudioPublishPlan } from "./studio-publish-plan";
 
-function createBaseDocument(): StudioDocument {
+function createBaseDocument(mode?: StudioDraftMode): StudioDocument {
   return {
     version: 2,
     meta: {
       name: "Test",
       entryViewId: "entry",
+      ...(mode ? { mode } : {}),
     },
     views: {
       entry: {
@@ -181,4 +183,40 @@ test("runtime-gated select menus are blocked", () => {
   const plan = buildStudioPublishPlan(document, "entry");
   assert.equal(plan.mode, "blocked");
   assert.equal(plan.usesInteractiveComponents, true);
+});
+
+test("legacy drafts auto-migrate into explicit standard mode with a backup snapshot", () => {
+  const migrated = createMigratedStudioDocument(createBaseDocument());
+
+  assert.equal(migrated.document.meta.mode, "standard");
+  assert.ok(migrated.document.meta.migration?.backupDocument);
+});
+
+test("layout_v2 drafts with standard embeds are downgraded instead of reporting exact publish", () => {
+  const document = createBaseDocument("layout_v2");
+  document.views.entry.embeds = [{ title: "Legacy embed", description: "Needs downgrade" }];
+
+  const plan = buildStudioPublishPlan(document, "entry");
+
+  assert.equal(plan.mode, "downgraded");
+  assert.equal(plan.publishPath, "downgraded");
+  assert.ok(plan.diagnostics.some((entry) => entry.code === "LAYOUT_MODE_STANDARD_BODY"));
+});
+
+test("external file blocks downgrade in layout_v2 because Discord file components need uploaded attachments", () => {
+  const document = createBaseDocument("layout_v2");
+  document.nodes.file = {
+    id: "file",
+    type: "file",
+    viewId: "entry",
+    childIds: [],
+    props: { url: "https://example.com/guide.pdf", label: "Guide" },
+  };
+  document.views.entry.rootNodeIds = ["file"];
+
+  const plan = buildStudioPublishPlan(document, "entry");
+
+  assert.equal(plan.mode, "downgraded");
+  assert.equal(plan.liveMessage.content?.includes("https://example.com/guide.pdf"), true);
+  assert.ok(plan.nodeOutcomes.some((entry) => entry.status === "downgraded"));
 });

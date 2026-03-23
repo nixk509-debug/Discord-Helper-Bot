@@ -9,7 +9,15 @@ ALTER TABLE server_settings
   ADD COLUMN IF NOT EXISTS leave_studio_document_id integer,
   ADD COLUMN IF NOT EXISTS verify_studio_document_id integer,
   ADD COLUMN IF NOT EXISTS verify_publication_id integer,
-  ADD COLUMN IF NOT EXISTS verify_entry_view_id text;
+  ADD COLUMN IF NOT EXISTS verify_entry_view_id text,
+  ADD COLUMN IF NOT EXISTS server_premium_enabled boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS server_premium_status text,
+  ADD COLUMN IF NOT EXISTS server_premium_provider text,
+  ADD COLUMN IF NOT EXISTS server_premium_since timestamp,
+  ADD COLUMN IF NOT EXISTS server_premium_expires_at timestamp,
+  ADD COLUMN IF NOT EXISTS server_premium_last_event text,
+  ADD COLUMN IF NOT EXISTS server_premium_last_webhook_at timestamp,
+  ADD COLUMN IF NOT EXISTS server_premium_metadata jsonb DEFAULT '{}'::jsonb;
 
 ALTER TABLE channel_settings
   ADD COLUMN IF NOT EXISTS channel_type text,
@@ -18,6 +26,62 @@ ALTER TABLE channel_settings
 
 ALTER TABLE user_preferences
   ADD COLUMN IF NOT EXISTS studio_state jsonb DEFAULT '{"recentEmoji":[],"favoriteEmoji":[]}'::jsonb;
+
+ALTER TABLE custom_commands
+  ADD COLUMN IF NOT EXISTS trigger_config jsonb DEFAULT '{}'::jsonb;
+
+UPDATE custom_commands
+SET trigger_config = '{}'::jsonb
+WHERE trigger_config IS NULL;
+
+CREATE TABLE IF NOT EXISTS custom_commands_v2 (
+  id serial PRIMARY KEY,
+  server_id integer NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  slug text NOT NULL,
+  schema_version integer NOT NULL DEFAULT 1,
+  kind text NOT NULL DEFAULT 'archivist-command',
+  enabled boolean DEFAULT true,
+  trigger_type text NOT NULL,
+  definition jsonb NOT NULL,
+  compiled jsonb NOT NULL,
+  import_source jsonb DEFAULT NULL,
+  last_validation jsonb DEFAULT '[]'::jsonb,
+  usage_count integer NOT NULL DEFAULT 0,
+  last_run_at timestamp,
+  created_by_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+  updated_by_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+  created_at timestamp DEFAULT now(),
+  updated_at timestamp DEFAULT now()
+);
+
+ALTER TABLE custom_commands_v2
+  ADD COLUMN IF NOT EXISTS usage_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_run_at timestamp;
+
+CREATE TABLE IF NOT EXISTS custom_command_v2_sessions (
+  id serial PRIMARY KEY,
+  server_id integer NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  command_id integer NOT NULL REFERENCES custom_commands_v2(id) ON DELETE CASCADE,
+  continuation_type text NOT NULL,
+  step_id text NOT NULL,
+  next_step_id text NOT NULL,
+  on_timeout_step_id text,
+  actor_id text,
+  channel_id text,
+  message_id text,
+  custom_id text,
+  custom_ids jsonb DEFAULT '[]'::jsonb,
+  accepted_values jsonb DEFAULT '[]'::jsonb,
+  definition jsonb NOT NULL,
+  compiled jsonb NOT NULL,
+  variables jsonb DEFAULT '{}'::jsonb,
+  input jsonb DEFAULT '{}'::jsonb,
+  expires_at timestamp NOT NULL,
+  consumed_at timestamp,
+  created_at timestamp DEFAULT now(),
+  updated_at timestamp DEFAULT now()
+);
 
 ALTER TABLE ticket_panels
   ADD COLUMN IF NOT EXISTS studio_document_id integer,
@@ -102,6 +166,11 @@ CREATE INDEX IF NOT EXISTS studio_publication_snapshots_publication_id_idx ON st
 CREATE INDEX IF NOT EXISTS studio_runtime_events_server_id_idx ON studio_runtime_events(server_id);
 CREATE INDEX IF NOT EXISTS studio_library_items_server_id_idx ON studio_library_items(server_id);
 CREATE INDEX IF NOT EXISTS studio_library_items_scope_idx ON studio_library_items(scope);
+CREATE INDEX IF NOT EXISTS custom_commands_v2_server_id_idx ON custom_commands_v2(server_id);
+CREATE INDEX IF NOT EXISTS custom_commands_v2_slug_idx ON custom_commands_v2(server_id, slug);
+CREATE INDEX IF NOT EXISTS custom_command_v2_sessions_server_id_idx ON custom_command_v2_sessions(server_id);
+CREATE INDEX IF NOT EXISTS custom_command_v2_sessions_command_id_idx ON custom_command_v2_sessions(command_id);
+CREATE INDEX IF NOT EXISTS custom_command_v2_sessions_pending_idx ON custom_command_v2_sessions(server_id, continuation_type, consumed_at, expires_at);
 `;
 
 let schemaEnsured = false;

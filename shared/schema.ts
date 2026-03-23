@@ -2,6 +2,29 @@ import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date } from 
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { CommandTriggerConfig } from "./command-triggers";
+import {
+  customCommandV2CompiledSchema,
+  createCustomCommandV2InputSchema,
+  customCommandV2DefinitionSchema,
+  customCommandV2IssueSchema,
+  updateCustomCommandV2InputSchema,
+  customCommandV2TriggerTypeSchema,
+  customCommandV2ImportSourceSchema,
+  type CustomCommandV2Compiled,
+  type CustomCommandV2Definition,
+  type CustomCommandV2JsonValue,
+  type CustomCommandV2Issue,
+  type CustomCommandV2ImportSource,
+  type CustomCommandV2TriggerType,
+} from "./custom-command-v2";
+import {
+  SITE_EDITOR_SCHEMA_VERSION,
+  siteEditorSurfaceDocumentSchema,
+  siteEditorSurfaceKeySchema,
+  type SiteEditorSurfaceDocument,
+  type SiteEditorSurfaceKey,
+} from "./site-editor";
 
 // --- BOT SERVERS ---
 export const servers = pgTable("servers", {
@@ -138,6 +161,16 @@ export const serverSettings = pgTable("server_settings", {
   raidLogChannelId: text("raid_log_channel_id"),
   configLogChannelId: text("config_log_channel_id"),
   autoLogChannelId: text("auto_log_channel_id"),
+
+  // Server premium
+  serverPremiumEnabled: boolean("server_premium_enabled").default(false),
+  serverPremiumStatus: text("server_premium_status"),
+  serverPremiumProvider: text("server_premium_provider"),
+  serverPremiumSince: timestamp("server_premium_since"),
+  serverPremiumExpiresAt: timestamp("server_premium_expires_at"),
+  serverPremiumLastEvent: text("server_premium_last_event"),
+  serverPremiumLastWebhookAt: timestamp("server_premium_last_webhook_at"),
+  serverPremiumMetadata: jsonb("server_premium_metadata").$type<Record<string, unknown>>().default({}),
 
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -282,12 +315,73 @@ export const customCommands = pgTable("custom_commands", {
   deleteInvocation: boolean("delete_invocation").default(false),
   dmResponse: boolean("dm_response").default(false),
   triggerType: text("trigger_type").default("command"),
+  triggerConfig: jsonb("trigger_config").$type<CommandTriggerConfig | null>().default(null),
   conditions: jsonb("conditions").$type<CommandCondition[]>().default([]),
   actions: jsonb("actions").$type<CommandAction[]>().default([]),
   usageCount: integer("usage_count").default(0),
   lastUsedAt: timestamp("last_used_at"),
   premiumOnly: boolean("premium_only").default(false),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const customCommandsV2 = pgTable("custom_commands_v2", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  schemaVersion: integer("schema_version").notNull().default(1),
+  kind: text("kind").notNull().default("archivist-command"),
+  enabled: boolean("enabled").default(true),
+  triggerType: text("trigger_type").$type<CustomCommandV2TriggerType>().notNull(),
+  definition: jsonb("definition").$type<CustomCommandV2Definition>().notNull(),
+  compiled: jsonb("compiled").$type<CustomCommandV2Compiled>().notNull(),
+  importSource: jsonb("import_source").$type<CustomCommandV2ImportSource | null>().default(null),
+  lastValidation: jsonb("last_validation").$type<CustomCommandV2Issue[]>().default([]),
+  usageCount: integer("usage_count").notNull().default(0),
+  lastRunAt: timestamp("last_run_at"),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const customCommandV2Sessions = pgTable("custom_command_v2_sessions", {
+  id: serial("id").primaryKey(),
+  serverId: integer("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").notNull().references(() => customCommandsV2.id, { onDelete: "cascade" }),
+  continuationType: text("continuation_type").$type<"button" | "select" | "modal_submit">().notNull(),
+  stepId: text("step_id").notNull(),
+  nextStepId: text("next_step_id").notNull(),
+  onTimeoutStepId: text("on_timeout_step_id"),
+  actorId: text("actor_id"),
+  channelId: text("channel_id"),
+  messageId: text("message_id"),
+  customId: text("custom_id"),
+  customIds: jsonb("custom_ids").$type<string[]>().default([]),
+  acceptedValues: jsonb("accepted_values").$type<string[]>().default([]),
+  definition: jsonb("definition").$type<CustomCommandV2Definition>().notNull(),
+  compiled: jsonb("compiled").$type<CustomCommandV2Compiled>().notNull(),
+  variables: jsonb("variables").$type<Record<string, CustomCommandV2JsonValue>>().default({}),
+  input: jsonb("input").$type<Record<string, CustomCommandV2JsonValue>>().default({}),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const siteContentSurfaces = pgTable("site_content_surfaces", {
+  id: serial("id").primaryKey(),
+  surfaceKey: text("surface_key").$type<SiteEditorSurfaceKey>().notNull().unique(),
+  schemaVersion: integer("schema_version").notNull().default(SITE_EDITOR_SCHEMA_VERSION),
+  draftContent: jsonb("draft_content").$type<SiteEditorSurfaceDocument>().notNull(),
+  publishedContent: jsonb("published_content").$type<SiteEditorSurfaceDocument>().notNull(),
+  updatedByUserId: integer("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  publishedByUserId: integer("published_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  updatedByLabel: text("updated_by_label"),
+  publishedByLabel: text("published_by_label"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  publishedAt: timestamp("published_at"),
 });
 
 // --- EMBEDS ---
@@ -740,6 +834,7 @@ export const serverRelations = relations(servers, ({ one, many }) => ({
   studioRuntimeEvents: many(studioRuntimeEvents),
   studioLibraryItems: many(studioLibraryItems),
   customCommands: many(customCommands),
+  customCommandsV2: many(customCommandsV2),
   embeds: many(embeds),
   channelSettings: many(channelSettings),
   reactionRoles: many(reactionRoles),
@@ -774,6 +869,17 @@ export const customCommandsRelations = relations(customCommands, ({ one, many })
   server: one(servers, { fields: [customCommands.serverId], references: [servers.id] }),
   shares: many(commandShares),
   imports: many(commandImports),
+}));
+
+export const customCommandsV2Relations = relations(customCommandsV2, ({ one }) => ({
+  server: one(servers, { fields: [customCommandsV2.serverId], references: [servers.id] }),
+  createdBy: one(users, { fields: [customCommandsV2.createdByUserId], references: [users.id] }),
+  updatedBy: one(users, { fields: [customCommandsV2.updatedByUserId], references: [users.id] }),
+}));
+
+export const siteContentSurfacesRelations = relations(siteContentSurfaces, ({ one }) => ({
+  updatedBy: one(users, { fields: [siteContentSurfaces.updatedByUserId], references: [users.id] }),
+  publishedBy: one(users, { fields: [siteContentSurfaces.publishedByUserId], references: [users.id] }),
 }));
 
 export const embedsRelations = relations(embeds, ({ one }) => ({
@@ -931,7 +1037,26 @@ export interface CommandCondition {
 }
 
 export interface CommandAction {
-  type: 'reply' | 'addRole' | 'removeRole' | 'createThread' | 'sendDM' | 'react' | 'wait' | 'deleteMessage' | 'pinMessage' | 'setVariable' | 'httpRequest' | 'addEconomyCoins' | 'addWarning' | 'sendWebhook' | 'addXP';
+  type:
+    | 'reply'
+    | 'addRole'
+    | 'removeRole'
+    | 'createThread'
+    | 'sendDM'
+    | 'react'
+    | 'wait'
+    | 'deleteMessage'
+    | 'pinMessage'
+    | 'setVariable'
+    | 'httpRequest'
+    | 'addEconomyCoins'
+    | 'addWarning'
+    | 'sendWebhook'
+    | 'addXP'
+    | 'sendStudio'
+    | 'logEvent'
+    | 'createChannel'
+    | 'editPermissions';
   value?: string;
   duration?: number;
   embedData?: Record<string, unknown>;
@@ -942,6 +1067,10 @@ export interface CommandAction {
   httpBody?: string;
   responseMapping?: { jsonPath: string; saveAs: string }[];
   amount?: number;
+  studioDocumentId?: number;
+  channelId?: string;
+  roleId?: string;
+  permissionBits?: string[];
 }
 
 export type InteractiveReplyMode = "ephemeral" | "channel";
@@ -1005,6 +1134,7 @@ export type StudioModuleBinding =
   | "leave"
   | "tickets"
   | "ticket_panel";
+export type StudioDraftMode = "standard" | "layout_v2";
 export type StudioNodeType =
   | "container"
   | "section"
@@ -1162,7 +1292,14 @@ export interface StudioDocument {
     name: string;
     category?: string;
     entryViewId: string;
+    mode?: StudioDraftMode;
     themePackId?: string;
+    migration?: {
+      source?: "legacy" | "mode_inferred" | "mode_preserved";
+      normalizedAt?: string;
+      notes?: string[];
+      backupDocument?: unknown;
+    };
   };
   views: Record<string, StudioView>;
   nodes: Record<string, StudioNode>;
@@ -1206,6 +1343,41 @@ export interface StudioDiagnostic {
   path?: string;
 }
 
+export interface StudioNormalizedNode {
+  nodeId: string;
+  nodeType: StudioNodeType;
+  path: string;
+  mode: StudioDraftMode;
+  intent: "content" | "embed" | "interactive" | "layout_v2" | "file" | "unsupported";
+  exact: boolean;
+  detail: string;
+}
+
+export interface StudioPublishAttachment {
+  id: string;
+  name: string;
+  url: string;
+  source: "asset" | "external";
+  spoiler?: boolean;
+}
+
+export interface StudioPublishDebugPayload {
+  draftMode: StudioDraftMode;
+  serializerStage: "preflight" | "serialize" | "publish";
+  payload: {
+    content?: string;
+    embeds?: StudioEmbedDraft[];
+    components?: EmbedComponentType[];
+    flags?: number;
+    attachments?: StudioPublishAttachment[];
+  };
+  serializerInputs: Array<{
+    kind: "raw_json" | "builder" | "normalized_node";
+    componentType?: number | string;
+    nodeId?: string;
+  }>;
+}
+
 export type StudioPublishNodeStatus = "exact" | "downgraded" | "blocked";
 export type StudioPublishSeverity = "visual-only" | "structural" | "behavior-breaking";
 export type StudioPublishMode = "exact" | "downgraded" | "blocked";
@@ -1226,14 +1398,16 @@ export interface StudioPlannedMessageRender {
   content?: string;
   embeds: StudioEmbedDraft[];
   components: EmbedComponentType[];
+  attachments?: StudioPublishAttachment[];
   flags?: number;
   publishPath: StudioPublishPath;
 }
 
 export interface StudioPublishPlan {
   viewId: string;
+  draftMode: StudioDraftMode;
   mode: StudioPublishMode;
-  label: "Exact V2 publish" | "Downgraded publish" | "Blocked publish";
+  label: "Exact V2 publish" | "Exact standard publish" | "Downgraded publish" | "Blocked publish";
   summary: string;
   publishPath: StudioPublishPath;
   usesComponentsV2: boolean;
@@ -1254,7 +1428,9 @@ export interface StudioPublishPlan {
   requiresSimplifiedConfirmation: boolean;
   requiresStructuralConfirmation: boolean;
   nodeOutcomes: StudioPublishNodeOutcome[];
+  normalizedNodes: StudioNormalizedNode[];
   diagnostics: StudioDiagnostic[];
+  debug: StudioPublishDebugPayload;
   liveMessage: StudioPlannedMessageRender;
 }
 
@@ -1433,6 +1609,7 @@ export interface EmbedFieldType {
 export interface EmbedComponentType {
   type: number;
   id?: string;
+  selectKind?: "string" | "role" | "user" | "channel" | "mentionable";
   label?: string;
   value?: string;
   style?: number;
@@ -1449,6 +1626,8 @@ export interface EmbedComponentType {
   accentColor?: string;
   minValues?: number;
   maxValues?: number;
+  defaultValues?: string[];
+  channelTypes?: string[];
   default?: boolean;
   items?: EmbedMediaItem[];
   accessory?: EmbedComponentType;
@@ -1480,7 +1659,7 @@ export const COMPONENT_TYPES = {
   THUMBNAIL: 7,
   SECTION: 9,
   TEXT_DISPLAY: 10,
-  FILE: 11,
+  FILE: 13,
   MEDIA_GALLERY: 12,
   SEPARATOR: 14,
   CONTAINER: 17,
@@ -1489,8 +1668,53 @@ export const COMPONENT_TYPES = {
 // --- INSERT SCHEMAS ---
 export const insertServerSchema = createInsertSchema(servers).omit({ id: true, joinedAt: true });
 export const insertSettingsSchema = createInsertSchema(serverSettings).omit({ id: true, updatedAt: true, serverId: true });
-export const insertCommandSchema = createInsertSchema(customCommands).omit({ id: true, createdAt: true, serverId: true });
-export const insertEmbedSchema = createInsertSchema(embeds).omit({ id: true, createdAt: true, serverId: true });
+export const insertCommandSchema = createInsertSchema(customCommands, {
+  triggerConfig: z.custom<CommandTriggerConfig | null>().optional(),
+  conditions: z.array(z.custom<CommandCondition>()).optional(),
+  actions: z.array(z.custom<CommandAction>()).optional(),
+}).omit({ id: true, createdAt: true, serverId: true });
+export const insertCustomCommandV2Schema = z.object({
+  name: z.string().min(1).max(80),
+  slug: z.string().min(1).max(96),
+  schemaVersion: z.number().int().default(1),
+  kind: z.literal("archivist-command").default("archivist-command"),
+  enabled: z.boolean().default(true),
+  triggerType: customCommandV2TriggerTypeSchema,
+  definition: customCommandV2DefinitionSchema,
+  compiled: customCommandV2CompiledSchema,
+  importSource: customCommandV2ImportSourceSchema.nullable().optional(),
+  lastValidation: z.array(customCommandV2IssueSchema).optional(),
+  createdByUserId: z.number().nullable().optional(),
+  updatedByUserId: z.number().nullable().optional(),
+});
+export const insertSiteContentSurfaceSchema = z.object({
+  surfaceKey: siteEditorSurfaceKeySchema,
+  schemaVersion: z.number().int().default(SITE_EDITOR_SCHEMA_VERSION),
+  draftContent: siteEditorSurfaceDocumentSchema,
+  publishedContent: siteEditorSurfaceDocumentSchema,
+  updatedByUserId: z.number().nullable().optional(),
+  publishedByUserId: z.number().nullable().optional(),
+  updatedByLabel: z.string().nullable().optional(),
+  publishedByLabel: z.string().nullable().optional(),
+});
+export const insertEmbedSchema = z.object({
+  name: z.string().min(1),
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  timestamp: z.boolean().optional(),
+  footerText: z.string().nullable().optional(),
+  footerIconUrl: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  thumbnailUrl: z.string().nullable().optional(),
+  authorName: z.string().nullable().optional(),
+  authorUrl: z.string().nullable().optional(),
+  authorIconUrl: z.string().nullable().optional(),
+  fields: z.array(z.any()).optional(),
+  components: z.array(z.any()).optional(),
+  interactiveComponents: z.array(z.any()).optional(),
+});
 export const insertChannelSettingsSchema = createInsertSchema(channelSettings).omit({ id: true, serverId: true });
 export const insertReactionRoleSchema = createInsertSchema(reactionRoles).omit({ id: true, serverId: true });
 export const insertAutoRoleSchema = createInsertSchema(autoRoles).omit({ id: true, serverId: true });
@@ -1506,7 +1730,12 @@ export const insertUserSchema = createInsertSchema(users).omit({ id: true, creat
 export const insertTemplateSchema = createInsertSchema(templates).omit({ id: true, createdAt: true });
 export const insertStudioDocumentSchema = createInsertSchema(studioDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStudioPublicationSchema = createInsertSchema(studioPublications).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertStudioPublicationSnapshotSchema = createInsertSchema(studioPublicationSnapshots).omit({ id: true, createdAt: true });
+export const insertStudioPublicationSnapshotSchema = z.object({
+  publicationId: z.number(),
+  version: z.number().optional(),
+  snapshot: z.any(),
+  createdByUserId: z.number().nullable().optional(),
+});
 export const insertStudioRuntimeEventSchema = createInsertSchema(studioRuntimeEvents).omit({ id: true, occurredAt: true });
 export const insertStudioLibraryItemSchema = createInsertSchema(studioLibraryItems).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAutomationSchema = createInsertSchema(automations).omit({ id: true, createdAt: true, updatedAt: true, serverId: true });
@@ -1532,6 +1761,9 @@ export const insertPermissionRuleSchema = createInsertSchema(permissionRules).om
 export type Server = typeof servers.$inferSelect;
 export type ServerSettings = typeof serverSettings.$inferSelect;
 export type CustomCommand = typeof customCommands.$inferSelect;
+export type CustomCommandV2Record = typeof customCommandsV2.$inferSelect;
+export type CustomCommandV2SessionRecord = typeof customCommandV2Sessions.$inferSelect;
+export type SiteContentSurfaceRecord = typeof siteContentSurfaces.$inferSelect;
 export type Embed = typeof embeds.$inferSelect;
 export type ChannelSetting = typeof channelSettings.$inferSelect;
 export type ReactionRole = typeof reactionRoles.$inferSelect;
@@ -1602,6 +1834,10 @@ export type ServerResponse = Server & {
 export type UpdateSettingsRequest = Partial<z.infer<typeof insertSettingsSchema>>;
 export type CreateCommandRequest = z.infer<typeof insertCommandSchema>;
 export type UpdateCommandRequest = Partial<CreateCommandRequest>;
+export type CreateCustomCommandV2Request = z.infer<typeof createCustomCommandV2InputSchema>;
+export type CreateSiteContentSurfaceRequest = z.infer<typeof insertSiteContentSurfaceSchema>;
+export type UpdateCustomCommandV2Request = z.infer<typeof updateCustomCommandV2InputSchema>;
+export type UpdateSiteContentSurfaceRequest = Partial<CreateSiteContentSurfaceRequest>;
 export type CreateEmbedRequest = z.infer<typeof insertEmbedSchema>;
 export type UpdateEmbedRequest = Partial<CreateEmbedRequest>;
 

@@ -59,7 +59,7 @@ export function splitTextWithDiscordEmoji(value: string) {
   > = [];
 
   let lastIndex = 0;
-  for (const match of value.matchAll(CUSTOM_DISCORD_EMOJI_PATTERN)) {
+  for (const match of Array.from(value.matchAll(CUSTOM_DISCORD_EMOJI_PATTERN))) {
     const index = match.index ?? 0;
     if (index > lastIndex) {
       parts.push({ type: "text", value: value.slice(lastIndex, index) });

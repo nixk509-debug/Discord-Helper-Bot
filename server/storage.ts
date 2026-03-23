@@ -1,13 +1,13 @@
 import { db, pool } from "./db";
 import {
-  servers, serverSettings, customCommands, embeds,
+  servers, serverSettings, customCommands, customCommandsV2, customCommandV2Sessions, siteContentSurfaces, embeds,
   channelSettings, reactionRoles, autoRoles, warnings,
   punishmentConfig, levelingConfig, starboardConfig,
   ticketConfig, ticketPanels, scheduledMessages, auditLogConfig,
   users, templates, automations, serverVariables, economy, roleShop,
   economyTransactions, memberNotes, serverInsights, commandShares,
   commandImports, serverWebhooks, polls, giveaways, userPreferences,
-  type Server, type ServerSettings, type CustomCommand, type Embed,
+  type Server, type ServerSettings, type CustomCommand, type CustomCommandV2Record, type CustomCommandV2SessionRecord, type SiteContentSurfaceRecord, type Embed,
   type ChannelSetting, type ReactionRole, type AutoRole, type Warning,
   type PunishmentConfigType, type LevelingConfigType, type StarboardConfigType,
   type TicketConfigType, type TicketPanel, type ScheduledMessage, type AuditLogConfigType,
@@ -16,8 +16,16 @@ import {
   type CommandShare, type CommandImport, type ServerWebhook, type Poll, type Giveaway,
   type UserPreferences,
 } from "@shared/schema";
+import {
+  SITE_EDITOR_SURFACE_LABELS,
+  areSiteEditorDocumentsEqual,
+  buildDefaultSiteEditorDocument,
+  normalizeSiteEditorDocument,
+  type SiteEditorSurfaceKey,
+  type SiteEditorSurfaceState,
+} from "@shared/site-editor";
 import { type ServerWithRelations } from "@shared/routes";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 
 function isSchemaMismatchError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -70,6 +78,127 @@ function buildServerListPayload(row: any): ServerWithRelations {
 }
 
 export class DatabaseStorage {
+  private mapSiteContentSurface(record: SiteContentSurfaceRecord): SiteEditorSurfaceState {
+    const draftContent = normalizeSiteEditorDocument(record.surfaceKey, record.draftContent);
+    const publishedContent = normalizeSiteEditorDocument(record.surfaceKey, record.publishedContent);
+
+    return {
+      surfaceKey: record.surfaceKey,
+      label: SITE_EDITOR_SURFACE_LABELS[record.surfaceKey],
+      schemaVersion: record.schemaVersion ?? 1,
+      draftContent,
+      publishedContent,
+      hasUnpublishedChanges: !areSiteEditorDocumentsEqual(draftContent, publishedContent),
+      updatedAt: record.updatedAt?.toISOString?.() ?? null,
+      publishedAt: record.publishedAt?.toISOString?.() ?? null,
+      updatedByUserId: record.updatedByUserId ?? null,
+      publishedByUserId: record.publishedByUserId ?? null,
+      updatedByLabel: record.updatedByLabel ?? null,
+      publishedByLabel: record.publishedByLabel ?? null,
+    };
+  }
+
+  private async ensureSiteContentSurface(surfaceKey: SiteEditorSurfaceKey): Promise<SiteContentSurfaceRecord> {
+    const [existing] = await db.select().from(siteContentSurfaces).where(eq(siteContentSurfaces.surfaceKey, surfaceKey));
+    if (existing) return existing;
+
+    const defaults = buildDefaultSiteEditorDocument(surfaceKey);
+    const [created] = await db
+      .insert(siteContentSurfaces)
+      .values({
+        surfaceKey,
+        schemaVersion: defaults.schemaVersion,
+        draftContent: defaults,
+        publishedContent: defaults,
+        updatedAt: new Date(),
+        publishedAt: new Date(),
+      } as any)
+      .returning();
+
+    return created;
+  }
+
+  async listSiteContentSurfaces(): Promise<SiteEditorSurfaceState[]> {
+    const surfaceKeys = Object.keys(SITE_EDITOR_SURFACE_LABELS) as SiteEditorSurfaceKey[];
+    const records = await Promise.all(surfaceKeys.map((surfaceKey) => this.ensureSiteContentSurface(surfaceKey)));
+    return records.map((record) => this.mapSiteContentSurface(record));
+  }
+
+  async getSiteContentSurface(surfaceKey: SiteEditorSurfaceKey): Promise<SiteEditorSurfaceState> {
+    const record = await this.ensureSiteContentSurface(surfaceKey);
+    return this.mapSiteContentSurface(record);
+  }
+
+  async saveSiteContentDraft(
+    surfaceKey: SiteEditorSurfaceKey,
+    draftContent: unknown,
+    actor?: { userId?: number | null; label?: string | null },
+  ): Promise<SiteEditorSurfaceState> {
+    const record = await this.ensureSiteContentSurface(surfaceKey);
+    const normalizedDraft = normalizeSiteEditorDocument(surfaceKey, draftContent);
+
+    const [updated] = await db
+      .update(siteContentSurfaces)
+      .set({
+        schemaVersion: normalizedDraft.schemaVersion,
+        draftContent: normalizedDraft,
+        updatedByUserId: actor?.userId ?? null,
+        updatedByLabel: actor?.label ?? null,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(siteContentSurfaces.id, record.id))
+      .returning();
+
+    return this.mapSiteContentSurface(updated);
+  }
+
+  async publishSiteContentSurface(
+    surfaceKey: SiteEditorSurfaceKey,
+    actor?: { userId?: number | null; label?: string | null },
+  ): Promise<SiteEditorSurfaceState> {
+    const record = await this.ensureSiteContentSurface(surfaceKey);
+    const normalizedDraft = normalizeSiteEditorDocument(surfaceKey, record.draftContent);
+
+    const [updated] = await db
+      .update(siteContentSurfaces)
+      .set({
+        schemaVersion: normalizedDraft.schemaVersion,
+        draftContent: normalizedDraft,
+        publishedContent: normalizedDraft,
+        updatedByUserId: actor?.userId ?? null,
+        publishedByUserId: actor?.userId ?? null,
+        updatedByLabel: actor?.label ?? null,
+        publishedByLabel: actor?.label ?? null,
+        updatedAt: new Date(),
+        publishedAt: new Date(),
+      } as any)
+      .where(eq(siteContentSurfaces.id, record.id))
+      .returning();
+
+    return this.mapSiteContentSurface(updated);
+  }
+
+  async resetSiteContentDraft(
+    surfaceKey: SiteEditorSurfaceKey,
+    actor?: { userId?: number | null; label?: string | null },
+  ): Promise<SiteEditorSurfaceState> {
+    const record = await this.ensureSiteContentSurface(surfaceKey);
+    const normalizedPublished = normalizeSiteEditorDocument(surfaceKey, record.publishedContent);
+
+    const [updated] = await db
+      .update(siteContentSurfaces)
+      .set({
+        draftContent: normalizedPublished,
+        updatedByUserId: actor?.userId ?? null,
+        updatedByLabel: actor?.label ?? null,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(siteContentSurfaces.id, record.id))
+      .returning();
+
+    return this.mapSiteContentSurface(updated);
+  }
+
   async getServers(): Promise<ServerWithRelations[]> {
     try {
       const result = await pool.query(`
@@ -175,10 +304,43 @@ export class DatabaseStorage {
       .where(eq(serverSettings.serverId, serverId)).returning();
     return updated;
   }
+  async setServerPremiumState(serverId: number, premiumState: Partial<ServerSettings>): Promise<ServerSettings> {
+    const [existing] = await db
+      .select()
+      .from(serverSettings)
+      .where(eq(serverSettings.serverId, serverId));
+
+    const patch = {
+      ...premiumState,
+      updatedAt: new Date(),
+    } as any;
+
+    if (existing) {
+      const [updated] = await db
+        .update(serverSettings)
+        .set(patch)
+        .where(eq(serverSettings.serverId, serverId))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db
+      .insert(serverSettings)
+      .values({
+        serverId,
+        ...patch,
+      } as any)
+      .returning();
+    return created;
+  }
 
   // --- COMMANDS ---
   async getCommands(serverId: number): Promise<CustomCommand[]> {
     return await db.select().from(customCommands).where(eq(customCommands.serverId, serverId));
+  }
+  async getCommandById(id: number): Promise<CustomCommand | undefined> {
+    const [command] = await db.select().from(customCommands).where(eq(customCommands.id, id));
+    return command;
   }
   async createCommand(serverId: number, cmd: any): Promise<CustomCommand> {
     const [created] = await db.insert(customCommands).values({ ...cmd, serverId } as any).returning();
@@ -191,6 +353,106 @@ export class DatabaseStorage {
   async deleteCommand(id: number): Promise<void> {
     await db.delete(customCommands).where(eq(customCommands.id, id));
   }
+  async touchCommandUsage(id: number): Promise<void> {
+    await db
+      .update(customCommands)
+      .set({
+        usageCount: sql`${customCommands.usageCount} + 1`,
+        lastUsedAt: new Date(),
+      } as any)
+      .where(eq(customCommands.id, id));
+  }
+
+  async getCommandsV2(serverId: number): Promise<CustomCommandV2Record[]> {
+    return await db
+      .select()
+      .from(customCommandsV2)
+      .where(eq(customCommandsV2.serverId, serverId));
+  }
+  async getCommandV2ById(id: number): Promise<CustomCommandV2Record | undefined> {
+    const [command] = await db.select().from(customCommandsV2).where(eq(customCommandsV2.id, id));
+    return command;
+  }
+  async createCommandV2(serverId: number, cmd: any): Promise<CustomCommandV2Record> {
+    const [created] = await db
+      .insert(customCommandsV2)
+      .values({
+        ...cmd,
+        serverId,
+        updatedAt: new Date(),
+      } as any)
+      .returning();
+    return created;
+  }
+  async updateCommandV2(id: number, cmd: any): Promise<CustomCommandV2Record> {
+    const [updated] = await db
+      .update(customCommandsV2)
+      .set({
+        ...cmd,
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(customCommandsV2.id, id))
+      .returning();
+    return updated;
+  }
+  async touchCommandV2Usage(id: number, input?: { lastRunAt?: Date }): Promise<void> {
+    await db
+      .update(customCommandsV2)
+      .set({
+        usageCount: sql`${customCommandsV2.usageCount} + 1`,
+        lastRunAt: input?.lastRunAt ?? new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(customCommandsV2.id, id));
+  }
+  async deleteCommandV2(id: number): Promise<void> {
+    await db.delete(customCommandsV2).where(eq(customCommandsV2.id, id));
+  }
+  async getPendingCommandV2Sessions(
+    serverId: number,
+    continuationType?: "button" | "select" | "modal_submit",
+  ): Promise<CustomCommandV2SessionRecord[]> {
+    const filters = [eq(customCommandV2Sessions.serverId, serverId), isNull(customCommandV2Sessions.consumedAt)];
+    if (continuationType) {
+      filters.push(eq(customCommandV2Sessions.continuationType, continuationType));
+    }
+    return await db
+      .select()
+      .from(customCommandV2Sessions)
+      .where(and(...filters))
+      .orderBy(desc(customCommandV2Sessions.createdAt));
+  }
+  async createCommandV2Session(serverId: number, session: any): Promise<CustomCommandV2SessionRecord> {
+    const [created] = await db
+      .insert(customCommandV2Sessions)
+      .values({
+        ...session,
+        serverId,
+        updatedAt: new Date(),
+      } as any)
+      .returning();
+    return created;
+  }
+  async claimCommandV2Session(id: number): Promise<CustomCommandV2SessionRecord | null> {
+    const [claimed] = await db
+      .update(customCommandV2Sessions)
+      .set({
+        consumedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(customCommandV2Sessions.id, id), isNull(customCommandV2Sessions.consumedAt)))
+      .returning();
+    return claimed ?? null;
+  }
+  async consumeCommandV2Session(id: number): Promise<void> {
+    await db
+      .update(customCommandV2Sessions)
+      .set({
+        consumedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(customCommandV2Sessions.id, id));
+  }
 
   // --- EMBEDS ---
   async getEmbeds(serverId: number): Promise<Embed[]> {
@@ -199,6 +461,10 @@ export class DatabaseStorage {
   async createEmbed(serverId: number, embed: any): Promise<Embed> {
     const [created] = await db.insert(embeds).values({ ...embed, serverId } as any).returning();
     return created;
+  }
+  async getEmbedById(id: number): Promise<Embed | undefined> {
+    const [embed] = await db.select().from(embeds).where(eq(embeds.id, id));
+    return embed;
   }
   async updateEmbed(id: number, embed: any): Promise<Embed> {
     const [updated] = await db.update(embeds).set(embed as any).where(eq(embeds.id, id)).returning();
@@ -223,6 +489,10 @@ export class DatabaseStorage {
     const [created] = await db.insert(channelSettings).values({ ...data, serverId } as any).returning();
     return created;
   }
+  async getChannelSettingsById(id: number): Promise<ChannelSetting | undefined> {
+    const [entry] = await db.select().from(channelSettings).where(eq(channelSettings.id, id));
+    return entry;
+  }
   async deleteChannelSettings(id: number): Promise<void> {
     await db.delete(channelSettings).where(eq(channelSettings.id, id));
   }
@@ -235,6 +505,10 @@ export class DatabaseStorage {
     const [created] = await db.insert(reactionRoles).values({ ...data, serverId } as any).returning();
     return created;
   }
+  async getReactionRoleById(id: number): Promise<ReactionRole | undefined> {
+    const [entry] = await db.select().from(reactionRoles).where(eq(reactionRoles.id, id));
+    return entry;
+  }
   async deleteReactionRole(id: number): Promise<void> {
     await db.delete(reactionRoles).where(eq(reactionRoles.id, id));
   }
@@ -246,6 +520,10 @@ export class DatabaseStorage {
   async createAutoRole(serverId: number, data: any): Promise<AutoRole> {
     const [created] = await db.insert(autoRoles).values({ ...data, serverId } as any).returning();
     return created;
+  }
+  async getAutoRoleById(id: number): Promise<AutoRole | undefined> {
+    const [entry] = await db.select().from(autoRoles).where(eq(autoRoles.id, id));
+    return entry;
   }
   async deleteAutoRole(id: number): Promise<void> {
     await db.delete(autoRoles).where(eq(autoRoles.id, id));

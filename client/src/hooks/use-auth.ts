@@ -11,6 +11,22 @@ export interface AuthUser {
   isPremium: boolean;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  ownerAccess?: boolean;
+  ownerSession?: boolean;
+  ownerServerIds?: number[] | null;
+  qaBypass?: boolean;
+  qaServerId?: number | null;
+}
+
+export interface AuthOptions {
+  discordLoginEnabled: boolean;
+  ownerLoginEnabled: boolean;
+}
+
+export interface OwnerLoginResult {
+  success: true;
+  redirectTo: string;
+  user: AuthUser | null;
 }
 
 export function useAuth() {
@@ -42,6 +58,50 @@ export function useLogout() {
   });
 }
 
+export function useAuthOptions() {
+  return useQuery<AuthOptions>({
+    queryKey: ["/api/auth/options"],
+    queryFn: async () => {
+      const res = await fetch(buildApiUrl("/api/auth/options"), { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch auth options");
+      return await res.json();
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useOwnerLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { username: string; password: string }) => {
+      const res = await fetch(buildApiUrl("/auth/owner-login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.message || "Owner login failed");
+      }
+      const loginResult = await res.json() as { success: true; redirectTo: string };
+      const meResponse = await fetch(buildApiUrl("/api/auth/me"), { credentials: "include" });
+      const user = meResponse.ok ? await meResponse.json() as AuthUser : null;
+
+      return {
+        ...loginResult,
+        user,
+      } satisfies OwnerLoginResult;
+    },
+    onSuccess: (result) => {
+      qc.setQueryData(["/api/auth/me"], result.user);
+      qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      qc.invalidateQueries({ queryKey: ["/api/auth/guilds"] });
+    },
+  });
+}
+
 export function useGuilds() {
   return useQuery({
     queryKey: ["/api/auth/guilds"],
@@ -49,19 +109,6 @@ export function useGuilds() {
       const res = await fetch(buildApiUrl("/api/auth/guilds"), { credentials: "include" });
       if (res.status === 401) return [];
       if (!res.ok) throw new Error("Failed to fetch guilds");
-      return await res.json();
-    },
-    retry: false,
-  });
-}
-
-export function usePremiumStatus() {
-  return useQuery({
-    queryKey: ["/api/premium/status"],
-    queryFn: async () => {
-      const res = await fetch(buildApiUrl("/api/premium/status"), { credentials: "include" });
-      if (res.status === 401) return null;
-      if (!res.ok) throw new Error("Failed to fetch premium status");
       return await res.json();
     },
     retry: false,

@@ -34,6 +34,7 @@ import {
   type Template,
 } from "@shared/schema";
 import { serializeStudioDocumentView, type StudioDocumentRenderOptions } from "@shared/studio-document";
+import { createMigratedStudioDocument, inferStudioDraftMode } from "@shared/studio/migrate";
 
 export const STUDIO_TEMPLATE_TYPE = "design_studio";
 export const DEFAULT_STUDIO_ENTRY_VIEW = "entry";
@@ -80,6 +81,7 @@ export function createDefaultStudioDocument(input?: {
       name: title,
       category: input?.category || "surface",
       entryViewId,
+      mode: "standard",
     },
     views: {
       [entryViewId]: {
@@ -289,7 +291,7 @@ export function legacyStudioPayloadToDocument(payload: any, templateName: string
   const nodes = Object.fromEntries(
     legacyBlocks
       .flatMap((block: any) => legacyBlockToNodes(block, entryViewId, actions))
-      .map((node) => [node.id, node]),
+      .map((node: any) => [node.id, node]),
   );
 
   return {
@@ -298,6 +300,37 @@ export function legacyStudioPayloadToDocument(payload: any, templateName: string
       name: String(payload?.name || templateName),
       category: String(payload?.category || "template"),
       entryViewId,
+      mode: inferStudioDraftMode({
+        version: 2,
+        meta: {
+          name: String(payload?.name || templateName),
+          category: String(payload?.category || "template"),
+          entryViewId,
+        },
+        views: {
+          [entryViewId]: {
+            id: entryViewId,
+            name: "Entry",
+            messageContent: String(payload?.message || ""),
+            embeds: Array.isArray(payload?.embeds) ? payload.embeds : [],
+            rootNodeIds: Object.keys(nodes),
+          },
+        },
+        nodes,
+        actions,
+        modals: {},
+        assets: Array.isArray(payload?.assets) ? payload.assets : [],
+        libraries: {
+          dividerPresetIds: [],
+          styleBlockIds: [],
+          themePackIds: [],
+        },
+        design: {
+          dividerPresets: [],
+          styleBlocks: [],
+          themePacks: [],
+        },
+      }),
     },
     views: {
       [entryViewId]: {
@@ -327,13 +360,15 @@ export function legacyStudioPayloadToDocument(payload: any, templateName: string
 
 export function normalizeStudioDocument(document: any, fallbackName = "Untitled Project"): StudioDocument {
   if (document && typeof document === "object" && document.version === 2 && document.meta?.entryViewId) {
-    return {
+    const migrated = createMigratedStudioDocument({
       version: 2,
       meta: {
         name: String(document.meta?.name || fallbackName),
         category: document.meta?.category ? String(document.meta.category) : "surface",
         entryViewId: String(document.meta.entryViewId),
+        mode: document.meta?.mode === "layout_v2" ? "layout_v2" : document.meta?.mode === "standard" ? "standard" : undefined,
         themePackId: document.meta?.themePackId ? String(document.meta.themePackId) : undefined,
+        migration: document.meta?.migration,
       },
       views: document.views || {},
       nodes: document.nodes || {},
@@ -350,13 +385,20 @@ export function normalizeStudioDocument(document: any, fallbackName = "Untitled 
         styleBlocks: Array.isArray(document.design?.styleBlocks) ? document.design.styleBlocks : [],
         themePacks: Array.isArray(document.design?.themePacks) ? document.design.themePacks : [],
       },
-    };
+    });
+    return migrated.document;
   }
 
-  return legacyStudioPayloadToDocument(document || {}, fallbackName);
+  return createMigratedStudioDocument(legacyStudioPayloadToDocument(document || {}, fallbackName)).document;
 }
 
-export async function migrateLegacyDesignStudioTemplates(serverId: number, userId: number) {
+function hasPersistentStudioOwner(userId: number | null | undefined): userId is number {
+  return typeof userId === "number" && userId > 0;
+}
+
+export async function migrateLegacyDesignStudioTemplates(serverId: number, userId: number | null | undefined) {
+  if (!hasPersistentStudioOwner(userId)) return;
+
   const legacyTemplates = await db.select().from(templates).where(
     and(
       eq(templates.serverId, serverId),
@@ -386,16 +428,21 @@ export async function migrateLegacyDesignStudioTemplates(serverId: number, userI
   }
 }
 
-export async function listStudioDocuments(serverId: number, userId: number) {
+export async function listStudioDocuments(serverId: number, userId: number | null | undefined) {
   await migrateLegacyDesignStudioTemplates(serverId, userId);
-  return db.select().from(studioDocuments).where(
-    and(
-      eq(studioDocuments.serverId, serverId),
-      or(
+
+  const scopeFilter = hasPersistentStudioOwner(userId)
+    ? or(
         eq(studioDocuments.scope, "server"),
         eq(studioDocuments.scope, "starter"),
         and(eq(studioDocuments.scope, "personal"), eq(studioDocuments.ownerUserId, userId)),
-      ),
+      )
+    : or(eq(studioDocuments.scope, "server"), eq(studioDocuments.scope, "starter"));
+
+  return db.select().from(studioDocuments).where(
+    and(
+      eq(studioDocuments.serverId, serverId),
+      scopeFilter,
     ),
   ).orderBy(desc(studioDocuments.updatedAt));
 }
@@ -416,8 +463,12 @@ export async function createStudioDocumentRecord(input: {
   document: StudioDocument;
   isArchived?: boolean;
 }) {
+  const usePersonalScope = input.scope === "personal" && hasPersistentStudioOwner(input.ownerUserId);
+  const normalizedScope = input.scope === "personal" ? (usePersonalScope ? "personal" : "server") : input.scope;
   const [created] = await db.insert(studioDocuments).values({
     ...input,
+    scope: normalizedScope,
+    ownerUserId: usePersonalScope ? input.ownerUserId : null,
     slug: input.slug || slugify(input.name),
     updatedAt: new Date(),
     isArchived: Boolean(input.isArchived),
@@ -433,9 +484,13 @@ export async function updateStudioDocumentRecord(id: number, patch: Partial<Stud
   return updated;
 }
 
+export async function deleteStudioDocumentRecord(id: number) {
+  await db.delete(studioDocuments).where(eq(studioDocuments.id, id));
+}
+
 export async function listStudioLibraryItems(
   serverId: number,
-  userId: number,
+  userId: number | null | undefined,
   options?: {
     scope?: StudioLibraryScope | "all";
     category?: StudioLibraryCategory | "all";
@@ -444,18 +499,26 @@ export async function listStudioLibraryItems(
   },
 ) {
   const filters: any[] = [eq(studioLibraryItems.serverId, serverId)];
+  const allowPersonalScope = hasPersistentStudioOwner(userId);
 
   if (options?.scope === "server") {
     filters.push(eq(studioLibraryItems.scope, "server"));
   } else if (options?.scope === "personal") {
+    if (!allowPersonalScope) {
+      return [];
+    }
     filters.push(and(eq(studioLibraryItems.scope, "personal"), eq(studioLibraryItems.ownerUserId, userId)));
   } else {
-    filters.push(
-      or(
-        eq(studioLibraryItems.scope, "server"),
-        and(eq(studioLibraryItems.scope, "personal"), eq(studioLibraryItems.ownerUserId, userId)),
-      ),
-    );
+    if (allowPersonalScope) {
+      filters.push(
+        or(
+          eq(studioLibraryItems.scope, "server"),
+          and(eq(studioLibraryItems.scope, "personal"), eq(studioLibraryItems.ownerUserId, userId)),
+        ),
+      );
+    } else {
+      filters.push(eq(studioLibraryItems.scope, "server"));
+    }
   }
 
   if (options?.category && options.category !== "all") {
@@ -495,9 +558,12 @@ export async function createStudioLibraryItem(input: {
   tags?: string[];
   favorite?: boolean;
 }) {
+  const usePersonalScope = input.scope === "personal" && hasPersistentStudioOwner(input.ownerUserId);
+  const normalizedScope = input.scope === "personal" ? (usePersonalScope ? "personal" : "server") : input.scope;
   const [created] = await db.insert(studioLibraryItems).values({
     ...input,
-    ownerUserId: input.scope === "personal" ? (input.ownerUserId ?? null) : null,
+    scope: normalizedScope,
+    ownerUserId: usePersonalScope ? (input.ownerUserId ?? null) : null,
     tags: input.tags || [],
     favorite: Boolean(input.favorite),
     updatedAt: new Date(),

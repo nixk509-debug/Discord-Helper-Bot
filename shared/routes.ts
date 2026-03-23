@@ -5,8 +5,26 @@ import {
   insertWarningSchema, insertPunishmentConfigSchema, insertLevelingConfigSchema,
   insertStarboardConfigSchema, insertTicketConfigSchema, insertTicketPanelSchema,
   insertScheduledMessageSchema, insertAuditLogConfigSchema,
-  type Embed, type ServerResponse, type StudioDocumentRecord, type StudioLibraryCategory, type StudioLibraryItem, type StudioLibraryScope, type StudioPublication,
+  type CustomCommand, type CustomCommandV2Record, type Embed, type ServerResponse, type StudioDocumentRecord, type StudioLibraryCategory, type StudioLibraryItem, type StudioLibraryScope, type StudioPublication,
 } from './schema';
+import {
+  customCommandV2CompiledSchema,
+  createCustomCommandV2InputSchema,
+  customCommandV2DefinitionSchema,
+  customCommandV2DryRunInputSchema,
+  customCommandV2ImportCreateRequestSchema,
+  customCommandV2ImportPreviewRequestSchema,
+  customCommandV2ImportPreviewResponseSchema,
+  customCommandV2PreviewSchema,
+  updateCustomCommandV2InputSchema,
+} from "./custom-command-v2";
+import {
+  siteEditorPublishResponseSchema,
+  siteEditorSaveDraftRequestSchema,
+  siteEditorSurfaceDocumentSchema,
+  siteEditorSurfaceKeySchema,
+  siteEditorSurfaceStateSchema,
+} from "./site-editor";
 
 export const errorSchemas = {
   validation: z.object({ message: z.string(), field: z.string().optional() }),
@@ -41,6 +59,55 @@ const botStatusSchema = z.object({
   wsStatus: z.string(),
 });
 
+const commandActivitySchema = z.object({
+  id: z.string(),
+  guildId: z.string(),
+  guildName: z.string(),
+  commandPath: z.string(),
+  actorId: z.string(),
+  actorTag: z.string(),
+  status: z.enum(["success", "failure"]),
+  summary: z.string(),
+  durationMs: z.number(),
+  createdAt: z.string(),
+});
+
+const commandFailureSchema = commandActivitySchema.extend({
+  code: z.string(),
+  message: z.string(),
+});
+
+const workspaceOverviewSchema = z.object({
+  server: z.object({
+    id: z.number(),
+    discordId: z.string(),
+    name: z.string(),
+    iconUrl: z.string().nullable(),
+    memberCount: z.number(),
+    channelCount: z.number(),
+    roleCount: z.number(),
+    ownerId: z.string(),
+  }),
+  bot: botStatusSchema,
+  metrics: z.object({
+    totalChannels: z.number(),
+    totalRoles: z.number(),
+    recentCommands: z.number(),
+    recentFailures: z.number(),
+  }),
+  commandUsage: z.array(z.object({
+    command: z.string(),
+    count: z.number(),
+  })),
+  recentActivity: z.array(commandActivitySchema),
+  recentFailures: z.array(commandFailureSchema),
+});
+
+const commandLogsSchema = z.object({
+  activity: z.array(commandActivitySchema),
+  failures: z.array(commandFailureSchema),
+});
+
 const discordContextSchema = z.object({
   guildId: z.string(),
   guildName: z.string(),
@@ -60,6 +127,9 @@ const discordContextSchema = z.object({
     isCategory: z.boolean().optional(),
     isThread: z.boolean().optional(),
     nsfw: z.boolean().optional(),
+    topic: z.string().nullable().optional(),
+    slowmodeSeconds: z.number().optional(),
+    lockedForEveryone: z.boolean().optional(),
   })),
   roles: z.array(z.object({
     id: z.string(),
@@ -77,6 +147,39 @@ const discordContextSchema = z.object({
     available: z.boolean().optional(),
     managed: z.boolean().optional(),
   })).default([]),
+});
+
+const applyChannelLiveChangesSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  parentId: z.string().nullable().optional(),
+  positionMove: z.enum(["up", "down", "top", "bottom"]).optional(),
+  topic: z.string().max(1024).nullable().optional(),
+  nsfw: z.boolean().optional(),
+  slowmode: z.number().int().min(0).max(21600).optional(),
+  lockedDown: z.boolean().optional(),
+});
+
+const applyChannelLiveChangesResponseSchema = z.object({
+  channelId: z.string(),
+  channelName: z.string(),
+  applied: z.array(z.object({
+    field: z.string(),
+    value: z.string(),
+  })),
+  ignored: z.array(z.string()),
+});
+
+const createLiveChannelSchema = z.object({
+  name: z.string().min(1).max(100),
+  kind: z.enum(["category", "text", "voice", "announcement", "forum", "stage"]),
+  parentId: z.string().nullable().optional(),
+  topic: z.string().max(1024).nullable().optional(),
+});
+
+const createLiveChannelResponseSchema = z.object({
+  channelId: z.string(),
+  channelName: z.string(),
+  typeName: z.string(),
 });
 
 
@@ -117,6 +220,12 @@ const studioTestSchema = z.object({
   }),
 });
 
+const studioPreflightSchema = z.object({
+  documentId: z.number().optional(),
+  document: z.any().optional(),
+  viewId: optionalStringInput,
+});
+
 export const studioEntryIntentSchema = z.enum(["blank", "ticket", "welcome", "verify", "template"]);
 
 const studioLibraryItemInputSchema = z.object({
@@ -147,6 +256,8 @@ export const api = {
     list: { method: 'GET' as const, path: '/api/servers' as const, responses: { 200: z.array(z.custom<ServerResponse>()) } },
     get: { method: 'GET' as const, path: '/api/servers/:id' as const, responses: { 200: z.custom<ServerResponse>(), 404: errorSchemas.notFound } },
     discordContext: { method: 'GET' as const, path: '/api/servers/:serverId/discord-context' as const, responses: { 200: discordContextSchema, 404: errorSchemas.notFound } },
+    workspaceOverview: { method: 'GET' as const, path: '/api/servers/:serverId/workspace-overview' as const, responses: { 200: workspaceOverviewSchema, 404: errorSchemas.notFound } },
+    commandLogs: { method: 'GET' as const, path: '/api/servers/:serverId/command-logs' as const, responses: { 200: commandLogsSchema, 404: errorSchemas.notFound } },
     studioDocuments: {
       list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/documents' as const, responses: { 200: z.array(z.custom<StudioDocumentRecord>()) } },
       create: { method: 'POST' as const, path: '/api/servers/:serverId/studio/documents' as const, input: studioDocumentInputSchema, responses: { 201: z.custom<StudioDocumentRecord>(), 400: errorSchemas.validation } },
@@ -155,6 +266,7 @@ export const api = {
       list: { method: 'GET' as const, path: '/api/servers/:serverId/studio/publications' as const, responses: { 200: z.array(z.custom<StudioPublication>()) } },
     },
     studioPublish: {
+      preflight: { method: 'POST' as const, path: '/api/servers/:serverId/studio/preflight' as const, input: studioPreflightSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
       publish: { method: 'POST' as const, path: '/api/servers/:serverId/studio/publish' as const, input: studioPublishSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
       test: { method: 'POST' as const, path: '/api/servers/:serverId/studio/test' as const, input: studioTestSchema, responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
     },
@@ -181,6 +293,7 @@ export const api = {
   studio: {
     documents: {
       update: { method: 'PATCH' as const, path: '/api/studio/documents/:id' as const, input: studioDocumentInputSchema.partial(), responses: { 200: z.custom<StudioDocumentRecord>(), 404: errorSchemas.notFound } },
+      delete: { method: 'DELETE' as const, path: '/api/studio/documents/:id' as const, responses: { 204: z.void(), 404: errorSchemas.notFound } },
     },
     library: {
       update: { method: 'PATCH' as const, path: '/api/studio/library/:id' as const, input: studioLibraryItemPatchSchema, responses: { 200: z.custom<StudioLibraryItem>(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
@@ -198,10 +311,124 @@ export const api = {
     update: { method: 'PATCH' as const, path: '/api/servers/:serverId/settings' as const, input: insertSettingsSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
   },
   commands: {
-    list: { method: 'GET' as const, path: '/api/servers/:serverId/commands' as const, responses: { 200: z.array(z.any()) } },
-    create: { method: 'POST' as const, path: '/api/servers/:serverId/commands' as const, input: insertCommandSchema, responses: { 201: z.any(), 400: errorSchemas.validation } },
-    update: { method: 'PATCH' as const, path: '/api/commands/:id' as const, input: insertCommandSchema.partial(), responses: { 200: z.any(), 400: errorSchemas.validation } },
+    list: { method: 'GET' as const, path: '/api/servers/:serverId/commands' as const, responses: { 200: z.array(z.custom<CustomCommand>()) } },
+    create: { method: 'POST' as const, path: '/api/servers/:serverId/commands' as const, input: insertCommandSchema, responses: { 201: z.custom<CustomCommand>(), 400: errorSchemas.validation } },
+    update: { method: 'PATCH' as const, path: '/api/commands/:id' as const, input: insertCommandSchema.partial(), responses: { 200: z.custom<CustomCommand>(), 400: errorSchemas.validation } },
     delete: { method: 'DELETE' as const, path: '/api/commands/:id' as const, responses: { 204: z.void(), 404: errorSchemas.notFound } },
+  },
+  commandWorkflowsV2: {
+    list: { method: 'GET' as const, path: '/api/servers/:serverId/commands-v2' as const, responses: { 200: z.array(z.custom<CustomCommandV2Record>()) } },
+    create: { method: 'POST' as const, path: '/api/servers/:serverId/commands-v2' as const, input: createCustomCommandV2InputSchema, responses: { 201: z.custom<CustomCommandV2Record>(), 400: errorSchemas.validation } },
+    update: { method: 'PATCH' as const, path: '/api/commands-v2/:id' as const, input: updateCustomCommandV2InputSchema, responses: { 200: z.custom<CustomCommandV2Record>(), 400: errorSchemas.validation, 404: errorSchemas.notFound } },
+    delete: { method: 'DELETE' as const, path: '/api/commands-v2/:id' as const, responses: { 204: z.void(), 404: errorSchemas.notFound } },
+    previewImport: {
+      method: 'POST' as const,
+      path: '/api/servers/:serverId/commands-v2/import/preview' as const,
+      input: customCommandV2ImportPreviewRequestSchema,
+      responses: { 200: customCommandV2ImportPreviewResponseSchema, 400: errorSchemas.validation },
+    },
+    import: {
+      method: 'POST' as const,
+      path: '/api/servers/:serverId/commands-v2/import' as const,
+      input: customCommandV2ImportCreateRequestSchema,
+      responses: {
+        201: z.object({
+          command: z.custom<CustomCommandV2Record>(),
+          preview: customCommandV2PreviewSchema,
+        }),
+        400: errorSchemas.validation,
+      },
+    },
+    dryRun: {
+      method: 'POST' as const,
+      path: '/api/servers/:serverId/commands-v2/dry-run' as const,
+      input: customCommandV2DryRunInputSchema,
+      responses: {
+        200: z.object({
+          ok: z.boolean(),
+          issues: z.array(z.object({
+            path: z.string(),
+            code: z.string(),
+            message: z.string(),
+            severity: z.enum(["error", "warning"]),
+            suggestedFix: z.string().optional(),
+          })),
+          preview: customCommandV2PreviewSchema,
+          compiled: customCommandV2CompiledSchema,
+          outputs: z.array(z.object({
+            kind: z.string(),
+            summary: z.string(),
+            payload: z.any().optional(),
+          })),
+          trace: z.array(z.object({
+            stepId: z.string(),
+            stepType: z.string(),
+            status: z.enum(["skipped", "completed", "failed"]),
+            summary: z.string(),
+          })),
+          variables: z.record(z.string(), z.any()),
+        }),
+        400: errorSchemas.validation,
+      },
+    },
+    template: {
+      method: 'GET' as const,
+      path: '/api/servers/:serverId/commands-v2/template' as const,
+      responses: { 200: customCommandV2DefinitionSchema },
+    },
+  },
+  siteEditor: {
+    published: {
+      get: {
+        method: "GET" as const,
+        path: "/api/site-content/:surface" as const,
+        responses: {
+          200: siteEditorSurfaceDocumentSchema,
+          404: errorSchemas.notFound,
+        },
+      },
+    },
+    admin: {
+      list: {
+        method: "GET" as const,
+        path: "/api/site-editor/surfaces" as const,
+        responses: { 200: z.array(siteEditorSurfaceStateSchema) },
+      },
+      get: {
+        method: "GET" as const,
+        path: "/api/site-editor/surfaces/:surface" as const,
+        responses: {
+          200: siteEditorSurfaceStateSchema,
+          404: errorSchemas.notFound,
+        },
+      },
+      saveDraft: {
+        method: "PUT" as const,
+        path: "/api/site-editor/surfaces/:surface/draft" as const,
+        input: siteEditorSaveDraftRequestSchema,
+        responses: {
+          200: siteEditorSurfaceStateSchema,
+          400: errorSchemas.validation,
+          404: errorSchemas.notFound,
+        },
+      },
+      publish: {
+        method: "POST" as const,
+        path: "/api/site-editor/surfaces/:surface/publish" as const,
+        responses: {
+          200: siteEditorPublishResponseSchema,
+          404: errorSchemas.notFound,
+        },
+      },
+      resetDraft: {
+        method: "POST" as const,
+        path: "/api/site-editor/surfaces/:surface/reset" as const,
+        responses: {
+          200: siteEditorSurfaceStateSchema,
+          404: errorSchemas.notFound,
+        },
+      },
+    },
   },
   embeds: {
     list: { method: 'GET' as const, path: '/api/servers/:serverId/embeds' as const, responses: { 200: z.array(z.custom<Embed>()) } },
@@ -222,6 +449,8 @@ export const api = {
   channelSettings: {
     list: { method: 'GET' as const, path: '/api/servers/:serverId/channels' as const, responses: { 200: z.array(z.any()) } },
     upsert: { method: 'PUT' as const, path: '/api/servers/:serverId/channels' as const, input: insertChannelSettingsSchema, responses: { 200: z.any(), 400: errorSchemas.validation } },
+    createLive: { method: 'POST' as const, path: '/api/servers/:serverId/channels/create-live' as const, input: createLiveChannelSchema, responses: { 200: createLiveChannelResponseSchema, 400: errorSchemas.validation, 404: errorSchemas.notFound } },
+    applyLive: { method: 'POST' as const, path: '/api/servers/:serverId/channels/:channelId/apply-live' as const, input: applyChannelLiveChangesSchema, responses: { 200: applyChannelLiveChangesResponseSchema, 400: errorSchemas.validation, 404: errorSchemas.notFound } },
     delete: { method: 'DELETE' as const, path: '/api/channels/:id' as const, responses: { 204: z.void() } },
   },
   reactionRoles: {
@@ -300,3 +529,5 @@ export type StudioPublishInput = z.infer<typeof studioPublishSchema>;
 export type StudioTestInput = z.infer<typeof studioTestSchema>;
 export type StudioLibraryItemInput = z.infer<typeof studioLibraryItemInputSchema>;
 export type StudioUploadAssetInput = z.infer<typeof studioUploadAssetSchema>;
+export type SiteEditorSurfaceInput = z.infer<typeof siteEditorSaveDraftRequestSchema>;
+export type SiteEditorSurfaceParam = z.infer<typeof siteEditorSurfaceKeySchema>;

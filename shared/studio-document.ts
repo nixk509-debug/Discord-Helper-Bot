@@ -470,12 +470,23 @@ function renderInteractiveNode(
     return {
       type: COMPONENT_TYPES.SELECT_MENU,
       id: node.id,
+      selectKind: node.type === "string_select"
+        ? "string"
+        : node.type === "role_select"
+          ? "role"
+          : node.type === "user_select"
+            ? "user"
+            : node.type === "channel_select"
+              ? "channel"
+              : "mentionable",
       customId: safeText(node.props.customId) || node.id,
       label: String(node.props.label || "Select Menu"),
       placeholder: String(node.props.placeholder || "Choose an option"),
       disabled: Boolean(node.props.disabled),
       minValues: Number(node.props.minValues || 1),
       maxValues: Number(node.props.maxValues || 1),
+      defaultValues: Array.isArray(node.props.defaultValues) ? node.props.defaultValues.map((value) => String(value)) : undefined,
+      channelTypes: Array.isArray(node.props.channelTypes) ? node.props.channelTypes.map((value) => String(value)) : undefined,
       options: preparedOptions,
       action: node.actionId ? document.actions[node.actionId] : undefined,
     };

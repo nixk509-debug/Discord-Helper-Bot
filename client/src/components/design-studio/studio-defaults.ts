@@ -54,6 +54,7 @@ export function createStudioDocument(binding?: StudioModuleBinding, name?: strin
       name: title,
       category: binding || "project",
       entryViewId,
+      mode: "standard",
     },
     views: {
       [entryViewId]: {
@@ -188,6 +189,7 @@ function createBaseStudioDocument(name: string): StudioDocument {
       name,
       category: "project",
       entryViewId: "entry",
+      mode: "standard",
     },
     views: {
       entry: {
@@ -239,6 +241,7 @@ export function defaultPrimarySurfaceName(primaryType: StudioPrimarySurfaceType)
 export function createStudioPrimaryDocument(primaryType: StudioPrimarySurfaceType, name?: string): StudioDocument {
   const title = name || defaultPrimarySurfaceName(primaryType);
   const document = createBaseStudioDocument(title);
+  document.meta.mode = primaryType === "components" ? "layout_v2" : "standard";
 
   if (primaryType === "embed") {
     document.views.entry.embeds = [

@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
@@ -12,7 +12,6 @@ import {
   channelSyncTemplates,
   permissionRules,
   categoryLockSnapshots,
-  memberNotes,
   economy,
   studioDocuments,
   studioPublications,
@@ -27,8 +26,12 @@ import {
 } from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
-import { requireAuth } from "./auth";
+import { getOwnerSessionServerIds, getQaBypassServerId, isOwnerSessionUser, requireAuth, requireOwnerAccess } from "./auth";
 import { getBotClient, getBotStatus } from "./bot/index";
+import { getServerCommandLogs, getServerWorkspaceOverview } from "./archivist";
+import { getArchivistEnv } from "./archivist/config/env";
+import { invalidateCustomCommandCache, syncCustomCommandsForServer } from "./archivist/features/custom-command/runtime";
+import { ArchivistLogger } from "./archivist/lib/logger";
 import { recordAudit, getAuditLog } from "./auditService";
 import { createSnapshot, listSnapshots, rollback } from "./snapshotService";
 import { generateCode, redeemCode, listCodes, revokeCode } from "./codeVaultService";
@@ -38,7 +41,9 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   EmbedBuilder,
+  PermissionFlagsBits,
   StringSelectMenuBuilder,
 } from "discord.js";
 import { EMBED_ACTION_TOKEN_PREFIX, encodeEmbedActionToken } from "./bot/embed-action-token";
@@ -60,6 +65,7 @@ import {
   recordStudioRuntimeEvent,
   renderStudioDocumentView,
   createStudioLibraryItem,
+  deleteStudioDocumentRecord,
   deleteStudioLibraryItemRecord,
   getStudioLibraryItemById,
   updateStudioDocumentRecord,
@@ -69,6 +75,30 @@ import {
 import { buildStudioDiscordPayload } from "./studio-discord";
 import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import type { StudioTokenContext } from "@shared/studio-tokens";
+import {
+  buildChannelLockPatch,
+  assertCommunityTypeAllowed,
+  canSetNsfw,
+  canSetSlowmode,
+  canSetTopic,
+} from "./archivist/features/channel/helpers";
+import {
+  buildCustomCommandV2Slug,
+  createDefaultCustomCommandV2Definition,
+} from "@shared/custom-command-v2";
+import { invalidateCustomCommandV2Cache } from "./archivist/features/custom-command-v2/cache";
+import { buildCustomCommandV2CreateInput, compileCustomCommandV2Definition } from "./archivist/features/custom-command-v2/compile";
+import { dryRunCustomCommandV2 } from "./archivist/features/custom-command-v2/executor";
+import { prepareCustomCommandV2Import, previewCustomCommandV2Import } from "./archivist/features/custom-command-v2/import-service";
+import { invalidateCustomCommandV2RuntimeCache, normalizeCustomCommandV2SlashName } from "./archivist/features/custom-command-v2/runtime";
+import { siteEditorSurfaceKeySchema } from "@shared/site-editor";
+import {
+  buildLockrServerWebhookToken,
+  buildServerPremiumPatchFromLockrEvent,
+  getLockrWebhookSecret,
+  normalizeLockrEventType,
+  verifyLockrServerWebhookToken,
+} from "./lockr-webhook";
 
 const STUDIO_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "studio");
 
@@ -89,6 +119,238 @@ function parseStudioImageDataUrl(dataUrl: string) {
   return { mimeType, buffer, extension };
 }
 
+function consoleSyncLogger(scope: string) {
+  return new ArchivistLogger(scope, getArchivistEnv().logLevel);
+}
+
+function formatSyncWarning(error: unknown) {
+  if (error && typeof error === "object") {
+    const rawMessage =
+      "rawError" in error && error.rawError && typeof error.rawError === "object" && "message" in error.rawError
+        ? String((error.rawError as any).message || "").trim()
+        : "";
+    if (rawMessage) return rawMessage;
+    if ("message" in error && typeof error.message === "string" && error.message.trim()) {
+      return error.message.trim();
+    }
+  }
+  return "Discord rejected the slash command sync.";
+}
+
+function formatValidationIssues(error: z.ZodError) {
+  return error.issues.map((entry) => ({
+    path: entry.path.length > 0 ? entry.path.join(".") : "request",
+    code: entry.code,
+    message: entry.message,
+    severity: "error" as const,
+  }));
+}
+
+function getPublicBaseUrl(req: Request) {
+  return (process.env.PUBLIC_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get("host") || "localhost:5000"}`)
+    .replace(/\/$/, "");
+}
+
+function applyLockrWebhookHeaders(res: Response) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Cache-Control", "no-store");
+}
+
+function getPersistentActorUserId(req: Request) {
+  return isOwnerSessionUser(req.user) ? null : req.user?.id ?? null;
+}
+
+async function syncArchivistCustomCommandsAfterChange(input: {
+  scope: string;
+  serverId: number;
+  details?: Record<string, unknown>;
+}) {
+  let syncWarning: string | null = null;
+  const client = getBotClient();
+  if (!client) return syncWarning;
+
+  await syncCustomCommandsForServer({
+    client,
+    env: getArchivistEnv(),
+    logger: consoleSyncLogger(input.scope),
+    serverId: input.serverId,
+  }).catch((error) => {
+    syncWarning = formatSyncWarning(error);
+    consoleSyncLogger(input.scope).error("Archivist custom command sync failed after change.", {
+      serverId: input.serverId,
+      error: syncWarning,
+      ...input.details,
+    });
+  });
+
+  return syncWarning;
+}
+
+async function getManageableGuildIds(req: Request) {
+  const user = (req as Request & { user?: Express.User }).user;
+  if (!user?.accessToken || user.isQaBypass || user.isOwnerSession) return null;
+  const sessionState = (req as Request & {
+    session?: {
+      manageableGuildCache?: {
+        guildIds: string[];
+        fetchedAt: number;
+      };
+    };
+  }).session;
+  const cachedGuilds = sessionState?.manageableGuildCache;
+  const now = Date.now();
+  if (cachedGuilds && Array.isArray(cachedGuilds.guildIds) && now - cachedGuilds.fetchedAt < 30 * 60 * 1000) {
+    return new Set(cachedGuilds.guildIds);
+  }
+
+  try {
+    const response = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { Authorization: `Bearer ${user.accessToken}` },
+    });
+    if (!response.ok) {
+      return cachedGuilds?.guildIds?.length ? new Set(cachedGuilds.guildIds) : null;
+    }
+    const guilds = await response.json() as Array<{ id: string; permissions: string }>;
+    const manageableGuildIds = guilds
+      .filter((guild) => (BigInt(guild.permissions || "0") & BigInt(0x20)) === BigInt(0x20))
+      .map((guild) => guild.id);
+    if (sessionState) {
+      sessionState.manageableGuildCache = {
+        guildIds: manageableGuildIds,
+        fetchedAt: now,
+      };
+    }
+    return new Set(
+      manageableGuildIds,
+    );
+  } catch {
+    return cachedGuilds?.guildIds?.length ? new Set(cachedGuilds.guildIds) : null;
+  }
+}
+
+function getConnectedGuildIds() {
+  const client = getBotClient();
+  if (!client?.isReady()) return null;
+  return new Set(Array.from(client.guilds.cache.keys()));
+}
+
+function getStudioActorUserId(req: Request) {
+  return isOwnerSessionUser((req as Request & { user?: Express.User }).user) ? null : req.user!.id;
+}
+
+function normalizeStudioOwnedScope<T extends "personal" | "server" | "starter">(req: Request, scope: T): T | "server" {
+  if (scope === "personal" && isOwnerSessionUser((req as Request & { user?: Express.User }).user)) {
+    return "server";
+  }
+  return scope;
+}
+
+function getSiteEditorActor(req: Request) {
+  const user = (req as Request & { user?: Express.User }).user;
+  if (!user) return { userId: null, label: null };
+
+  return {
+    userId: isOwnerSessionUser(user) ? null : user.id,
+    label: user.username || (isOwnerSessionUser(user) ? "Owner Access" : null),
+  };
+}
+
+function parseSiteEditorSurface(value: string) {
+  const parsed = siteEditorSurfaceKeySchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+async function filterVisibleServersForRequest(req: Request, servers: any[]) {
+  const ownerServerIds = getOwnerSessionServerIds(req as any);
+  if (isOwnerSessionUser((req as Request & { user?: Express.User }).user)) {
+    if (ownerServerIds?.length) {
+      return servers.filter((server) => ownerServerIds.includes(server.id));
+    }
+    return [...servers];
+  }
+
+  const qaServerId = getQaBypassServerId(req as any);
+  if (qaServerId) {
+    return servers.filter((server) => server.id === qaServerId);
+  }
+
+  const manageableGuildIds = await getManageableGuildIds(req);
+  if (!manageableGuildIds) {
+    return [];
+  }
+
+  let visibleServers = servers.filter((server) => manageableGuildIds.has(server.discordId));
+
+  const connectedGuildIds = getConnectedGuildIds();
+  if (connectedGuildIds) {
+    visibleServers = visibleServers.filter((server) => connectedGuildIds.has(server.discordId));
+  }
+
+  return visibleServers;
+}
+
+async function getVisibleServerForRequest(req: Request, serverId: number) {
+  const server = await storage.getServer(serverId);
+  if (!server) return null;
+  const visibleServers = await filterVisibleServersForRequest(req, [server]);
+  return visibleServers[0] ?? null;
+}
+
+async function hasStudioRecordAccess(
+  req: Request,
+  resource: { serverId: number; scope?: string | null; ownerUserId?: number | null },
+) {
+  if (resource.scope === "personal") {
+    const user = (req as Request & { user?: Express.User }).user;
+    if (!user || isOwnerSessionUser(user)) return false;
+    return resource.ownerUserId === user.id;
+  }
+
+  return Boolean(await getVisibleServerForRequest(req, resource.serverId));
+}
+
+async function ensureVisibleServerForRequest(req: Request, res: any, serverId: number) {
+  const server = await getVisibleServerForRequest(req, serverId);
+  if (!server) {
+    res.status(403).json({ message: "You do not have access to that Archivist server." });
+    return null;
+  }
+  return server;
+}
+
+function getSlashCollisionIssue(normalizedName: string, conflictingName: string) {
+  return {
+    path: "command.trigger.name",
+    code: "duplicate_slash_name",
+    message: `Another enabled Archivist slash command already uses /${normalizedName}.`,
+    severity: "error" as const,
+    suggestedFix: `Rename this slash command so it does not collide with "${conflictingName}".`,
+  };
+}
+
+async function findConflictingSlashCommandV2(input: {
+  serverId: number;
+  definition: ReturnType<typeof createDefaultCustomCommandV2Definition>;
+  excludeId?: number;
+}) {
+  if (input.definition.trigger.type !== "slash" || input.definition.behavior.enabled === false) return null;
+  const normalizedName = normalizeCustomCommandV2SlashName(input.definition.trigger.name || input.definition.meta.name);
+  if (!normalizedName) return null;
+
+  const commands = await storage.getCommandsV2(input.serverId);
+  const conflictingCommand = commands.find((command) => {
+    if (input.excludeId && command.id === input.excludeId) return false;
+    if (command.enabled === false || command.definition.behavior.enabled === false) return false;
+    if (command.compiled.trigger.type !== "slash") return false;
+    return normalizeCustomCommandV2SlashName(command.compiled.trigger.name || command.name) === normalizedName;
+  });
+
+  if (!conflictingCommand) return null;
+  return getSlashCollisionIssue(normalizedName, conflictingCommand.name);
+}
+
 export async function registerRoutes(_server: Server, app: Express) {
 
   // Protect all /api/servers/* routes - exempt only the public code-redeem endpoint
@@ -97,7 +359,200 @@ export async function registerRoutes(_server: Server, app: Express) {
     return requireAuth(req as any, res, next);
   });
 
+  app.use("/api/servers", (req, res, next) => {
+    const ownerServerIds = getOwnerSessionServerIds(req as any);
+    if (!ownerServerIds?.length) return next();
+
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    if (!ownerServerIds.includes(Number.parseInt(match[1], 10))) {
+      return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/servers", (req, res, next) => {
+    const qaServerId = getQaBypassServerId(req as any);
+    if (!qaServerId) return next();
+
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    if (Number.parseInt(match[1], 10) !== qaServerId) {
+      return res.status(403).json({ message: "QA access is limited to the configured test server." });
+    }
+
+    return next();
+  });
+
   app.use("/api/studio", requireAuth);
+  app.use("/api/commands", requireAuth);
+  app.use("/api/embeds", requireAuth);
+  app.use("/api/channel-settings", requireAuth);
+  app.use("/api/reaction-roles", requireAuth);
+  app.use("/api/auto-roles", requireAuth);
+  app.use("/api/commands-v2", requireAuth);
+  app.use("/api/site-editor", requireOwnerAccess);
+
+  app.use("/api/commands-v2", async (req, res, next) => {
+    const ownerServerIds = getOwnerSessionServerIds(req as any);
+    if (!ownerServerIds?.length) return next();
+
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const command = await storage.getCommandV2ById(Number.parseInt(match[1], 10));
+    if (!command) return res.status(404).json({ message: "Command not found" });
+    if (!ownerServerIds.includes(command.serverId)) {
+      return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/servers", async (req, res, next) => {
+    if (req.path.match(/\/codes\/redeem$/) && req.method === "POST") return next();
+
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const serverId = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const server = await getVisibleServerForRequest(req, serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+    return next();
+  });
+
+  app.use("/api/commands", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const command = await storage.getCommandById(Number.parseInt(match[1], 10));
+    if (!command) return res.status(404).json({ message: "Command not found" });
+
+    const server = await getVisibleServerForRequest(req, command.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/embeds", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const embed = await storage.getEmbedById(Number.parseInt(match[1], 10));
+    if (!embed) return res.status(404).json({ message: "Embed not found" });
+
+    const server = await getVisibleServerForRequest(req, embed.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/channel-settings", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const entry = await storage.getChannelSettingsById(Number.parseInt(match[1], 10));
+    if (!entry) return res.status(404).json({ message: "Channel settings not found" });
+
+    const server = await getVisibleServerForRequest(req, entry.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/reaction-roles", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const entry = await storage.getReactionRoleById(Number.parseInt(match[1], 10));
+    if (!entry) return res.status(404).json({ message: "Reaction role not found" });
+
+    const server = await getVisibleServerForRequest(req, entry.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/auto-roles", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const entry = await storage.getAutoRoleById(Number.parseInt(match[1], 10));
+    if (!entry) return res.status(404).json({ message: "Auto role not found" });
+
+    const server = await getVisibleServerForRequest(req, entry.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/commands-v2", async (req, res, next) => {
+    const match = req.path.match(/^\/(\d+)(?:\/|$)/);
+    if (!match) return next();
+
+    const command = await storage.getCommandV2ById(Number.parseInt(match[1], 10));
+    if (!command) return res.status(404).json({ message: "Command not found" });
+
+    const server = await getVisibleServerForRequest(req, command.serverId);
+    if (!server) {
+      return res.status(403).json({ message: "You do not have access to that Archivist server." });
+    }
+
+    return next();
+  });
+
+  app.use("/api/studio", async (req, res, next) => {
+    const ownerServerIds = getOwnerSessionServerIds(req as any);
+    if (!ownerServerIds?.length) return next();
+
+    const documentMatch = req.path.match(/^\/documents\/(\d+)(?:\/|$)/);
+    if (documentMatch) {
+      const document = await getStudioDocumentById(Number.parseInt(documentMatch[1], 10));
+      if (!document) return res.status(404).json({ message: "Studio document not found" });
+      if (!ownerServerIds.includes(document.serverId)) {
+        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
+      }
+      return next();
+    }
+
+    const libraryMatch = req.path.match(/^\/library\/(\d+)(?:\/|$)/);
+    if (libraryMatch) {
+      const item = await getStudioLibraryItemById(Number.parseInt(libraryMatch[1], 10));
+      if (!item) return res.status(404).json({ message: "Studio library item not found" });
+      if (!ownerServerIds.includes(item.serverId)) {
+        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
+      }
+      return next();
+    }
+
+    const publicationMatch = req.path.match(/^\/publications\/(\d+)(?:\/|$)/);
+    if (publicationMatch) {
+      const publication = await getStudioPublicationById(Number.parseInt(publicationMatch[1], 10));
+      if (!publication) return res.status(404).json({ message: "Studio publication not found" });
+      if (!ownerServerIds.includes(publication.serverId)) {
+        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
+      }
+      return next();
+    }
+
+    return next();
+  });
 
   // --- HEALTH ---
   app.get("/health", async (_req, res) => {
@@ -120,6 +575,86 @@ export async function registerRoutes(_server: Server, app: Express) {
     res.json(bot);
   });
 
+  app.get(api.siteEditor.published.get.path, async (req, res) => {
+    const surface = parseSiteEditorSurface(String(req.params.surface || ""));
+    if (!surface) {
+      return res.status(404).json({ message: "Unknown site editor surface" });
+    }
+
+    const record = await storage.getSiteContentSurface(surface);
+    return res.json(record.publishedContent);
+  });
+
+  app.get(api.siteEditor.admin.list.path, async (_req, res) => {
+    const surfaces = await storage.listSiteContentSurfaces();
+    return res.json(surfaces);
+  });
+
+  app.get(api.siteEditor.admin.get.path, async (req, res) => {
+    const surface = parseSiteEditorSurface(String(req.params.surface || ""));
+    if (!surface) {
+      return res.status(404).json({ message: "Unknown site editor surface" });
+    }
+
+    const record = await storage.getSiteContentSurface(surface);
+    return res.json(record);
+  });
+
+  app.put(api.siteEditor.admin.saveDraft.path, async (req, res) => {
+    const surface = parseSiteEditorSurface(String(req.params.surface || ""));
+    if (!surface) {
+      return res.status(404).json({ message: "Unknown site editor surface" });
+    }
+
+    const parsed = api.siteEditor.admin.saveDraft.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid draft payload." });
+    }
+
+    const saved = await storage.saveSiteContentDraft(surface, parsed.data.draftContent, getSiteEditorActor(req));
+    return res.json(saved);
+  });
+
+  app.post(api.siteEditor.admin.publish.path, async (req, res) => {
+    const surface = parseSiteEditorSurface(String(req.params.surface || ""));
+    if (!surface) {
+      return res.status(404).json({ message: "Unknown site editor surface" });
+    }
+
+    const saved = await storage.publishSiteContentSurface(surface, getSiteEditorActor(req));
+    return res.json(saved);
+  });
+
+  app.post(api.siteEditor.admin.resetDraft.path, async (req, res) => {
+    const surface = parseSiteEditorSurface(String(req.params.surface || ""));
+    if (!surface) {
+      return res.status(404).json({ message: "Unknown site editor surface" });
+    }
+
+    const saved = await storage.resetSiteContentDraft(surface, getSiteEditorActor(req));
+    return res.json(saved);
+  });
+
+  app.get(api.servers.workspaceOverview.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const visibleServer = await getVisibleServerForRequest(req as Request, serverId);
+    if (!visibleServer) return res.status(404).json({ message: "Server not found" });
+    const overview = await getServerWorkspaceOverview(serverId);
+    if (!overview) return res.status(404).json({ message: "Server not found" });
+    res.json(overview);
+  });
+
+  app.get(api.servers.commandLogs.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const visibleServer = await getVisibleServerForRequest(req as Request, serverId);
+    if (!visibleServer) return res.status(404).json({ message: "Server not found" });
+    const logs = await getServerCommandLogs(serverId);
+    if (!logs) return res.status(404).json({ message: "Server not found" });
+    res.json(logs);
+  });
+
   // --- INVITE URL ---
   app.get("/api/invite-url", (req, res) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
@@ -130,25 +665,6 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.redirect(url);
     }
     return res.json({ url });
-  });
-
-  // --- USER PREFERENCES ---
-  app.get("/api/preferences", requireAuth, async (req, res) => {
-    const prefs = await storage.getUserPreferences(req.user!.id);
-    res.json(prefs || { 
-      accentColor: "#B11226", 
-      embedStyle: "modern", 
-      brandName: null,
-      eyeIntensity: "subtle",
-      glowStrength: 50,
-      uiDensity: "comfort",
-      glitchFx: true
-    });
-  });
-
-  app.put("/api/preferences", requireAuth, async (req, res) => {
-    const updated = await storage.upsertUserPreferences(req.user!.id, req.body);
-    res.json(updated);
   });
 
   // --- TEMPLATES ---
@@ -191,7 +707,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.servers.studioDocuments.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const items = await listStudioDocuments(serverId, req.user!.id);
+    const items = await listStudioDocuments(serverId, getStudioActorUserId(req as Request));
     res.json(items);
   });
 
@@ -205,10 +721,11 @@ export async function registerRoutes(_server: Server, app: Express) {
     }
 
     const document = normalizeStudioDocument(parsed.data.document, parsed.data.name);
+    const scope = normalizeStudioOwnedScope(req as Request, parsed.data.scope);
     const created = await createStudioDocumentRecord({
       serverId,
-      ownerUserId: req.user!.id,
-      scope: parsed.data.scope,
+      ownerUserId: getStudioActorUserId(req as Request),
+      scope,
       kind: parsed.data.kind,
       name: parsed.data.name,
       slug: parsed.data.slug,
@@ -225,6 +742,9 @@ export async function registerRoutes(_server: Server, app: Express) {
 
     const existing = await getStudioDocumentById(id);
     if (!existing) return res.status(404).json({ message: "Document not found" });
+    if (!(await hasStudioRecordAccess(req as Request, existing))) {
+      return res.status(403).json({ message: "Not allowed to edit this document" });
+    }
 
     const parsed = api.studio.documents.update.input.safeParse(req.body);
     if (!parsed.success) {
@@ -236,6 +756,20 @@ export async function registerRoutes(_server: Server, app: Express) {
       document: parsed.data.document ? normalizeStudioDocument(parsed.data.document, existing.name) : existing.document,
     } as any);
     res.json(updated);
+  });
+
+  app.delete(api.studio.documents.delete.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid document ID" });
+
+    const existing = await getStudioDocumentById(id);
+    if (!existing) return res.status(404).json({ message: "Document not found" });
+    if (!(await hasStudioRecordAccess(req as Request, existing))) {
+      return res.status(403).json({ message: "Not allowed to delete this document" });
+    }
+
+    await deleteStudioDocumentRecord(id);
+    res.status(204).send();
   });
 
   app.get(api.servers.studioLibrary.list.path, async (req, res) => {
@@ -261,7 +795,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const search = typeof req.query.q === "string" ? req.query.q : "";
     const favoritesOnly = String(req.query.favorites || "").toLowerCase() === "true" || String(req.query.favorites || "") === "1";
 
-    const items = await listStudioLibraryItems(serverId, req.user!.id, {
+    const items = await listStudioLibraryItems(serverId, getStudioActorUserId(req as Request), {
       scope,
       category,
       search,
@@ -279,10 +813,11 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
+    const scope = normalizeStudioOwnedScope(req as Request, parsed.data.scope);
     const created = await createStudioLibraryItem({
       serverId,
-      ownerUserId: req.user!.id,
-      scope: parsed.data.scope,
+      ownerUserId: getStudioActorUserId(req as Request),
+      scope,
       category: parsed.data.category,
       name: parsed.data.name,
       payload: parsed.data.payload,
@@ -327,8 +862,8 @@ export async function registerRoutes(_server: Server, app: Express) {
 
     const libraryItem = await createStudioLibraryItem({
       serverId,
-      ownerUserId: parsed.data.scope === "server" ? null : req.user!.id,
-      scope: parsed.data.scope,
+      ownerUserId: getStudioActorUserId(req as Request),
+      scope: normalizeStudioOwnedScope(req as Request, parsed.data.scope),
       category: "asset_link",
       name: parsed.data.name.trim(),
       payload: {
@@ -352,7 +887,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
     const existing = await getStudioLibraryItemById(id);
     if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+    if (!(await hasStudioRecordAccess(req as Request, existing))) {
       return res.status(403).json({ message: "Not allowed to edit this item" });
     }
 
@@ -363,7 +898,8 @@ export async function registerRoutes(_server: Server, app: Express) {
 
     const patch: any = { ...parsed.data };
     if (patch.scope === "personal") {
-      patch.ownerUserId = req.user!.id;
+      patch.scope = normalizeStudioOwnedScope(req as Request, patch.scope);
+      patch.ownerUserId = patch.scope === "personal" ? getStudioActorUserId(req as Request) : null;
     }
     if (patch.scope === "server") {
       patch.ownerUserId = null;
@@ -378,7 +914,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
     const existing = await getStudioLibraryItemById(id);
     if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+    if (!(await hasStudioRecordAccess(req as Request, existing))) {
       return res.status(403).json({ message: "Not allowed to edit this item" });
     }
 
@@ -396,7 +932,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
     const existing = await getStudioLibraryItemById(id);
     if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (existing.scope === "personal" && existing.ownerUserId !== req.user!.id) {
+    if (!(await hasStudioRecordAccess(req as Request, existing))) {
       return res.status(403).json({ message: "Not allowed to delete this item" });
     }
     await deleteStudioLibraryItemRecord(id);
@@ -444,11 +980,35 @@ export async function registerRoutes(_server: Server, app: Express) {
         actorDiscordId: req.user!.discordId,
         documentId: parsed.data.documentId,
         documentInput: parsed.data.document,
+        allowDowngrade: parsed.data.allowDowngrade,
         target: parsed.data.target,
       });
       res.json(result);
     } catch (err: any) {
       res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to publish Studio document." });
+    }
+  });
+
+  app.post(api.servers.studioPublish.preflight.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.servers.studioPublish.preflight.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    try {
+      const result = await buildStudioPreflight({
+        serverId,
+        actorUserId: req.user!.id,
+        documentId: parsed.data.documentId,
+        documentInput: parsed.data.document,
+        viewId: parsed.data.viewId,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to build Studio preflight." });
     }
   });
 
@@ -521,6 +1081,9 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
     const publication = await getStudioPublicationById(id);
     if (!publication) return res.status(404).json({ message: "Publication not found" });
+    if (!(await hasStudioRecordAccess(req as Request, publication))) {
+      return res.status(403).json({ message: "Not allowed to archive this publication" });
+    }
 
     const updated = await updateStudioPublicationRecord(id, { active: false, status: "archived" });
     res.json(updated);
@@ -531,6 +1094,9 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
     const publication = await getStudioPublicationById(id);
     if (!publication) return res.status(404).json({ message: "Publication not found" });
+    if (!(await hasStudioRecordAccess(req as Request, publication))) {
+      return res.status(403).json({ message: "Not allowed to update this publication" });
+    }
 
     const parsed = api.studio.publications.status.input.safeParse(req.body);
     if (!parsed.success) {
@@ -586,11 +1152,11 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.servers.list.path, async (_req, res) => {
     try {
       const allServers = await storage.getServers();
-      return res.json(allServers);
+      const visibleServers = await filterVisibleServersForRequest(_req as Request, allServers);
+      return res.json(visibleServers);
     } catch (err: any) {
       console.error("[Servers] Failed to list servers:", err?.message || err);
-      // Keep dashboard shell usable even if database access is temporarily degraded.
-      return res.status(200).json([]);
+      return res.status(503).json({ message: "Unable to load managed servers right now." });
     }
   });
 
@@ -598,7 +1164,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     try {
-      const server = await storage.getServer(id);
+      const server = await getVisibleServerForRequest(req as Request, id);
       if (!server) return res.status(404).json({ message: "Server not found" });
       return res.json(server);
     } catch (err: any) {
@@ -612,38 +1178,62 @@ export async function registerRoutes(_server: Server, app: Express) {
       const serverId = parseInt(req.params.serverId);
       if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
 
-      const server = await storage.getServer(serverId);
+      const server = await getVisibleServerForRequest(req as Request, serverId);
       if (!server) return res.status(404).json({ message: "Server not found" });
+
+      const fallbackContext = {
+        guildId: server.discordId,
+        guildName: server.name,
+        memberCount: server.memberCount ?? 0,
+        channels: [],
+        roles: [],
+        emojis: [],
+      };
 
       const client = getBotClient();
       if (!client?.isReady()) {
-        return res.status(503).json({ message: "Bot is offline. Start the bot to load roles/channels." });
+        return res.json(fallbackContext);
       }
 
       const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-      if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+      if (!guild) return res.json(fallbackContext);
 
       await guild.channels.fetch().catch(() => null);
       await guild.roles.fetch().catch(() => null);
 
       const channels = Array.from(guild.channels.cache.values())
         .filter((channel: any) => !!channel)
-        .map((channel: any) => ({
-          id: channel.id,
-          name: channel.name ?? channel.id,
-          type: String(channel.type),
-          typeName: mapDiscordChannelTypeName(String(channel.type)),
-          parentId: channel.parentId ?? null,
-          position: typeof channel.position === "number" ? channel.position : 0,
-          isTextBased: Boolean(channel.isTextBased?.()),
-          isVoiceBased: Boolean(channel.isVoiceBased?.()),
-          isAnnouncement: String(channel.type) === "5",
-          isForum: String(channel.type) === "15",
-          isStage: String(channel.type) === "13",
-          isCategory: String(channel.type) === "4",
-          isThread: Boolean(channel.isThread?.()),
-          nsfw: "nsfw" in channel ? Boolean(channel.nsfw) : false,
-        }))
+        .map((channel: any) => {
+          const everyoneOverwrite = channel.permissionOverwrites?.cache?.get(guild.roles.everyone.id);
+          const denies = everyoneOverwrite?.deny;
+          const lockedForEveryone = Boolean(
+            denies?.has(
+              channel.isVoiceBased?.()
+                ? PermissionFlagsBits.Connect
+                : PermissionFlagsBits.SendMessages,
+            ),
+          );
+
+          return {
+            id: channel.id,
+            name: channel.name ?? channel.id,
+            type: String(channel.type),
+            typeName: mapDiscordChannelTypeName(String(channel.type)),
+            parentId: channel.parentId ?? null,
+            position: typeof channel.position === "number" ? channel.position : 0,
+            isTextBased: Boolean(channel.isTextBased?.()),
+            isVoiceBased: Boolean(channel.isVoiceBased?.()),
+            isAnnouncement: String(channel.type) === "5",
+            isForum: String(channel.type) === "15",
+            isStage: String(channel.type) === "13",
+            isCategory: String(channel.type) === "4",
+            isThread: Boolean(channel.isThread?.()),
+            nsfw: "nsfw" in channel ? Boolean(channel.nsfw) : false,
+            topic: "topic" in channel ? channel.topic ?? null : null,
+            slowmodeSeconds: "rateLimitPerUser" in channel ? Number(channel.rateLimitPerUser || 0) : 0,
+            lockedForEveryone,
+          };
+        })
         .sort((a, b) => (a.position - b.position) || a.name.localeCompare(b.name));
 
       const roles = Array.from(guild.roles.cache.values())
@@ -709,32 +1299,364 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.post(api.commands.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    try {
-      const created = await storage.createCommand(serverId, req.body);
-      res.status(201).json(created);
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+
+    const parsed = api.commands.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
+
+    const created = await storage.createCommand(serverId, parsed.data);
+    invalidateCustomCommandCache(serverId);
+
+    let syncWarning: string | null = null;
+    const client = getBotClient();
+    if (client) {
+      await syncCustomCommandsForServer({
+        client,
+        env: getArchivistEnv(),
+        logger: consoleSyncLogger("custom-command-create"),
+        serverId,
+      }).catch((error) => {
+        syncWarning = formatSyncWarning(error);
+        consoleSyncLogger("custom-command-create").error("Custom command sync failed after create.", {
+          serverId,
+          commandId: created.id,
+          commandName: created.name,
+          error: syncWarning,
+        });
+      });
+    }
+
+    res.status(201).json({ ...created, syncWarning });
   });
 
   app.patch(api.commands.update.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    try {
-      const updated = await storage.updateCommand(id, req.body);
-      res.json(updated);
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      throw err;
+
+    const existing = await storage.getCommandById(id);
+    if (!existing) return res.status(404).json({ message: "Command not found" });
+
+    const parsed = api.commands.update.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
+
+    const updated = await storage.updateCommand(id, parsed.data);
+    invalidateCustomCommandCache(existing.serverId);
+
+    let syncWarning: string | null = null;
+    const client = getBotClient();
+    if (client) {
+      await syncCustomCommandsForServer({
+        client,
+        env: getArchivistEnv(),
+        logger: consoleSyncLogger("custom-command-update"),
+        serverId: existing.serverId,
+      }).catch((error) => {
+        syncWarning = formatSyncWarning(error);
+        consoleSyncLogger("custom-command-update").error("Custom command sync failed after update.", {
+          serverId: existing.serverId,
+          commandId: updated.id,
+          commandName: updated.name,
+          error: syncWarning,
+        });
+      });
+    }
+
+    res.json({ ...updated, syncWarning });
   });
 
   app.delete(api.commands.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const existing = await storage.getCommandById(id);
+    if (!existing) return res.status(404).json({ message: "Command not found" });
+
     await storage.deleteCommand(id);
+    invalidateCustomCommandCache(existing.serverId);
+
+    const client = getBotClient();
+    if (client) {
+      await syncCustomCommandsForServer({
+        client,
+        env: getArchivistEnv(),
+        logger: consoleSyncLogger("custom-command-delete"),
+        serverId: existing.serverId,
+      }).catch((error) => {
+        consoleSyncLogger("custom-command-delete").error("Custom command sync failed after delete.", {
+          serverId: existing.serverId,
+          commandId: existing.id,
+          commandName: existing.name,
+          error: formatSyncWarning(error),
+        });
+      });
+    }
+
     res.status(204).send();
+  });
+
+  app.get(api.commandWorkflowsV2.list.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
+    res.json(await storage.getCommandsV2(serverId));
+  });
+
+  app.get(api.commandWorkflowsV2.template.path, async (_req, res) => {
+    res.json(createDefaultCustomCommandV2Definition());
+  });
+
+  app.post(api.commandWorkflowsV2.previewImport.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
+
+    const parsed = api.commandWorkflowsV2.previewImport.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message || "Invalid payload",
+        issues: formatValidationIssues(parsed.error),
+      });
+    }
+
+    const preview = previewCustomCommandV2Import(parsed.data.raw, parsed.data.sourceKind);
+    if (preview.definition) {
+      const conflictIssue = await findConflictingSlashCommandV2({
+        serverId,
+        definition: preview.definition,
+      });
+      if (conflictIssue) {
+        preview.issues = [...preview.issues, conflictIssue];
+        preview.ok = false;
+        preview.importReady = false;
+      }
+    }
+
+    res.json(preview);
+  });
+
+  app.post(api.commandWorkflowsV2.import.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
+
+    const parsed = api.commandWorkflowsV2.import.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message || "Invalid payload",
+        issues: formatValidationIssues(parsed.error),
+      });
+    }
+
+    const prepared = prepareCustomCommandV2Import(parsed.data);
+    if (!prepared.ok || !prepared.createInput) {
+      return res.status(400).json({
+        message: prepared.preview.issues[0]?.message || "Import failed validation",
+        issues: prepared.preview.issues,
+      });
+    }
+
+    const conflictIssue = await findConflictingSlashCommandV2({
+      serverId,
+      definition: prepared.preview.definition!,
+    });
+    if (conflictIssue) {
+      return res.status(400).json({
+        message: conflictIssue.message,
+        issues: [conflictIssue],
+      });
+    }
+
+    const created = await storage.createCommandV2(serverId, {
+      ...prepared.createInput,
+      slug: buildCustomCommandV2Slug(prepared.createInput.name),
+      createdByUserId: getPersistentActorUserId(req),
+      updatedByUserId: getPersistentActorUserId(req),
+    });
+    invalidateCustomCommandV2Cache(serverId);
+    invalidateCustomCommandV2RuntimeCache(serverId);
+
+    const syncWarning = await syncArchivistCustomCommandsAfterChange({
+      scope: "custom-command-v2-import",
+      serverId,
+      details: {
+        commandId: created.id,
+        commandName: created.name,
+      },
+    });
+
+    res.status(201).json({ command: created, preview: prepared.preview.preview, syncWarning });
+  });
+
+  app.post(api.commandWorkflowsV2.create.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
+
+    const parsed = api.commandWorkflowsV2.create.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message || "Invalid payload",
+        issues: formatValidationIssues(parsed.error),
+      });
+    }
+
+    const compiled = compileCustomCommandV2Definition(parsed.data.definition);
+    if (!compiled.compiled || compiled.issues.some((entry) => entry.severity === "error")) {
+      return res.status(400).json({ message: compiled.issues[0]?.message || "Invalid command definition", issues: compiled.issues });
+    }
+
+    const conflictIssue = await findConflictingSlashCommandV2({
+      serverId,
+      definition: parsed.data.definition,
+    });
+    if (conflictIssue) {
+      return res.status(400).json({ message: conflictIssue.message, issues: [conflictIssue] });
+    }
+
+    const createInput = buildCustomCommandV2CreateInput({
+      definition: parsed.data.definition,
+      compiled: compiled.compiled,
+      issues: compiled.issues,
+      source: parsed.data.importSource ?? { kind: "dashboard", importedAt: new Date().toISOString() },
+    });
+
+    const created = await storage.createCommandV2(serverId, {
+      ...createInput,
+      createdByUserId: getPersistentActorUserId(req),
+      updatedByUserId: getPersistentActorUserId(req),
+    });
+    invalidateCustomCommandV2Cache(serverId);
+    invalidateCustomCommandV2RuntimeCache(serverId);
+
+    const syncWarning = await syncArchivistCustomCommandsAfterChange({
+      scope: "custom-command-v2-create",
+      serverId,
+      details: {
+        commandId: created.id,
+        commandName: created.name,
+      },
+    });
+
+    res.status(201).json({ ...created, syncWarning });
+  });
+
+  app.patch(api.commandWorkflowsV2.update.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const existing = await storage.getCommandV2ById(id);
+    if (!existing) return res.status(404).json({ message: "Command not found" });
+
+    const parsed = api.commandWorkflowsV2.update.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message || "Invalid payload",
+        issues: formatValidationIssues(parsed.error),
+      });
+    }
+
+    const definition = parsed.data.definition ?? existing.definition;
+    const compiled = compileCustomCommandV2Definition(definition);
+    if (!compiled.compiled || compiled.issues.some((entry) => entry.severity === "error")) {
+      return res.status(400).json({ message: compiled.issues[0]?.message || "Invalid command definition", issues: compiled.issues });
+    }
+
+    const conflictIssue = await findConflictingSlashCommandV2({
+      serverId: existing.serverId,
+      definition,
+      excludeId: existing.id,
+    });
+    if (conflictIssue) {
+      return res.status(400).json({ message: conflictIssue.message, issues: [conflictIssue] });
+    }
+
+    const updated = await storage.updateCommandV2(id, {
+      name: definition.meta.name,
+      slug: buildCustomCommandV2Slug(definition.meta.name),
+      schemaVersion: parsed.data.schemaVersion ?? existing.schemaVersion,
+      kind: parsed.data.kind ?? existing.kind,
+      enabled: definition.behavior.enabled,
+      triggerType: definition.trigger.type,
+      definition,
+      compiled: compiled.compiled,
+      importSource: parsed.data.importSource ?? existing.importSource,
+      lastValidation: compiled.issues,
+      updatedByUserId: getPersistentActorUserId(req) ?? existing.updatedByUserId ?? null,
+    });
+    invalidateCustomCommandV2Cache(existing.serverId);
+    invalidateCustomCommandV2RuntimeCache(existing.serverId);
+
+    const syncWarning = await syncArchivistCustomCommandsAfterChange({
+      scope: "custom-command-v2-update",
+      serverId: existing.serverId,
+      details: {
+        commandId: updated.id,
+        commandName: updated.name,
+      },
+    });
+
+    res.json({ ...updated, syncWarning });
+  });
+
+  app.delete(api.commandWorkflowsV2.delete.path, async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const existing = await storage.getCommandV2ById(id);
+    if (!existing) return res.status(404).json({ message: "Command not found" });
+
+    await storage.deleteCommandV2(id);
+    invalidateCustomCommandV2Cache(existing.serverId);
+    invalidateCustomCommandV2RuntimeCache(existing.serverId);
+
+    await syncArchivistCustomCommandsAfterChange({
+      scope: "custom-command-v2-delete",
+      serverId: existing.serverId,
+      details: {
+        commandId: existing.id,
+        commandName: existing.name,
+      },
+    });
+
+    res.status(204).send();
+  });
+
+  app.post(api.commandWorkflowsV2.dryRun.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
+
+    const parsed = api.commandWorkflowsV2.dryRun.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message || "Invalid payload",
+        issues: formatValidationIssues(parsed.error),
+      });
+    }
+
+    const compilation = compileCustomCommandV2Definition(parsed.data.definition);
+    if (!compilation.compiled) {
+      return res.status(400).json({ message: "The definition could not be compiled for dry-run.", issues: compilation.issues });
+    }
+
+    const issues = compilation.issues;
+    if (issues.some((entry) => entry.severity === "error")) {
+      return res.status(400).json({ message: issues[0]?.message || "Invalid command definition", issues });
+    }
+
+    const result = await dryRunCustomCommandV2({
+      ...parsed.data,
+      serverId,
+      compiled: compilation.compiled,
+    });
+
+    res.json({
+      ...result,
+      issues,
+    });
   });
 
   // --- EMBEDS ---
@@ -1084,6 +2006,297 @@ export async function registerRoutes(_server: Server, app: Express) {
     res.json(result);
   });
 
+  app.post(api.channelSettings.createLive.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+
+    const parsed = api.channelSettings.createLive.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot to create live channels." });
+    }
+
+    const input = parsed.data;
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+    try {
+      assertCommunityTypeAllowed(guild.features, input.kind);
+    } catch (error) {
+      return res.status(400).json({
+        message: error instanceof Error ? error.message : "That channel type is not supported in this server.",
+      });
+    }
+
+    const botMember = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+    if (!botMember) return res.status(503).json({ message: "Bot member state is unavailable." });
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      return res.status(403).json({ message: "Archivist is missing Manage Channels in this server." });
+    }
+
+    const actorId = (req as any).user?.discordId ?? "dashboard";
+    const reason = `Archivist dashboard create by ${actorId}`;
+
+    let parentChannel: any = null;
+    if (input.parentId && input.kind !== "category") {
+      parentChannel = guild.channels.cache.get(input.parentId) ?? await guild.channels.fetch(input.parentId).catch(() => null);
+      if (!parentChannel) {
+        return res.status(404).json({ message: "Target category was not found in Discord." });
+      }
+      if (String(parentChannel.type) !== "4") {
+        return res.status(400).json({ message: "Target parent must be a category channel." });
+      }
+    }
+
+    const typeByKind = {
+      category: ChannelType.GuildCategory,
+      text: ChannelType.GuildText,
+      voice: ChannelType.GuildVoice,
+      announcement: ChannelType.GuildAnnouncement,
+      forum: ChannelType.GuildForum,
+      stage: ChannelType.GuildStageVoice,
+    } as const;
+
+    const type = typeByKind[input.kind];
+    const createOptions: any = {
+      name: input.name.trim(),
+      type,
+      reason,
+    };
+
+    if (parentChannel && input.kind !== "category") {
+      createOptions.parent = parentChannel.id;
+    }
+
+    if (
+      (input.kind === "text" || input.kind === "announcement" || input.kind === "forum") &&
+      typeof input.topic === "string"
+    ) {
+      createOptions.topic = input.topic.trim() || undefined;
+    }
+
+    const channel = await guild.channels.create(createOptions);
+
+    await recordAudit(serverId, "channel-live-create", actorId, null, {
+      channelId: channel.id,
+      channelName: channel.name,
+      type: input.kind,
+      parentId: parentChannel?.id ?? null,
+    });
+
+    res.json({
+      channelId: channel.id,
+      channelName: channel.name,
+      typeName: mapDiscordChannelTypeName(String(channel.type)),
+    });
+  });
+
+  app.post(api.channelSettings.applyLive.path, async (req, res) => {
+    const serverId = parseInt(req.params.serverId);
+    const channelId = String(req.params.channelId || "").trim();
+    if (isNaN(serverId) || !channelId) return res.status(400).json({ message: "Invalid server or channel ID" });
+
+    const parsed = api.channelSettings.applyLive.input.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
+    }
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found" });
+
+    const client = getBotClient();
+    if (!client?.isReady()) {
+      return res.status(503).json({ message: "Bot is offline. Start the bot to apply live channel changes." });
+    }
+
+    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
+    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
+
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel) return res.status(404).json({ message: "Channel not found in Discord." });
+
+    const botMember = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+    if (!botMember) return res.status(503).json({ message: "Bot member state is unavailable." });
+
+    const actorId = (req as any).user?.discordId ?? "dashboard";
+    const reason = `Archivist dashboard apply by ${actorId}`;
+    const applied: Array<{ field: string; value: string }> = [];
+    const ignored: string[] = [];
+    const liveChanges = parsed.data;
+
+    if (liveChanges.name !== undefined) {
+      const nextName = liveChanges.name.trim();
+      const namePermission = channel.isThread?.()
+        ? (PermissionFlagsBits.ManageThreads | PermissionFlagsBits.ManageChannels)
+        : PermissionFlagsBits.ManageChannels;
+
+      if (!("setName" in channel) || typeof (channel as any).setName !== "function") {
+        ignored.push("name");
+      } else if (!botMember.permissionsIn(channel).has(namePermission)) {
+        return res.status(403).json({ message: "Archivist is missing rename permissions for this channel." });
+      } else {
+        await (channel as any).setName(nextName, reason);
+        applied.push({ field: "name", value: nextName });
+      }
+    }
+
+    if (liveChanges.parentId !== undefined) {
+      if (channel.isThread?.() || String((channel as any).type) === "4") {
+        ignored.push("parentId");
+      } else if (!("setParent" in channel) || typeof (channel as any).setParent !== "function") {
+        ignored.push("parentId");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing move permissions for this channel." });
+      } else {
+        let targetParent: any = null;
+
+        if (liveChanges.parentId) {
+          targetParent = guild.channels.cache.get(liveChanges.parentId) ?? await guild.channels.fetch(liveChanges.parentId).catch(() => null);
+          if (!targetParent) {
+            return res.status(404).json({ message: "Target category was not found in Discord." });
+          }
+          if (String(targetParent.type) !== "4") {
+            return res.status(400).json({ message: "Target parent must be a category channel." });
+          }
+        }
+
+        await (channel as any).setParent(targetParent?.id ?? null, {
+          lockPermissions: false,
+          reason,
+        });
+        applied.push({
+          field: "parentId",
+          value: targetParent ? `Moved to ${targetParent.name}` : "Moved to Uncategorized",
+        });
+      }
+    }
+
+    if (liveChanges.positionMove !== undefined) {
+      if (channel.isThread?.() || String((channel as any).type) === "4") {
+        ignored.push("positionMove");
+      } else if (!("setPosition" in channel) || typeof (channel as any).setPosition !== "function") {
+        ignored.push("positionMove");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing reorder permissions for this channel." });
+      } else {
+        const siblingChannels = Array.from(guild.channels.cache.values())
+          .filter((candidate: any) => {
+            if (!candidate || candidate.id === channel.id) return false;
+            if (candidate.isThread?.()) return false;
+            if (String(candidate.type) === "4") return false;
+            return (candidate.parentId ?? null) === ((channel as any).parentId ?? null);
+          })
+          .concat(channel as any)
+          .sort((a: any, b: any) => (a.position - b.position) || String(a.id).localeCompare(String(b.id)));
+
+        const currentIndex = siblingChannels.findIndex((candidate: any) => candidate.id === channel.id);
+        const maxIndex = siblingChannels.length - 1;
+
+        if (currentIndex === -1 || maxIndex <= 0) {
+          ignored.push("positionMove");
+        } else if (liveChanges.positionMove === "up") {
+          if (currentIndex === 0) {
+            ignored.push("positionMove");
+          } else {
+            await (channel as any).setPosition(-1, { relative: true, reason });
+            applied.push({ field: "positionMove", value: "Moved up one slot" });
+          }
+        } else if (liveChanges.positionMove === "down") {
+          if (currentIndex === maxIndex) {
+            ignored.push("positionMove");
+          } else {
+            await (channel as any).setPosition(1, { relative: true, reason });
+            applied.push({ field: "positionMove", value: "Moved down one slot" });
+          }
+        } else {
+          const targetIndex = liveChanges.positionMove === "top" ? 0 : maxIndex;
+          if (targetIndex === currentIndex) {
+            ignored.push("positionMove");
+          } else {
+            await (channel as any).setPosition(targetIndex, { reason });
+            applied.push({
+              field: "positionMove",
+              value: liveChanges.positionMove === "top" ? "Moved to top" : "Moved to bottom",
+            });
+          }
+        }
+      }
+    }
+
+    if (liveChanges.topic !== undefined) {
+      if (!canSetTopic(channel)) {
+        ignored.push("topic");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing Manage Channels for this channel." });
+      } else {
+        await (channel as any).setTopic(liveChanges.topic, reason);
+        applied.push({ field: "topic", value: liveChanges.topic?.trim() ? liveChanges.topic.trim() : "Cleared" });
+      }
+    }
+
+    if (liveChanges.nsfw !== undefined) {
+      if (!canSetNsfw(channel)) {
+        ignored.push("nsfw");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing Manage Channels for this channel." });
+      } else {
+        await (channel as any).setNSFW(liveChanges.nsfw, reason);
+        applied.push({ field: "nsfw", value: liveChanges.nsfw ? "Enabled" : "Disabled" });
+      }
+    }
+
+    if (liveChanges.slowmode !== undefined) {
+      if (!canSetSlowmode(channel)) {
+        ignored.push("slowmode");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing Manage Channels for this channel." });
+      } else {
+        await (channel as any).setRateLimitPerUser(liveChanges.slowmode, reason);
+        applied.push({ field: "slowmode", value: liveChanges.slowmode === 0 ? "Cleared" : `${liveChanges.slowmode}s` });
+      }
+    }
+
+    if (liveChanges.lockedDown !== undefined) {
+      if (!("permissionOverwrites" in channel)) {
+        ignored.push("lockedDown");
+      } else if (!botMember.permissionsIn(channel).has(PermissionFlagsBits.ManageRoles | PermissionFlagsBits.ManageChannels)) {
+        return res.status(403).json({ message: "Archivist is missing overwrite permissions for this channel." });
+      } else {
+        const patch = buildChannelLockPatch(channel as any, liveChanges.lockedDown);
+        await (channel as any).permissionOverwrites.edit(guild.roles.everyone, patch, { reason });
+        applied.push({ field: "lockedDown", value: liveChanges.lockedDown ? "Locked for @everyone" : "Unlocked for @everyone" });
+      }
+    }
+
+    if (!applied.length && ignored.length) {
+      return res.status(400).json({ message: `No supported live changes were applied. Ignored: ${ignored.join(", ")}` });
+    }
+
+    if (!applied.length && !ignored.length) {
+      return res.status(400).json({ message: "No live Discord changes were requested." });
+    }
+
+    await recordAudit(serverId, "channel-live-apply", actorId, null, {
+      channelId,
+      channelName: channel.name,
+      applied,
+      ignored,
+    });
+
+    res.json({
+      channelId,
+      channelName: channel.name,
+      applied,
+      ignored,
+    });
+  });
+
   app.delete(api.channelSettings.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
@@ -1399,129 +2612,6 @@ export async function registerRoutes(_server: Server, app: Express) {
     res.status(204).send();
   });
 
-  // --- MEMBERS ---
-  app.get("/api/servers/:serverId/members", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.max(1, Math.min(200, parseInt(req.query.limit as string) || 50));
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
-
-    const server = await storage.getServer(serverId);
-    if (!server) return res.status(404).json({ message: "Server not found" });
-
-    const client = getBotClient();
-    if (!client?.isReady()) {
-      return res.status(503).json({ message: "Bot is offline. Start the bot to load members." });
-    }
-
-    const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-    if (!guild) return res.status(404).json({ message: "Bot is not in this Discord server." });
-
-    await guild.members.fetch().catch(() => null);
-
-    const [allWarnings, allNotes, allEconomy] = await Promise.all([
-      storage.getWarnings(serverId),
-      db.select().from(memberNotes).where(eq(memberNotes.serverId, serverId)),
-      db.select().from(economy).where(eq(economy.serverId, serverId)),
-    ]);
-
-    const warningsByUser: Record<string, number> = {};
-    for (const warning of allWarnings) {
-      if (warning.active) warningsByUser[warning.userId] = (warningsByUser[warning.userId] || 0) + 1;
-    }
-
-    const notesByUser: Record<string, number> = {};
-    for (const note of allNotes) {
-      notesByUser[note.targetUserId] = (notesByUser[note.targetUserId] || 0) + 1;
-    }
-
-    const economyByUser: Record<string, number> = {};
-    for (const balance of allEconomy) {
-      economyByUser[balance.userId] = balance.balance ?? 0;
-    }
-
-    const membersData = Array.from(guild.members.cache.values()).map((member: any) => {
-      const username = member.displayName || member.user?.username || member.user?.tag || member.id;
-      return {
-        userId: member.id,
-        username,
-        warningCount: warningsByUser[member.id] || 0,
-        noteCount: notesByUser[member.id] || 0,
-        economyBalance: Object.prototype.hasOwnProperty.call(economyByUser, member.id) ? economyByUser[member.id] : null,
-      };
-    });
-
-    const filtered = search
-      ? membersData.filter((member) =>
-          member.username.toLowerCase().includes(search) ||
-          member.userId.includes(search),
-        )
-      : membersData;
-
-    filtered.sort((a, b) => a.username.localeCompare(b.username));
-
-    const total = filtered.length;
-    const offset = (page - 1) * limit;
-
-    await db
-      .update(servers)
-      .set({ memberCount: guild.memberCount })
-      .where(eq(servers.id, serverId))
-      .catch(() => undefined);
-
-    res.json({ members: filtered.slice(offset, offset + limit), total });
-  });
-
-  app.get("/api/servers/:serverId/members/:userId", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const profile = await storage.getMemberProfile(serverId, req.params.userId);
-    res.json(profile);
-  });
-
-  app.post("/api/servers/:serverId/members/bulk", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const { action, userIds, reason, roleId, message } = req.body;
-    if (!action || !userIds || !Array.isArray(userIds)) {
-      return res.status(400).json({ message: "action and userIds required" });
-    }
-    const results: any[] = [];
-    if (action === "addWarning" && reason) {
-      for (const userId of userIds) {
-        const created = await storage.createWarning(serverId, {
-          userId,
-          userName: userId,
-          moderatorId: "dashboard",
-          moderatorName: "Dashboard",
-          reason: reason || "Bulk action",
-        });
-        results.push(created);
-      }
-    }
-    res.json({ success: true, action, affected: userIds.length, results });
-  });
-
-  // --- MEMBER NOTES ---
-  app.get("/api/servers/:serverId/members/:userId/notes", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getMemberNotes(serverId, req.params.userId));
-  });
-  app.post("/api/servers/:serverId/members/:userId/notes", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createMemberNote(serverId, { ...req.body, targetUserId: req.params.userId });
-    res.status(201).json(created);
-  });
-  app.delete("/api/servers/:serverId/members/:userId/notes/:id", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteMemberNote(id);
-    res.status(204).send();
-  });
-
   // --- SERVER INSIGHTS ---
   app.get("/api/servers/:serverId/insights", async (req, res) => {
     const serverId = parseInt(req.params.serverId);
@@ -1545,42 +2635,88 @@ export async function registerRoutes(_server: Server, app: Express) {
       res.status(400).json({ message: err.message });
     }
   });
-  app.get("/api/marketplace", async (req, res) => {
-    const { category, search, limit, offset } = req.query;
-    const shares = await storage.listMarketplace({
-      category: category as string,
-      search: search as string,
-      limit: limit ? parseInt(limit as string) : 20,
-      offset: offset ? parseInt(offset as string) : 0,
-    });
-    res.json(shares);
-  });
-  app.get("/api/marketplace/:shareCode", async (req, res) => {
-    const share = await storage.getCommandShare(req.params.shareCode);
-    if (!share) return res.status(404).json({ message: "Share not found" });
-    await storage.incrementShareView(req.params.shareCode);
-    res.json(share);
-  });
-  app.post("/api/marketplace/:shareCode/import", requireAuth, async (req, res) => {
-    const { serverId } = req.body;
-    if (!serverId) return res.status(400).json({ message: "serverId required" });
-    try {
-      const imported = await storage.importCommand(parseInt(serverId), req.params.shareCode as string);
-      res.status(201).json(imported);
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
-    }
-  });
-  app.delete("/api/marketplace/:shareCode", requireAuth, async (req, res) => {
-    const share = await storage.getCommandShare(req.params.shareCode as string);
-    if (!share) return res.status(404).json({ message: "Share not found" });
-    await storage.deleteCommandShare(share.id);
-    res.status(204).send();
-  });
-  app.get("/api/servers/:serverId/shares", async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
+
+  // --- LOCKR BILLING WEBHOOKS ---
+  app.get("/api/servers/:serverId/billing/lockr-webhook", requireAuth, async (req, res) => {
+    const rawServerId = Array.isArray(req.params.serverId) ? req.params.serverId[0] : req.params.serverId;
+    const serverId = parseInt(rawServerId, 10);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getServerShares(serverId));
+
+    const server = await ensureVisibleServerForRequest(req, res, serverId);
+    if (!server) return;
+
+    const secret = getLockrWebhookSecret();
+    if (!secret) {
+      return res.status(503).json({ message: "Lockr webhook secret is not configured." });
+    }
+
+    const token = buildLockrServerWebhookToken(serverId, secret);
+    const webhookUrl = `${getPublicBaseUrl(req)}/api/billing/lockr/servers/${serverId}/${token}`;
+    const settings = (server.settings ?? {}) as Record<string, unknown>;
+
+    return res.json({
+      serverId,
+      serverName: server.name,
+      webhookUrl,
+      premiumEnabled: Boolean(settings.serverPremiumEnabled),
+      premiumStatus: typeof settings.serverPremiumStatus === "string" ? settings.serverPremiumStatus : null,
+      supportedEvents: ["trial.started", "subscription.started", "subscription.cancelled"],
+    });
+  });
+
+  app.options("/api/billing/lockr/servers/:serverId/:token", (_req, res) => {
+    applyLockrWebhookHeaders(res);
+    return res.status(204).end();
+  });
+
+  app.get("/api/billing/lockr/servers/:serverId/:token", (_req, res) => {
+    applyLockrWebhookHeaders(res);
+    return res.status(405).json({
+      message: "Lockr webhooks must use POST with application/json.",
+    });
+  });
+
+  app.post("/api/billing/lockr/servers/:serverId/:token", async (req, res) => {
+    applyLockrWebhookHeaders(res);
+    const rawServerId = Array.isArray(req.params.serverId) ? req.params.serverId[0] : req.params.serverId;
+    const serverId = parseInt(rawServerId, 10);
+    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
+    const providedToken = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+
+    const secret = getLockrWebhookSecret();
+    if (!secret) {
+      return res.status(503).json({ message: "Lockr webhook secret is not configured." });
+    }
+
+    if (!verifyLockrServerWebhookToken(serverId, providedToken || "", secret)) {
+      return res.status(403).json({ message: "Invalid Lockr webhook token." });
+    }
+
+    const server = await storage.getServer(serverId);
+    if (!server) return res.status(404).json({ message: "Server not found." });
+
+    const eventType = normalizeLockrEventType(req.body);
+    if (!eventType) {
+      return res.status(202).json({
+        ok: true,
+        ignored: true,
+        message: "Archivist ignored this Lockr event because it is not supported.",
+      });
+    }
+
+    const premiumPatch = buildServerPremiumPatchFromLockrEvent(eventType, req.body);
+    await storage.setServerPremiumState(serverId, premiumPatch);
+    invalidateCustomCommandCache(serverId);
+    invalidateCustomCommandV2Cache(serverId);
+    invalidateCustomCommandV2RuntimeCache(serverId);
+
+    return res.json({
+      ok: true,
+      serverId,
+      eventType,
+      premiumEnabled: Boolean(premiumPatch.serverPremiumEnabled),
+      premiumStatus: premiumPatch.serverPremiumStatus ?? null,
+    });
   });
 
   // --- SERVER WEBHOOKS ---
@@ -1671,7 +2807,10 @@ export async function registerRoutes(_server: Server, app: Express) {
   // === NEW ROUTES: Audit, Snapshots, Codes, Sync, Permissions, Lock
   // =========================================================
 
-  function srvId(req: any): number { return parseInt(req.params.serverId); }
+  function srvId(req: any): number {
+    const raw = Array.isArray(req.params.serverId) ? req.params.serverId[0] : req.params.serverId;
+    return parseInt(raw, 10);
+  }
 
   // --- CONFIG AUDIT ---
   app.get("/api/servers/:serverId/config/audit", requireAuth, async (req, res) => {
@@ -1693,7 +2832,7 @@ export async function registerRoutes(_server: Server, app: Express) {
 
   app.post("/api/servers/:serverId/config/rollback/:snapshotId", requireAuth, async (req, res) => {
     const serverId = srvId(req);
-    const snapshotId = parseInt(req.params.snapshotId);
+    const snapshotId = parseInt(Array.isArray(req.params.snapshotId) ? req.params.snapshotId[0] : req.params.snapshotId, 10);
     if (isNaN(serverId) || isNaN(snapshotId)) return res.status(400).json({ message: "Invalid IDs" });
     try {
       const actorId = (req as any).user?.discordId ?? "dashboard";
@@ -1744,7 +2883,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.post("/api/servers/:serverId/codes/:id/revoke", requireAuth, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     const updated = await revokeCode(id);
     res.json(updated);
@@ -1768,7 +2907,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.delete("/api/servers/:serverId/sync/templates/:id", requireAuth, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     await db.delete(channelSyncTemplates).where(eq(channelSyncTemplates.id, id));
     res.status(204).send();
@@ -1816,7 +2955,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   app.delete("/api/servers/:serverId/permissions/:id", requireAuth, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
     await deletePermissionRule(id);
     res.status(204).send();
@@ -2316,18 +3455,13 @@ async function buildStudioMemberTokenContext(input: {
   };
 }
 
-async function publishStudioMessage(input: {
+async function resolveStudioDocumentForRequest(input: {
   serverId: number;
   actorUserId: number;
-  actorDiscordId?: string;
   documentId?: number;
   documentInput?: unknown;
-  allowDowngrade?: boolean;
-  target: {
-    channelId: string;
-    messageId?: string;
-    viewId?: string;
-  };
+  fallbackName: string;
+  createIfMissing?: boolean;
 }) {
   let documentRecord = input.documentId ? await getStudioDocumentById(input.documentId) : null;
   if (documentRecord && documentRecord.serverId !== input.serverId) {
@@ -2346,8 +3480,8 @@ async function publishStudioMessage(input: {
         document,
       } as any);
     }
-  } else if (input.documentInput) {
-    document = normalizeStudioDocument(input.documentInput, "Untitled Project");
+  } else if (input.documentInput && input.createIfMissing) {
+    document = normalizeStudioDocument(input.documentInput, input.fallbackName);
     documentRecord = await createStudioDocumentRecord({
       serverId: input.serverId,
       ownerUserId: input.actorUserId,
@@ -2358,8 +3492,73 @@ async function publishStudioMessage(input: {
       moduleBinding: null,
       document,
     });
+  } else if (input.documentInput) {
+    document = normalizeStudioDocument(input.documentInput, input.fallbackName);
   } else {
-    throw studioHttpError(400, "Publish requires a documentId or document payload.");
+    throw studioHttpError(400, "A Studio documentId or document payload is required.");
+  }
+
+  return { documentRecord, document };
+}
+
+async function buildStudioPreflight(input: {
+  serverId: number;
+  actorUserId: number;
+  documentId?: number;
+  documentInput?: unknown;
+  viewId?: string;
+}) {
+  const resolved = await resolveStudioDocumentForRequest({
+    serverId: input.serverId,
+    actorUserId: input.actorUserId,
+    documentId: input.documentId,
+    documentInput: input.documentInput,
+    fallbackName: "Untitled Project",
+    createIfMissing: false,
+  });
+  const plan = buildStudioPublishPlan(resolved.document, input.viewId, {
+    tokenAvailability: {
+      static: true,
+      member: false,
+      postSend: false,
+    },
+  });
+
+  return {
+    documentId: resolved.documentRecord?.id || input.documentId || null,
+    document: resolved.document,
+    publishPlan: plan,
+    diagnostics: plan.diagnostics,
+    normalizedNodes: plan.normalizedNodes,
+    debug: plan.debug,
+  };
+}
+
+async function publishStudioMessage(input: {
+  serverId: number;
+  actorUserId: number;
+  actorDiscordId?: string;
+  documentId?: number;
+  documentInput?: unknown;
+  allowDowngrade?: boolean;
+  target: {
+    channelId: string;
+    messageId?: string;
+    viewId?: string;
+  };
+}) {
+  const resolved = await resolveStudioDocumentForRequest({
+    serverId: input.serverId,
+    actorUserId: input.actorUserId,
+    documentId: input.documentId,
+    documentInput: input.documentInput,
+    fallbackName: "Untitled Project",
+    createIfMissing: true,
+  });
+  let documentRecord = resolved.documentRecord;
+  const document = resolved.document;
+  if (!documentRecord) {
+    throw studioHttpError(404, "Studio document could not be resolved for publish.");
   }
 
   const targetChannelId = input.target.channelId.trim();
@@ -2446,6 +3645,7 @@ async function publishStudioMessage(input: {
         content: payload.content,
         embeds: payload.embeds,
         components: payload.components,
+        files: payload.files,
         flags: payload.flags,
       });
       messageId = updated.id;
@@ -2454,6 +3654,7 @@ async function publishStudioMessage(input: {
         content: payload.content,
         embeds: payload.embeds,
         components: payload.components,
+        files: payload.files,
         flags: payload.flags,
       });
       messageId = sent.id;
@@ -2478,7 +3679,7 @@ async function publishStudioMessage(input: {
       severity: payload.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
       eventType: "publish",
       summary: `Published ${documentRecord.name} to ${targetChannelId}.`,
-      details: { diagnostics: payload.diagnostics, viewId: plan.viewId, messageId },
+      details: { diagnostics: payload.diagnostics, viewId: plan.viewId, messageId, debug: plan.debug },
     });
 
     return {
@@ -2502,7 +3703,7 @@ async function publishStudioMessage(input: {
       severity: "error",
       eventType: "publish_failed",
       summary: err?.message || "Publish failed",
-      details: { diagnostics: payload.diagnostics, targetChannelId },
+      details: { diagnostics: payload.diagnostics, targetChannelId, debug: plan.debug },
     });
     throw err;
   }
@@ -2520,21 +3721,15 @@ async function sendStudioTestMessage(input: {
     viewId?: string;
   };
 }) {
-  let documentRecord = input.documentId ? await getStudioDocumentById(input.documentId) : null;
-  if (documentRecord && documentRecord.serverId !== input.serverId) {
-    throw studioHttpError(404, "Studio document not found for this server.");
-  }
-
-  let document: StudioDocument;
-  if (documentRecord) {
-    document = input.documentInput
-      ? normalizeStudioDocument(input.documentInput, documentRecord.name)
-      : normalizeStudioDocument(documentRecord.document, documentRecord.name);
-  } else if (input.documentInput) {
-    document = normalizeStudioDocument(input.documentInput, "Untitled Studio Document");
-  } else {
-    throw studioHttpError(400, "Test send requires a documentId or document payload.");
-  }
+  const resolved = await resolveStudioDocumentForRequest({
+    serverId: input.serverId,
+    actorUserId: input.actorUserId,
+    documentId: input.documentId,
+    documentInput: input.documentInput,
+    fallbackName: "Untitled Studio Document",
+    createIfMissing: false,
+  });
+  const document = resolved.document;
 
   const client = getBotClient();
   if (!client?.isReady()) throw studioHttpError(503, "Bot is offline. Start the bot before sending a test.");
@@ -2580,6 +3775,7 @@ async function sendStudioTestMessage(input: {
       content: payload.content,
       embeds: payload.embeds,
       components: payload.components,
+      files: payload.files,
       flags: payload.flags,
     }).catch((err: any) => {
       throw studioHttpError(400, err?.message || "Could not send the Studio DM test.");
@@ -2604,6 +3800,7 @@ async function sendStudioTestMessage(input: {
     content: payload.content,
     embeds: payload.embeds,
     components: payload.components,
+    files: payload.files,
     flags: payload.flags,
   }).catch((err: any) => {
     throw studioHttpError(400, err?.message || "Could not send the Studio test message.");
@@ -2673,6 +3870,7 @@ async function rollbackStudioPublication(input: {
     content: payload.content,
     embeds: payload.embeds,
     components: payload.components,
+    files: payload.files,
     flags: payload.flags,
   });
 

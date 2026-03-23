@@ -4,25 +4,44 @@ import {
   type EmbedComponentType,
   type StudioDiagnostic,
   type StudioDocument,
+  type StudioDraftMode,
   type StudioEmbedDraft,
   type StudioNode,
-  type StudioPublishMode,
+  type StudioNormalizedNode,
   type StudioPublishNodeOutcome,
   type StudioPublishPlan,
-  type StudioPublishSeverity,
 } from "./schema";
 import { collectStudioDiagnostics, type StudioDocumentRenderOptions } from "./studio-document";
+import { createMigratedStudioDocument, getStudioNodePath, isUploadedStudioAssetUrl } from "./studio/migrate";
 
 const URL_PATTERN = /^https?:\/\/\S+$/i;
 const COMPONENTS_V2_FLAG = 32768;
+const INTERACTIVE_NODE_TYPES = new Set([
+  "action_row",
+  "button",
+  "string_select",
+  "role_select",
+  "user_select",
+  "channel_select",
+  "mentionable_select",
+]);
+const LAYOUT_NODE_TYPES = new Set([
+  "container",
+  "section",
+  "text_display",
+  "media_gallery",
+  "file",
+  "divider",
+  "style_block",
+]);
 
 interface StudioNodePlanResult {
-  status: "exact" | "downgraded" | "blocked";
-  reason: string;
-  severity?: StudioPublishSeverity;
-  component?: EmbedComponentType;
-  contentParts: string[];
-  embeds: StudioEmbedDraft[];
+  exactComponent?: EmbedComponentType;
+  standardContentParts: string[];
+  standardEmbeds: StudioEmbedDraft[];
+  standardComponents: EmbedComponentType[];
+  standardAttachments: NonNullable<StudioPublishPlan["liveMessage"]["attachments"]>;
+  normalizedNodes: StudioNormalizedNode[];
   outcomes: StudioPublishNodeOutcome[];
   usesLayoutComponents: boolean;
   usesContentComponents: boolean;
@@ -30,6 +49,8 @@ interface StudioNodePlanResult {
   missingCustomIdCount: number;
   missingHandlerBindingCount: number;
   invalidMediaConfiguration: boolean;
+  blocked: boolean;
+  downgraded: boolean;
 }
 
 function safeText(value: unknown) {
@@ -41,22 +62,27 @@ function isHttpUrl(value: unknown) {
   return raw.length > 0 && URL_PATTERN.test(raw);
 }
 
+function getView(document: StudioDocument, requestedViewId?: string) {
+  const requested = requestedViewId || document.meta.entryViewId;
+  return document.views[requested] || document.views[document.meta.entryViewId];
+}
+
 function buildDividerText(props: Record<string, unknown>) {
   const mode = String(props.mode || "line");
   const repeat = Math.max(1, Math.min(12, Number(props.repeat || 5)));
   if (mode === "emoji") {
-    const emoji = String(props.emoji || "✨");
+    const emoji = String(props.emoji || "*");
     return Array.from({ length: repeat }, () => emoji).join(" ");
   }
   if (mode === "symbol") {
-    const symbol = String(props.symbol || "•");
+    const symbol = String(props.symbol || "*");
     return Array.from({ length: repeat }, () => symbol).join(" ");
   }
   if (mode === "stacked") {
-    const text = String(props.text || "────");
+    const text = String(props.text || "----");
     return Array.from({ length: Math.min(3, repeat) }, () => text).join("\n");
   }
-  return String(props.text || "────────");
+  return String(props.text || "--------");
 }
 
 function buildStyleBlockEmbed(node: StudioNode): StudioEmbedDraft {
@@ -92,165 +118,124 @@ function makeOutcome(
   };
 }
 
-function emptyPlanResult(
+function makeNormalizedNode(
   node: StudioNode,
-  status: "exact" | "downgraded" | "blocked",
-  reason: string,
-  extra?: Partial<StudioPublishNodeOutcome>,
-): StudioNodePlanResult {
+  mode: StudioDraftMode,
+  intent: StudioNormalizedNode["intent"],
+  exact: boolean,
+  detail: string,
+): StudioNormalizedNode {
   return {
-    status,
-    reason,
-    severity: extra?.severity,
-    component: undefined,
-    contentParts: [],
-    embeds: [],
-    outcomes: [makeOutcome(node, status, reason, extra)],
-    usesLayoutComponents: ["container", "section", "divider"].includes(node.type),
-    usesContentComponents: ["text_display", "media_gallery", "file", "style_block"].includes(node.type),
-    usesInteractiveComponents: ["action_row", "button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(node.type),
+    nodeId: node.id,
+    nodeType: node.type,
+    path: getStudioNodePath(node),
+    mode,
+    intent,
+    exact,
+    detail,
+  };
+}
+
+function emptyResult(node?: StudioNode): StudioNodePlanResult {
+  return {
+    exactComponent: undefined,
+    standardContentParts: [],
+    standardEmbeds: [],
+    standardComponents: [],
+    standardAttachments: [],
+    normalizedNodes: node ? [makeNormalizedNode(node, "standard", "unsupported", false, "Missing or unsupported node.")] : [],
+    outcomes: node ? [makeOutcome(node, "blocked", "Missing or unsupported node.")] : [],
+    usesLayoutComponents: node ? LAYOUT_NODE_TYPES.has(node.type) : false,
+    usesContentComponents: node ? !INTERACTIVE_NODE_TYPES.has(node.type) : false,
+    usesInteractiveComponents: node ? INTERACTIVE_NODE_TYPES.has(node.type) : false,
     missingCustomIdCount: 0,
     missingHandlerBindingCount: 0,
     invalidMediaConfiguration: false,
+    blocked: true,
+    downgraded: false,
   };
 }
 
-function combineChildMetadata(results: StudioNodePlanResult[]) {
-  return {
-    outcomes: results.flatMap((result) => result.outcomes),
-    usesLayoutComponents: results.some((result) => result.usesLayoutComponents),
-    usesContentComponents: results.some((result) => result.usesContentComponents),
-    usesInteractiveComponents: results.some((result) => result.usesInteractiveComponents),
-    missingCustomIdCount: results.reduce((total, result) => total + result.missingCustomIdCount, 0),
-    missingHandlerBindingCount: results.reduce((total, result) => total + result.missingHandlerBindingCount, 0),
-    invalidMediaConfiguration: results.some((result) => result.invalidMediaConfiguration),
-  };
+function mergeResults(results: StudioNodePlanResult[]): StudioNodePlanResult {
+  return results.reduce<StudioNodePlanResult>((merged, next) => ({
+    exactComponent: undefined,
+    standardContentParts: [...merged.standardContentParts, ...next.standardContentParts],
+    standardEmbeds: [...merged.standardEmbeds, ...next.standardEmbeds],
+    standardComponents: [...merged.standardComponents, ...next.standardComponents],
+    standardAttachments: [...merged.standardAttachments, ...next.standardAttachments],
+    normalizedNodes: [...merged.normalizedNodes, ...next.normalizedNodes],
+    outcomes: [...merged.outcomes, ...next.outcomes],
+    usesLayoutComponents: merged.usesLayoutComponents || next.usesLayoutComponents,
+    usesContentComponents: merged.usesContentComponents || next.usesContentComponents,
+    usesInteractiveComponents: merged.usesInteractiveComponents || next.usesInteractiveComponents,
+    missingCustomIdCount: merged.missingCustomIdCount + next.missingCustomIdCount,
+    missingHandlerBindingCount: merged.missingHandlerBindingCount + next.missingHandlerBindingCount,
+    invalidMediaConfiguration: merged.invalidMediaConfiguration || next.invalidMediaConfiguration,
+    blocked: merged.blocked || next.blocked,
+    downgraded: merged.downgraded || next.downgraded,
+  }), {
+    exactComponent: undefined,
+    standardContentParts: [],
+    standardEmbeds: [],
+    standardComponents: [],
+    standardAttachments: [],
+    normalizedNodes: [],
+    outcomes: [],
+    usesLayoutComponents: false,
+    usesContentComponents: false,
+    usesInteractiveComponents: false,
+    missingCustomIdCount: 0,
+    missingHandlerBindingCount: 0,
+    invalidMediaConfiguration: false,
+    blocked: false,
+    downgraded: false,
+  });
 }
 
-function subtreeUsesInteractive(document: StudioDocument, nodeId: string): boolean {
-  const node = document.nodes[nodeId];
-  if (!node) return false;
-  if (["action_row", "button", "string_select", "role_select", "user_select", "channel_select", "mentionable_select"].includes(node.type)) {
-    return true;
-  }
-  return node.childIds.some((childId) => subtreeUsesInteractive(document, childId));
-}
-
-function serializeLegacySubtree(document: StudioDocument, nodeId: string): { contentParts: string[]; embeds: StudioEmbedDraft[] } {
-  const node = document.nodes[nodeId];
-  if (!node) return { contentParts: [], embeds: [] };
-
-  const contentParts: string[] = [];
-  const embeds: StudioEmbedDraft[] = [];
-
-  const visit = (currentNode: StudioNode) => {
-    switch (currentNode.type) {
-      case "container":
-      case "section":
-        if (currentNode.props.heading) contentParts.push(`**${String(currentNode.props.heading)}**`);
-        if (currentNode.props.description) contentParts.push(String(currentNode.props.description));
-        currentNode.childIds.forEach((childId) => {
-          const child = document.nodes[childId];
-          if (child) visit(child);
-        });
-        return;
-      case "text_display":
-        if (safeText(currentNode.props.text)) contentParts.push(String(currentNode.props.text));
-        return;
-      case "divider":
-        contentParts.push(buildDividerText(currentNode.props));
-        return;
-      case "style_block":
-        embeds.push(buildStyleBlockEmbed(currentNode));
-        return;
-      case "media_gallery": {
-        const items = Array.isArray(currentNode.props.items) ? currentNode.props.items : [];
-        items.slice(0, 4).forEach((item: any) => {
-          const url = safeText(item?.url);
-          if (!url) return;
-          embeds.push({
-            title: String(currentNode.props.title || ""),
-            description: String(item?.description || ""),
-            imageUrl: url,
-            color: String(currentNode.props.accentColor || "#5865F2"),
-          });
-        });
-        return;
-      }
-      case "file":
-        if (safeText(currentNode.props.url)) {
-          contentParts.push(`[${String(currentNode.props.label || "Attachment")}](${String(currentNode.props.url)})`);
-        }
-        return;
-      default:
-        return;
-    }
-  };
-
-  visit(node);
-  return { contentParts, embeds };
-}
-
-function planInteractiveButton(document: StudioDocument, node: StudioNode): StudioNodePlanResult {
-  const label = safeText(node.props.label) || "Button";
+function mapButtonComponent(document: StudioDocument, node: StudioNode) {
   const action = node.actionId ? document.actions[node.actionId] : undefined;
   const customId = safeText(node.props.customId);
 
-  if (!action && !customId && Number(node.props.style || 1) !== 5) {
+  if (!action && Number(node.props.style || 1) !== 5 && !customId) {
     return {
-      ...emptyPlanResult(node, "blocked", `${label} has no action or custom id for live publish.`, {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Button behavior would not work live.",
-      }),
+      component: null,
+      missingCustomIdCount: customId ? 0 : 1,
       missingHandlerBindingCount: 1,
-      usesInteractiveComponents: true,
+      reason: `${safeText(node.props.label) || "Button"} has no action or custom id.`,
     };
   }
 
   return {
-    status: "exact",
-    reason: "Button can publish as a live interactive control.",
     component: {
       type: COMPONENT_TYPES.BUTTON,
       id: node.id,
-      label,
+      label: String(node.props.label || "Button"),
       style: Number(node.props.style || 1),
       emoji: node.props.emoji ? String(node.props.emoji) : undefined,
       disabled: Boolean(node.props.disabled),
       customId: customId || undefined,
       url: action?.type === "open_url" ? action.url : undefined,
       action,
-    },
-    contentParts: [],
-    embeds: [],
-    outcomes: [makeOutcome(node, "exact", "Button can publish as a live interactive control.", { liveType: "button" })],
-    usesLayoutComponents: false,
-    usesContentComponents: false,
-    usesInteractiveComponents: true,
+    } satisfies EmbedComponentType,
     missingCustomIdCount: customId ? 0 : 1,
-    missingHandlerBindingCount: 0,
-    invalidMediaConfiguration: false,
+    missingHandlerBindingCount: action ? 0 : (Number(node.props.style || 1) === 5 ? 0 : 1),
+    reason: "Button can publish live.",
   };
 }
 
-function planStringSelect(document: StudioDocument, node: StudioNode): StudioNodePlanResult {
+function mapStringSelectComponent(document: StudioDocument, node: StudioNode) {
   const options = Array.isArray(node.props.options) ? node.props.options : [];
   if (options.length === 0) {
     return {
-      ...emptyPlanResult(node, "blocked", "Select menu has no options to send live.", {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Select menu would be empty.",
-      }),
+      component: null,
+      missingCustomIdCount: safeText(node.props.customId) ? 0 : 1,
       missingHandlerBindingCount: 1,
-      usesInteractiveComponents: true,
+      reason: "String select has no options.",
     };
   }
 
   const preparedOptions: EmbedComponentOption[] = [];
   let missingBindings = 0;
-
   for (const option of options.slice(0, 25)) {
     const value = String((option as any)?.value || "");
     const actionId = value ? node.optionActionIds?.[value] : undefined;
@@ -271,19 +256,14 @@ function planStringSelect(document: StudioDocument, node: StudioNode): StudioNod
 
   if (preparedOptions.length === 0) {
     return {
-      ...emptyPlanResult(node, "blocked", "Select menu options are missing live action bindings.", {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Select menu behavior would not work live.",
-      }),
+      component: null,
+      missingCustomIdCount: safeText(node.props.customId) ? 0 : 1,
       missingHandlerBindingCount: Math.max(1, missingBindings),
-      usesInteractiveComponents: true,
+      reason: "String select options are missing publishable actions.",
     };
   }
 
   return {
-    status: "exact",
-    reason: "String select can publish as a live interactive control.",
     component: {
       type: COMPONENT_TYPES.SELECT_MENU,
       id: node.id,
@@ -293,264 +273,144 @@ function planStringSelect(document: StudioDocument, node: StudioNode): StudioNod
       minValues: Math.max(0, Math.min(25, Number(node.props.minValues || 1))),
       maxValues: Math.max(1, Math.min(25, Number(node.props.maxValues || 1))),
       options: preparedOptions,
-    },
-    contentParts: [],
-    embeds: [],
-    outcomes: [makeOutcome(node, "exact", "String select can publish as a live interactive control.", { liveType: "string_select" })],
-    usesLayoutComponents: false,
-    usesContentComponents: false,
-    usesInteractiveComponents: true,
+      action: node.actionId ? document.actions[node.actionId] : undefined,
+    } satisfies EmbedComponentType,
     missingCustomIdCount: safeText(node.props.customId) ? 0 : 1,
     missingHandlerBindingCount: missingBindings,
-    invalidMediaConfiguration: false,
+    reason: "String select can publish live.",
   };
 }
 
-function planSection(document: StudioDocument, node: StudioNode, options?: StudioDocumentRenderOptions): StudioNodePlanResult {
-  const textDisplays: EmbedComponentType[] = [];
-  const childOutcomes: StudioPublishNodeOutcome[] = [];
-  let accessoryButton: EmbedComponentType | undefined;
-  let blocked = false;
-  let invalidMediaConfiguration = false;
-  let missingCustomIdCount = 0;
-  let missingHandlerBindingCount = 0;
-
-  if (safeText(node.props.heading)) {
-    textDisplays.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, content: `**${String(node.props.heading)}**` });
-  }
-  if (safeText(node.props.description)) {
-    textDisplays.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, content: String(node.props.description) });
-  }
-
-  for (const childId of node.childIds) {
-    const child = document.nodes[childId];
-    if (!child) continue;
-    const planned = planNode(document, childId, options);
-    childOutcomes.push(...planned.outcomes);
-    invalidMediaConfiguration = invalidMediaConfiguration || planned.invalidMediaConfiguration;
-    missingCustomIdCount += planned.missingCustomIdCount;
-    missingHandlerBindingCount += planned.missingHandlerBindingCount;
-
-    if (child.type === "text_display" && planned.status === "exact" && planned.component?.type === COMPONENT_TYPES.TEXT_DISPLAY) {
-      textDisplays.push(planned.component);
-      continue;
-    }
-
-    if (child.type === "button" && planned.status === "exact" && !accessoryButton && planned.component?.type === COMPONENT_TYPES.BUTTON) {
-      accessoryButton = planned.component;
-      continue;
-    }
-
-    blocked = blocked || subtreeUsesInteractive(document, childId);
-  }
-
-  if (!blocked && textDisplays.length > 0) {
-    return {
-      status: "exact",
-      reason: "Section can publish as a native V2 section.",
-      component: {
-        type: COMPONENT_TYPES.SECTION,
-        id: node.id,
-        components: textDisplays,
-        accessory: accessoryButton,
-      },
-      contentParts: [],
-      embeds: [],
-      outcomes: [
-        makeOutcome(node, "exact", "Section can publish as a native V2 section.", { liveType: "section" }),
-        ...childOutcomes,
-      ],
-      usesLayoutComponents: true,
-      usesContentComponents: true,
-      usesInteractiveComponents: Boolean(accessoryButton),
-      missingCustomIdCount,
-      missingHandlerBindingCount,
-      invalidMediaConfiguration,
-    };
-  }
-
-  if (blocked) {
-    return {
-      ...emptyPlanResult(node, "blocked", "Section contains interactive or structured content that cannot survive a truthful live publish.", {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Section behavior or structure would be misleading live.",
-      }),
-      outcomes: [
-        makeOutcome(node, "blocked", "Section contains interactive or structured content that cannot survive a truthful live publish.", {
+function planInteractiveStandard(document: StudioDocument, node: StudioNode, mode: StudioDraftMode): StudioNodePlanResult {
+  if (node.type === "button") {
+    const mapped = mapButtonComponent(document, node);
+    if (!mapped.component) {
+      return {
+        ...emptyResult(node),
+        normalizedNodes: [makeNormalizedNode(node, mode, "interactive", false, mapped.reason)],
+        outcomes: [makeOutcome(node, "blocked", mapped.reason, {
           severity: "behavior-breaking",
           transformedTo: "none",
-          lost: "Section behavior or structure would be misleading live.",
-        }),
-        ...childOutcomes,
-      ],
-      usesLayoutComponents: true,
-      usesContentComponents: true,
-      usesInteractiveComponents: true,
-      missingCustomIdCount,
-      missingHandlerBindingCount,
-      invalidMediaConfiguration,
-    };
-  }
-
-  const legacy = serializeLegacySubtree(document, node.id);
-  return {
-    status: "downgraded",
-    reason: "Section will publish as simplified text/embed content.",
-    severity: "structural",
-    component: undefined,
-    contentParts: legacy.contentParts,
-    embeds: legacy.embeds,
-    outcomes: [
-      makeOutcome(node, "downgraded", "Section will publish as simplified text/embed content.", {
-        severity: "structural",
-        transformedTo: "text and embeds",
-        lost: "Native section layout and nesting will not survive live publish.",
-      }),
-      ...childOutcomes,
-    ],
-    usesLayoutComponents: true,
-    usesContentComponents: true,
-    usesInteractiveComponents: false,
-    missingCustomIdCount,
-    missingHandlerBindingCount,
-    invalidMediaConfiguration,
-  };
-}
-
-function planContainer(document: StudioDocument, node: StudioNode, options?: StudioDocumentRenderOptions): StudioNodePlanResult {
-  const childResults = node.childIds.map((childId) => planNode(document, childId, options));
-  const childMeta = combineChildMetadata(childResults);
-  const exactChildren = childResults.every((result) => result.status === "exact" && result.component);
-
-  if (exactChildren) {
-    const components: EmbedComponentType[] = [];
-    if (safeText(node.props.heading)) {
-      components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, content: `**${String(node.props.heading)}**` });
+          lost: "Interactive button behavior would fail live.",
+        })],
+        missingCustomIdCount: mapped.missingCustomIdCount,
+        missingHandlerBindingCount: mapped.missingHandlerBindingCount,
+      };
     }
-    if (safeText(node.props.description)) {
-      components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, content: String(node.props.description) });
-    }
-    components.push(...childResults.map((result) => result.component!).filter(Boolean));
-
     return {
-      status: "exact",
-      reason: "Container can publish as a native V2 container.",
-      component: {
-        type: COMPONENT_TYPES.CONTAINER,
-        id: node.id,
-        accentColor: safeText(node.props.accentColor) || undefined,
-        spoiler: Boolean(node.props.spoiler),
-        components,
-      },
-      contentParts: [],
-      embeds: [],
-      outcomes: [
-        makeOutcome(node, "exact", "Container can publish as a native V2 container.", { liveType: "container" }),
-        ...childMeta.outcomes,
-      ],
-      usesLayoutComponents: true,
-      usesContentComponents: true,
-      usesInteractiveComponents: childMeta.usesInteractiveComponents,
-      missingCustomIdCount: childMeta.missingCustomIdCount,
-      missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
-      invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
-    };
-  }
-
-  if (childMeta.usesInteractiveComponents || subtreeUsesInteractive(document, node.id)) {
-    return {
-      ...emptyPlanResult(node, "blocked", "Container would need to downgrade interactive content, so live publish is blocked.", {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Interactive behavior inside the container would be misleading live.",
-      }),
-      outcomes: [
-        makeOutcome(node, "blocked", "Container would need to downgrade interactive content, so live publish is blocked.", {
-          severity: "behavior-breaking",
-          transformedTo: "none",
-          lost: "Interactive behavior inside the container would be misleading live.",
-        }),
-        ...childMeta.outcomes,
-      ],
-      usesLayoutComponents: true,
-      usesContentComponents: true,
-      usesInteractiveComponents: true,
-      missingCustomIdCount: childMeta.missingCustomIdCount,
-      missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
-      invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
-    };
-  }
-
-  const legacy = serializeLegacySubtree(document, node.id);
-  return {
-    status: "downgraded",
-    reason: "Container will publish as simplified text/embed content.",
-    severity: "structural",
-    component: undefined,
-    contentParts: legacy.contentParts,
-    embeds: legacy.embeds,
-    outcomes: [
-      makeOutcome(node, "downgraded", "Container will publish as simplified text/embed content.", {
-        severity: "structural",
-        transformedTo: "text and embeds",
-        lost: "Native container layout and nested grouping will not survive live publish.",
-      }),
-      ...childMeta.outcomes,
-    ],
-    usesLayoutComponents: true,
-    usesContentComponents: true,
-    usesInteractiveComponents: false,
-    missingCustomIdCount: childMeta.missingCustomIdCount,
-    missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
-    invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
-  };
-}
-
-function planActionRow(document: StudioDocument, node: StudioNode, options?: StudioDocumentRenderOptions): StudioNodePlanResult {
-  const childResults = node.childIds.map((childId) => planNode(document, childId, options));
-  const childMeta = combineChildMetadata(childResults);
-  const exactChildren = childResults.every((result) =>
-    result.status === "exact" &&
-    result.component &&
-    (result.component.type === COMPONENT_TYPES.BUTTON || result.component.type === COMPONENT_TYPES.SELECT_MENU),
-  );
-
-  if (!exactChildren) {
-    return {
-      ...emptyPlanResult(node, "blocked", "Action row contains controls that cannot publish exactly.", {
-        severity: "behavior-breaking",
-        transformedTo: "none",
-        lost: "Interactive controls would not work live.",
-      }),
-      outcomes: [
-        makeOutcome(node, "blocked", "Action row contains controls that cannot publish exactly.", {
-          severity: "behavior-breaking",
-          transformedTo: "none",
-          lost: "Interactive controls would not work live.",
-        }),
-        ...childMeta.outcomes,
-      ],
+      exactComponent: mapped.component,
+      standardContentParts: [],
+      standardEmbeds: [],
+      standardComponents: [mapped.component],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, mode, "interactive", true, mapped.reason)],
+      outcomes: [makeOutcome(node, "exact", mapped.reason, { liveType: "button" })],
       usesLayoutComponents: false,
       usesContentComponents: false,
       usesInteractiveComponents: true,
-      missingCustomIdCount: childMeta.missingCustomIdCount,
-      missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
-      invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
+      missingCustomIdCount: mapped.missingCustomIdCount,
+      missingHandlerBindingCount: mapped.missingHandlerBindingCount,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: false,
     };
   }
 
+  if (node.type === "string_select") {
+    const mapped = mapStringSelectComponent(document, node);
+    if (!mapped.component) {
+      return {
+        ...emptyResult(node),
+        normalizedNodes: [makeNormalizedNode(node, mode, "interactive", false, mapped.reason)],
+        outcomes: [makeOutcome(node, "blocked", mapped.reason, {
+          severity: "behavior-breaking",
+          transformedTo: "none",
+          lost: "Select menu behavior would fail live.",
+        })],
+        missingCustomIdCount: mapped.missingCustomIdCount,
+        missingHandlerBindingCount: mapped.missingHandlerBindingCount,
+      };
+    }
+    return {
+      exactComponent: mapped.component,
+      standardContentParts: [],
+      standardEmbeds: [],
+      standardComponents: [mapped.component],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, mode, "interactive", true, mapped.reason)],
+      outcomes: [makeOutcome(node, "exact", mapped.reason, { liveType: "string_select" })],
+      usesLayoutComponents: false,
+      usesContentComponents: false,
+      usesInteractiveComponents: true,
+      missingCustomIdCount: mapped.missingCustomIdCount,
+      missingHandlerBindingCount: mapped.missingHandlerBindingCount,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: false,
+    };
+  }
+
+  if (node.type === "role_select" || node.type === "user_select" || node.type === "channel_select" || node.type === "mentionable_select") {
+    return {
+      ...emptyResult(node),
+      normalizedNodes: [makeNormalizedNode(node, mode, "unsupported", false, `${node.type} is runtime-gated and cannot be published truthfully yet.`)],
+      outcomes: [makeOutcome(node, "blocked", `${node.type.replace(/_/g, " ")} is runtime-gated and cannot publish truthfully yet.`, {
+        severity: "behavior-breaking",
+        transformedTo: "none",
+        lost: "Runtime-gated select behavior is unsupported.",
+      })],
+    };
+  }
+
+  if (node.type !== "action_row") {
+    return emptyResult(node);
+  }
+
+  const childResults = node.childIds.map((childId) => {
+    const child = document.nodes[childId];
+    return child ? planInteractiveStandard(document, child, mode) : emptyResult();
+  });
+  const childMeta = mergeResults(childResults);
+  const exactChildren = childResults.every((result) =>
+    result.exactComponent &&
+    (result.exactComponent.type === COMPONENT_TYPES.BUTTON || result.exactComponent.type === COMPONENT_TYPES.SELECT_MENU),
+  );
+  if (!exactChildren) {
+    return {
+      ...childMeta,
+      normalizedNodes: [
+        makeNormalizedNode(node, mode, "interactive", false, "Action row contains unsupported controls."),
+        ...childMeta.normalizedNodes,
+      ],
+      outcomes: [
+        makeOutcome(node, "blocked", "Action row contains controls that cannot publish live.", {
+          severity: "behavior-breaking",
+          transformedTo: "none",
+          lost: "Interactive controls would fail live.",
+        }),
+        ...childMeta.outcomes,
+      ],
+      blocked: true,
+      usesInteractiveComponents: true,
+    };
+  }
+
+  const component: EmbedComponentType = {
+    type: COMPONENT_TYPES.ACTION_ROW,
+    components: childResults.map((result) => result.exactComponent!).filter(Boolean),
+  };
   return {
-    status: "exact",
-    reason: "Action row can publish as live interactive controls.",
-    component: {
-      type: COMPONENT_TYPES.ACTION_ROW,
-      components: childResults.map((result) => result.component!).filter(Boolean),
-    },
-    contentParts: [],
-    embeds: [],
+    exactComponent: component,
+    standardContentParts: [],
+    standardEmbeds: [],
+    standardComponents: [component],
+    standardAttachments: [],
+    normalizedNodes: [
+      makeNormalizedNode(node, mode, "interactive", true, "Action row can publish live."),
+      ...childMeta.normalizedNodes,
+    ],
     outcomes: [
-      makeOutcome(node, "exact", "Action row can publish as live interactive controls.", { liveType: "action_row" }),
+      makeOutcome(node, "exact", "Action row can publish as live controls.", { liveType: "action_row" }),
       ...childMeta.outcomes,
     ],
     usesLayoutComponents: false,
@@ -559,240 +419,649 @@ function planActionRow(document: StudioDocument, node: StudioNode, options?: Stu
     missingCustomIdCount: childMeta.missingCustomIdCount,
     missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
     invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
+    blocked: false,
+    downgraded: false,
   };
 }
 
-function planNode(document: StudioDocument, nodeId: string, options?: StudioDocumentRenderOptions): StudioNodePlanResult {
+function planStandardNode(document: StudioDocument, nodeId: string, mode: StudioDraftMode): StudioNodePlanResult {
   const node = document.nodes[nodeId];
-  if (!node) {
-    return {
-      status: "blocked",
-      reason: "Missing node.",
-      contentParts: [],
-      embeds: [],
-      outcomes: [],
-      usesLayoutComponents: false,
-      usesContentComponents: false,
-      usesInteractiveComponents: false,
-      missingCustomIdCount: 0,
-      missingHandlerBindingCount: 0,
-      invalidMediaConfiguration: false,
-    };
+  if (!node) return emptyResult();
+
+  if (INTERACTIVE_NODE_TYPES.has(node.type)) {
+    return planInteractiveStandard(document, node, mode);
   }
 
+  const childResults = node.childIds.map((childId) => planStandardNode(document, childId, mode));
+  const childMeta = mergeResults(childResults);
+  const contentParts: string[] = [];
+  const embeds: StudioEmbedDraft[] = [];
+  const attachments = [...childMeta.standardAttachments];
+
   switch (node.type) {
+    case "container":
+    case "section":
+      if (safeText(node.props.heading)) contentParts.push(`**${String(node.props.heading)}**`);
+      if (safeText(node.props.description)) contentParts.push(String(node.props.description));
+      contentParts.push(...childMeta.standardContentParts);
+      embeds.push(...childMeta.standardEmbeds);
+      return {
+        exactComponent: undefined,
+        standardContentParts: contentParts,
+        standardEmbeds: embeds,
+        standardComponents: childMeta.standardComponents,
+        standardAttachments: attachments,
+        normalizedNodes: [
+          makeNormalizedNode(node, mode, "content", true, `${node.type} will publish in standard message mode.`),
+          ...childMeta.normalizedNodes,
+        ],
+        outcomes: [
+          makeOutcome(node, "exact", `${node.type.replace(/_/g, " ")} will publish in standard message mode.`, { liveType: "content" }),
+          ...childMeta.outcomes,
+        ],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: childMeta.usesInteractiveComponents,
+        missingCustomIdCount: childMeta.missingCustomIdCount,
+        missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
+        invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
+        blocked: childMeta.blocked,
+        downgraded: childMeta.downgraded,
+      };
     case "text_display":
       return {
-        status: "exact",
-        reason: "Text display can publish as a native V2 content block.",
-        component: {
-          type: COMPONENT_TYPES.TEXT_DISPLAY,
-          id: node.id,
-          content: String(node.props.text || ""),
-        },
-        contentParts: [],
-        embeds: [],
-        outcomes: [makeOutcome(node, "exact", "Text display can publish as a native V2 content block.", { liveType: "text_display" })],
-        usesLayoutComponents: false,
+        exactComponent: undefined,
+        standardContentParts: [String(node.props.text || "")].filter(Boolean),
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: [],
+        normalizedNodes: [makeNormalizedNode(node, mode, "content", true, "Text block publishes as message content.")],
+        outcomes: [makeOutcome(node, "exact", "Text block publishes as message content.", { liveType: "content" })],
+        usesLayoutComponents: true,
         usesContentComponents: true,
         usesInteractiveComponents: false,
         missingCustomIdCount: 0,
         missingHandlerBindingCount: 0,
         invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
       };
-    case "divider": {
-      const mode = String(node.props.mode || "line");
-      if (mode === "line" || !safeText(node.props.text) || safeText(node.props.text) === "--------") {
+    case "divider":
+      return {
+        exactComponent: undefined,
+        standardContentParts: [buildDividerText(node.props)],
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: [],
+        normalizedNodes: [makeNormalizedNode(node, mode, "content", true, "Divider publishes as plain text separators in standard mode.")],
+        outcomes: [makeOutcome(node, "exact", "Divider publishes as plain text separators in standard mode.", { liveType: "content" })],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: false,
+        missingCustomIdCount: 0,
+        missingHandlerBindingCount: 0,
+        invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
+      };
+    case "style_block":
+      return {
+        exactComponent: undefined,
+        standardContentParts: [],
+        standardEmbeds: [buildStyleBlockEmbed(node)],
+        standardComponents: [],
+        standardAttachments: [],
+        normalizedNodes: [makeNormalizedNode(node, mode, "embed", true, "Notice block publishes as an embed in standard mode.")],
+        outcomes: [makeOutcome(node, "exact", "Notice block publishes as an embed in standard mode.", { liveType: "embed" })],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: false,
+        missingCustomIdCount: 0,
+        missingHandlerBindingCount: 0,
+        invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
+      };
+    case "media_gallery": {
+      const items = Array.isArray(node.props.items) ? node.props.items : [];
+      const validItems = items.filter((item: any) => isHttpUrl(item?.url));
+      if (validItems.length === 0) {
         return {
-          status: "exact",
-          reason: "Divider can publish as a native V2 separator.",
-          component: {
-            type: COMPONENT_TYPES.SEPARATOR,
-            id: node.id,
-            spacing: node.props.spacing === "large" || node.props.spacing === "relaxed" ? "large" : "small",
-            divider: true,
-          },
-          contentParts: [],
-          embeds: [],
-          outcomes: [makeOutcome(node, "exact", "Divider can publish as a native V2 separator.", { liveType: "separator" })],
+          ...emptyResult(node),
+          normalizedNodes: [makeNormalizedNode(node, mode, "embed", false, "Media gallery has no valid image URLs.")],
+          outcomes: [makeOutcome(node, "blocked", "Media gallery needs at least one valid image URL.", {
+            severity: "structural",
+            transformedTo: "none",
+            lost: "Media gallery would be empty live.",
+          })],
+          invalidMediaConfiguration: true,
           usesLayoutComponents: true,
-          usesContentComponents: false,
-          usesInteractiveComponents: false,
-          missingCustomIdCount: 0,
-          missingHandlerBindingCount: 0,
-          invalidMediaConfiguration: false,
+          usesContentComponents: true,
         };
       }
-
       return {
-        status: "downgraded",
-        reason: "Custom divider styling will publish as text instead of a native separator.",
-        severity: "visual-only",
-        component: undefined,
-        contentParts: [buildDividerText(node.props)],
-        embeds: [],
-        outcomes: [makeOutcome(node, "downgraded", "Custom divider styling will publish as text instead of a native separator.", {
-          severity: "visual-only",
-          transformedTo: "text",
-          lost: "Native separator styling is replaced with plain text symbols.",
-        })],
+        exactComponent: undefined,
+        standardContentParts: [],
+        standardEmbeds: validItems.slice(0, 4).map((item: any) => ({
+          title: String(node.props.title || ""),
+          description: String(item?.description || ""),
+          imageUrl: String(item.url),
+          color: String(node.props.accentColor || "#5865F2"),
+        })),
+        standardComponents: [],
+        standardAttachments: [],
+        normalizedNodes: [makeNormalizedNode(node, mode, "embed", true, "Media gallery publishes as image embeds in standard mode.")],
+        outcomes: [makeOutcome(node, "exact", "Media gallery publishes as image embeds in standard mode.", { liveType: "embed" })],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: false,
+        missingCustomIdCount: 0,
+        missingHandlerBindingCount: 0,
+        invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
+      };
+    }
+    case "file": {
+      const url = safeText(node.props.url);
+      if (!isHttpUrl(url) && !isUploadedStudioAssetUrl(url)) {
+        return {
+          ...emptyResult(node),
+          normalizedNodes: [makeNormalizedNode(node, mode, "file", false, "File block is missing a valid URL.")],
+          outcomes: [makeOutcome(node, "blocked", "File block needs a valid URL.", {
+            severity: "structural",
+            transformedTo: "none",
+            lost: "Attachment link would fail live.",
+          })],
+          usesLayoutComponents: true,
+          usesContentComponents: true,
+        };
+      }
+      return {
+        exactComponent: undefined,
+        standardContentParts: [`[${String(node.props.label || "Attachment")}](${url})`],
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: isUploadedStudioAssetUrl(url)
+          ? [{
+              id: node.id,
+              name: String(node.props.label || "Attachment"),
+              url,
+              source: "asset",
+              spoiler: Boolean(node.props.spoiler),
+            }]
+          : [],
+        normalizedNodes: [makeNormalizedNode(node, mode, "file", true, "File block publishes as a standard link.")],
+        outcomes: [makeOutcome(node, "exact", "File block publishes as a standard link.", { liveType: "content" })],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: false,
+        missingCustomIdCount: 0,
+        missingHandlerBindingCount: 0,
+        invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
+      };
+    }
+    default:
+      return emptyResult(node);
+  }
+}
+
+function planLayoutNode(document: StudioDocument, nodeId: string): StudioNodePlanResult {
+  const node = document.nodes[nodeId];
+  if (!node) return emptyResult();
+
+  if (INTERACTIVE_NODE_TYPES.has(node.type)) {
+    return planInteractiveStandard(document, node, "layout_v2");
+  }
+
+  if (node.type === "text_display") {
+    return {
+      exactComponent: {
+        type: COMPONENT_TYPES.TEXT_DISPLAY,
+        id: node.id,
+        content: String(node.props.text || ""),
+      },
+      standardContentParts: [String(node.props.text || "")].filter(Boolean),
+      standardEmbeds: [],
+      standardComponents: [],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, "layout_v2", "layout_v2", true, "Text display can publish as a V2 content block.")],
+      outcomes: [makeOutcome(node, "exact", "Text display can publish as a V2 content block.", { liveType: "text_display" })],
+      usesLayoutComponents: true,
+      usesContentComponents: true,
+      usesInteractiveComponents: false,
+      missingCustomIdCount: 0,
+      missingHandlerBindingCount: 0,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: false,
+    };
+  }
+
+  if (node.type === "divider") {
+    const mode = String(node.props.mode || "line");
+    if (mode === "line" || !safeText(node.props.text) || safeText(node.props.text) === "--------") {
+      return {
+        exactComponent: {
+          type: COMPONENT_TYPES.SEPARATOR,
+          id: node.id,
+          spacing: node.props.spacing === "large" || node.props.spacing === "relaxed" ? "large" : "small",
+          divider: true,
+        },
+        standardContentParts: [buildDividerText(node.props)],
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: [],
+        normalizedNodes: [makeNormalizedNode(node, "layout_v2", "layout_v2", true, "Divider can publish as a V2 separator.")],
+        outcomes: [makeOutcome(node, "exact", "Divider can publish as a V2 separator.", { liveType: "separator" })],
         usesLayoutComponents: true,
         usesContentComponents: false,
         usesInteractiveComponents: false,
         missingCustomIdCount: 0,
         missingHandlerBindingCount: 0,
         invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
       };
     }
-    case "media_gallery": {
-      const items = Array.isArray(node.props.items) ? node.props.items : [];
-      const validItems = items
-        .map((item: any) => ({
-          url: safeText(item?.url),
-          description: safeText(item?.description) || undefined,
-          spoiler: Boolean(item?.spoiler),
-        }))
-        .filter((item) => Boolean(item.url));
+    return {
+      exactComponent: undefined,
+      standardContentParts: [buildDividerText(node.props)],
+      standardEmbeds: [],
+      standardComponents: [],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, "layout_v2", "content", false, "Custom divider styling downgrades to plain text.")],
+      outcomes: [makeOutcome(node, "downgraded", "Custom divider styling downgrades to plain text.", {
+        severity: "visual-only",
+        transformedTo: "text",
+        lost: "Native V2 separator styling is lost.",
+      })],
+      usesLayoutComponents: true,
+      usesContentComponents: true,
+      usesInteractiveComponents: false,
+      missingCustomIdCount: 0,
+      missingHandlerBindingCount: 0,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: true,
+    };
+  }
 
-      if (validItems.length === 0) {
-        return {
-          ...emptyPlanResult(node, "blocked", "Media gallery needs at least one valid image URL.", {
-            severity: "structural",
-            transformedTo: "none",
-            lost: "Media gallery content would be empty live.",
-          }),
-          invalidMediaConfiguration: true,
-          usesContentComponents: true,
-        };
-      }
+  if (node.type === "style_block") {
+    return {
+      exactComponent: undefined,
+      standardContentParts: [],
+      standardEmbeds: [buildStyleBlockEmbed(node)],
+      standardComponents: [],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, "layout_v2", "embed", false, "Notice blocks downgrade to embeds in simplified publish.")],
+      outcomes: [makeOutcome(node, "downgraded", "Notice blocks downgrade to embeds in simplified publish.", {
+        severity: "structural",
+        transformedTo: "embed",
+        lost: "Native V2 layout styling is replaced with an embed.",
+      })],
+      usesLayoutComponents: true,
+      usesContentComponents: true,
+      usesInteractiveComponents: false,
+      missingCustomIdCount: 0,
+      missingHandlerBindingCount: 0,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: true,
+    };
+  }
 
+  if (node.type === "media_gallery") {
+    const items = Array.isArray(node.props.items) ? node.props.items : [];
+    const validItems = items
+      .map((item: any) => ({
+        url: safeText(item?.url),
+        description: safeText(item?.description) || undefined,
+        spoiler: Boolean(item?.spoiler),
+      }))
+      .filter((item) => Boolean(item.url) && isHttpUrl(item.url));
+    if (validItems.length === 0) {
       return {
-        status: "exact",
-        reason: "Media gallery can publish as a native V2 gallery.",
-        component: {
-          type: COMPONENT_TYPES.MEDIA_GALLERY,
-          id: node.id,
-          items: validItems,
-        },
-        contentParts: [],
-        embeds: [],
-        outcomes: [makeOutcome(node, "exact", "Media gallery can publish as a native V2 gallery.", { liveType: "media_gallery" })],
-        usesLayoutComponents: false,
+        ...emptyResult(node),
+        normalizedNodes: [makeNormalizedNode(node, "layout_v2", "layout_v2", false, "Media gallery has no valid images.")],
+        outcomes: [makeOutcome(node, "blocked", "Media gallery needs at least one valid image URL.", {
+          severity: "structural",
+          transformedTo: "none",
+          lost: "Media gallery would be empty live.",
+        })],
+        invalidMediaConfiguration: true,
+        usesLayoutComponents: true,
         usesContentComponents: true,
-        usesInteractiveComponents: false,
-        missingCustomIdCount: 0,
-        missingHandlerBindingCount: 0,
-        invalidMediaConfiguration: false,
       };
     }
-    case "file":
-      if (!isHttpUrl(node.props.url)) {
-        return {
-          ...emptyPlanResult(node, "blocked", "File component needs a valid URL for live publish.", {
-            severity: "structural",
-            transformedTo: "none",
-            lost: "Attachment would not resolve live.",
-          }),
-          usesContentComponents: true,
-        };
-      }
+    return {
+      exactComponent: {
+        type: COMPONENT_TYPES.MEDIA_GALLERY,
+        id: node.id,
+        items: validItems,
+      },
+      standardContentParts: [],
+      standardEmbeds: validItems.slice(0, 4).map((item) => ({
+        title: String(node.props.title || ""),
+        description: item.description,
+        imageUrl: item.url,
+        color: String(node.props.accentColor || "#5865F2"),
+      })),
+      standardComponents: [],
+      standardAttachments: [],
+      normalizedNodes: [makeNormalizedNode(node, "layout_v2", "layout_v2", true, "Media gallery can publish as a V2 gallery.")],
+      outcomes: [makeOutcome(node, "exact", "Media gallery can publish as a V2 gallery.", { liveType: "media_gallery" })],
+      usesLayoutComponents: true,
+      usesContentComponents: true,
+      usesInteractiveComponents: false,
+      missingCustomIdCount: 0,
+      missingHandlerBindingCount: 0,
+      invalidMediaConfiguration: false,
+      blocked: false,
+      downgraded: false,
+    };
+  }
+
+  if (node.type === "file") {
+    const url = safeText(node.props.url);
+    if (isUploadedStudioAssetUrl(url)) {
       return {
-        status: "exact",
-        reason: "File can publish as a native V2 file component.",
-        component: {
+        exactComponent: {
           type: COMPONENT_TYPES.FILE,
           id: node.id,
           label: String(node.props.label || "Attachment"),
-          url: String(node.props.url),
+          url,
           spoiler: Boolean(node.props.spoiler),
         },
-        contentParts: [],
-        embeds: [],
-        outcomes: [makeOutcome(node, "exact", "File can publish as a native V2 file component.", { liveType: "file" })],
-        usesLayoutComponents: false,
+        standardContentParts: [`[${String(node.props.label || "Attachment")}](${url})`],
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: [{
+          id: node.id,
+          name: String(node.props.label || "Attachment"),
+          url,
+          source: "asset",
+          spoiler: Boolean(node.props.spoiler),
+        }],
+        normalizedNodes: [makeNormalizedNode(node, "layout_v2", "file", true, "Uploaded asset can publish as a V2 file component.")],
+        outcomes: [makeOutcome(node, "exact", "Uploaded asset can publish as a V2 file component.", { liveType: "file" })],
+        usesLayoutComponents: true,
         usesContentComponents: true,
         usesInteractiveComponents: false,
         missingCustomIdCount: 0,
         missingHandlerBindingCount: 0,
         invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: false,
       };
-    case "style_block":
+    }
+    if (isHttpUrl(url)) {
       return {
-        status: "downgraded",
-        reason: "Style block will publish as a simplified embed.",
-        severity: "structural",
-        component: undefined,
-        contentParts: [],
-        embeds: [buildStyleBlockEmbed(node)],
-        outcomes: [makeOutcome(node, "downgraded", "Style block will publish as a simplified embed.", {
+        exactComponent: undefined,
+        standardContentParts: [`[${String(node.props.label || "Attachment")}](${url})`],
+        standardEmbeds: [],
+        standardComponents: [],
+        standardAttachments: [{
+          id: node.id,
+          name: String(node.props.label || "Attachment"),
+          url,
+          source: "external",
+          spoiler: Boolean(node.props.spoiler),
+        }],
+        normalizedNodes: [makeNormalizedNode(node, "layout_v2", "file", false, "External files downgrade to links because V2 files need uploaded attachments.")],
+        outcomes: [makeOutcome(node, "downgraded", "External files downgrade to links because V2 files need uploaded attachments.", {
           severity: "structural",
-          transformedTo: "embed",
-          lost: "Native V2 block styling is replaced with an embed card.",
+          transformedTo: "link",
+          lost: "Native V2 file rendering is unavailable for external URLs.",
         })],
-        usesLayoutComponents: false,
+        usesLayoutComponents: true,
         usesContentComponents: true,
         usesInteractiveComponents: false,
         missingCustomIdCount: 0,
         missingHandlerBindingCount: 0,
         invalidMediaConfiguration: false,
+        blocked: false,
+        downgraded: true,
       };
-    case "button":
-      return planInteractiveButton(document, node);
-    case "string_select":
-      return planStringSelect(document, node);
-    case "role_select":
-    case "user_select":
-    case "channel_select":
-    case "mentionable_select":
-      return {
-        ...emptyPlanResult(node, "blocked", `${node.type.replace(/_/g, " ")} is still runtime gated and cannot publish exactly yet.`, {
-          severity: "behavior-breaking",
-          transformedTo: "none",
-          lost: "Interactive behavior would not work live.",
-        }),
-        usesInteractiveComponents: true,
-        missingHandlerBindingCount: 1,
-      };
-    case "action_row":
-      return planActionRow(document, node, options);
-    case "container":
-      return planContainer(document, node, options);
-    case "section":
-      return planSection(document, node, options);
-    default:
-      return emptyPlanResult(node, "blocked", `${node.type} is not supported by the live publish planner yet.`, {
-        severity: "behavior-breaking",
+    }
+    return {
+      ...emptyResult(node),
+      normalizedNodes: [makeNormalizedNode(node, "layout_v2", "file", false, "File block is missing a usable URL.")],
+      outcomes: [makeOutcome(node, "blocked", "File block needs a valid URL.", {
+        severity: "structural",
         transformedTo: "none",
-        lost: "Live publish would misrepresent this node.",
-      });
+        lost: "File payload cannot be serialized safely.",
+      })],
+      usesLayoutComponents: true,
+      usesContentComponents: true,
+    };
   }
+
+  if (node.type === "section") {
+    const childResults = node.childIds.map((childId) => planLayoutNode(document, childId));
+    const childMeta = mergeResults(childResults);
+    const textChildren = childResults
+      .map((result) => result.exactComponent)
+      .filter((component): component is EmbedComponentType => Boolean(component && component.type === COMPONENT_TYPES.TEXT_DISPLAY));
+    const buttonChildren = childResults
+      .map((result) => result.exactComponent)
+      .filter((component): component is EmbedComponentType => Boolean(component && component.type === COMPONENT_TYPES.BUTTON));
+    const fallback = planStandardNode(document, node.id, "standard");
+    const exactSection = !childMeta.blocked &&
+      !childMeta.downgraded &&
+      buttonChildren.length <= 1 &&
+      childResults.every((result) => {
+        const component = result.exactComponent;
+        return Boolean(component && (component.type === COMPONENT_TYPES.TEXT_DISPLAY || component.type === COMPONENT_TYPES.BUTTON));
+      });
+
+    if (exactSection) {
+      const components: EmbedComponentType[] = [];
+      if (safeText(node.props.heading)) {
+        components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, id: `${node.id}_heading`, content: `**${String(node.props.heading)}**` });
+      }
+      if (safeText(node.props.description)) {
+        components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, id: `${node.id}_description`, content: String(node.props.description) });
+      }
+      components.push(...textChildren);
+      return {
+        exactComponent: {
+          type: COMPONENT_TYPES.SECTION,
+          id: node.id,
+          components,
+          accessory: buttonChildren[0],
+        },
+        standardContentParts: fallback.standardContentParts,
+        standardEmbeds: fallback.standardEmbeds,
+        standardComponents: fallback.standardComponents,
+        standardAttachments: fallback.standardAttachments,
+        normalizedNodes: [
+          makeNormalizedNode(node, "layout_v2", "layout_v2", true, "Section can publish as a V2 section."),
+          ...childMeta.normalizedNodes,
+        ],
+        outcomes: [
+          makeOutcome(node, "exact", "Section can publish as a V2 section.", { liveType: "section" }),
+          ...childMeta.outcomes,
+        ],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: childMeta.usesInteractiveComponents,
+        missingCustomIdCount: childMeta.missingCustomIdCount,
+        missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
+        invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
+        blocked: false,
+        downgraded: false,
+      };
+    }
+
+    if (childMeta.blocked) {
+      return {
+        ...fallback,
+        exactComponent: undefined,
+        normalizedNodes: [
+          makeNormalizedNode(node, "layout_v2", "layout_v2", false, "Section contains unsupported V2 children."),
+          ...childMeta.normalizedNodes,
+        ],
+        outcomes: [
+          makeOutcome(node, "blocked", "Section contains unsupported V2 children.", {
+            severity: "behavior-breaking",
+            transformedTo: "none",
+            lost: "Section behavior or structure would be misleading live.",
+          }),
+          ...childMeta.outcomes,
+        ],
+        blocked: true,
+        downgraded: false,
+      };
+    }
+
+    return {
+      ...fallback,
+      exactComponent: undefined,
+      normalizedNodes: [
+        makeNormalizedNode(node, "layout_v2", "content", false, "Section downgrades to standard content in simplified publish."),
+        ...childMeta.normalizedNodes,
+      ],
+      outcomes: [
+        makeOutcome(node, "downgraded", "Section downgrades to standard content in simplified publish.", {
+          severity: "structural",
+          transformedTo: "text and embeds",
+          lost: "Native V2 section layout is replaced with standard message content.",
+        }),
+        ...childMeta.outcomes,
+      ],
+      blocked: false,
+      downgraded: true,
+    };
+  }
+
+  if (node.type === "container") {
+    const childResults = node.childIds.map((childId) => planLayoutNode(document, childId));
+    const childMeta = mergeResults(childResults);
+    const fallback = planStandardNode(document, node.id, "standard");
+    const allowedChildTypes = new Set<number>([
+      COMPONENT_TYPES.TEXT_DISPLAY,
+      COMPONENT_TYPES.SECTION,
+      COMPONENT_TYPES.SEPARATOR,
+      COMPONENT_TYPES.MEDIA_GALLERY,
+      COMPONENT_TYPES.FILE,
+    ]);
+    const exactChildren = childResults.every((result) => Boolean(result.exactComponent && allowedChildTypes.has(result.exactComponent.type)));
+    if (exactChildren && !childMeta.blocked && !childMeta.downgraded) {
+      const components: EmbedComponentType[] = [];
+      if (safeText(node.props.heading)) {
+        components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, id: `${node.id}_heading`, content: `**${String(node.props.heading)}**` });
+      }
+      if (safeText(node.props.description)) {
+        components.push({ type: COMPONENT_TYPES.TEXT_DISPLAY, id: `${node.id}_description`, content: String(node.props.description) });
+      }
+      components.push(...childResults.map((result) => result.exactComponent!).filter(Boolean));
+      return {
+        exactComponent: {
+          type: COMPONENT_TYPES.CONTAINER,
+          id: node.id,
+          accentColor: safeText(node.props.accentColor) || undefined,
+          spoiler: Boolean(node.props.spoiler),
+          components,
+        },
+        standardContentParts: fallback.standardContentParts,
+        standardEmbeds: fallback.standardEmbeds,
+        standardComponents: fallback.standardComponents,
+        standardAttachments: fallback.standardAttachments,
+        normalizedNodes: [
+          makeNormalizedNode(node, "layout_v2", "layout_v2", true, "Container can publish as a V2 container."),
+          ...childMeta.normalizedNodes,
+        ],
+        outcomes: [
+          makeOutcome(node, "exact", "Container can publish as a V2 container.", { liveType: "container" }),
+          ...childMeta.outcomes,
+        ],
+        usesLayoutComponents: true,
+        usesContentComponents: true,
+        usesInteractiveComponents: childMeta.usesInteractiveComponents,
+        missingCustomIdCount: childMeta.missingCustomIdCount,
+        missingHandlerBindingCount: childMeta.missingHandlerBindingCount,
+        invalidMediaConfiguration: childMeta.invalidMediaConfiguration,
+        blocked: false,
+        downgraded: false,
+      };
+    }
+
+    if (childMeta.blocked) {
+      return {
+        ...fallback,
+        exactComponent: undefined,
+        normalizedNodes: [
+          makeNormalizedNode(node, "layout_v2", "layout_v2", false, "Container contains unsupported V2 children."),
+          ...childMeta.normalizedNodes,
+        ],
+        outcomes: [
+          makeOutcome(node, "blocked", "Container contains unsupported V2 children.", {
+            severity: "behavior-breaking",
+            transformedTo: "none",
+            lost: "Container layout would be misleading live.",
+          }),
+          ...childMeta.outcomes,
+        ],
+        blocked: true,
+        downgraded: false,
+      };
+    }
+
+    return {
+      ...fallback,
+      exactComponent: undefined,
+      normalizedNodes: [
+        makeNormalizedNode(node, "layout_v2", "content", false, "Container downgrades to standard content in simplified publish."),
+        ...childMeta.normalizedNodes,
+      ],
+      outcomes: [
+        makeOutcome(node, "downgraded", "Container downgrades to standard content in simplified publish.", {
+          severity: "structural",
+          transformedTo: "text and embeds",
+          lost: "Native V2 container layout is replaced with standard message content.",
+        }),
+        ...childMeta.outcomes,
+      ],
+      blocked: false,
+      downgraded: true,
+    };
+  }
+
+  return emptyResult(node);
 }
 
 function dedupeDiagnostics(diagnostics: StudioDiagnostic[]) {
   const seen = new Set<string>();
-  return diagnostics.filter((entry) => {
-    const key = `${entry.level}:${entry.code}:${entry.message}:${entry.path || ""}`;
-    if (seen.has(key)) return false;
+  const next: StudioDiagnostic[] = [];
+  for (const diagnostic of diagnostics) {
+    const key = `${diagnostic.level}:${diagnostic.code}:${diagnostic.path || ""}:${diagnostic.message}`;
+    if (seen.has(key)) continue;
     seen.add(key);
-    return true;
-  });
+    next.push(diagnostic);
+  }
+  return next;
 }
 
 export function buildStudioPublishPlan(
-  document: StudioDocument,
+  documentInput: StudioDocument,
   requestedViewId?: string,
   options?: StudioDocumentRenderOptions,
 ): StudioPublishPlan {
+  const migrated = createMigratedStudioDocument(documentInput);
+  const document = migrated.document;
+  const view = getView(document, requestedViewId);
   const diagnostics = collectStudioDiagnostics(document, requestedViewId, options);
-  const viewId = requestedViewId || document.meta.entryViewId;
-  const view = document.views[viewId] || document.views[document.meta.entryViewId];
 
   if (!view) {
     return {
-      viewId: document.meta.entryViewId,
+      viewId: requestedViewId || document.meta.entryViewId,
+      draftMode: document.meta.mode || "standard",
       mode: "blocked",
       label: "Blocked publish",
-      summary: "Selected page no longer exists.",
+      summary: "Selected view no longer exists.",
       publishPath: "blocked",
       usesComponentsV2: false,
       usesLayoutComponents: false,
@@ -812,92 +1081,133 @@ export function buildStudioPublishPlan(
       requiresSimplifiedConfirmation: false,
       requiresStructuralConfirmation: false,
       nodeOutcomes: [],
+      normalizedNodes: [],
       diagnostics: dedupeDiagnostics([
         ...diagnostics,
-        {
-          level: "error",
-          code: "VIEW_NOT_FOUND",
-          message: "Selected page no longer exists.",
-        },
+        { level: "error", code: "VIEW_NOT_FOUND", message: "Selected view no longer exists.", path: "views" },
       ]),
-      liveMessage: {
-        content: "",
-        embeds: [],
-        components: [],
-        publishPath: "blocked",
+      debug: {
+        draftMode: document.meta.mode || "standard",
+        serializerStage: "preflight",
+        payload: { embeds: [], components: [], attachments: [] },
+        serializerInputs: [],
       },
+      liveMessage: { embeds: [], components: [], attachments: [], publishPath: "blocked" },
     };
   }
+  const draftMode = document.meta.mode || "standard";
+  const plannerDiagnostics = [...diagnostics];
+  const viewHasStandardBody = Boolean(safeText(view.messageContent)) || (Array.isArray(view.embeds) && view.embeds.length > 0);
+  if (draftMode === "layout_v2" && viewHasStandardBody) {
+    plannerDiagnostics.push({
+      level: "warning",
+      code: "LAYOUT_MODE_STANDARD_BODY",
+      message: "This layout_v2 draft still contains message content or embeds and will require simplified publish.",
+      path: `views.${view.id}`,
+    });
+  }
 
-  const contentParts: string[] = [];
-  if (safeText(view.messageContent)) contentParts.push(String(view.messageContent));
-  const embeds: StudioEmbedDraft[] = Array.isArray(view.embeds) ? [...view.embeds] : [];
-  const components: EmbedComponentType[] = [];
-  const nodeResults = view.rootNodeIds.map((nodeId) => planNode(document, nodeId, options));
-  const nodeOutcomes = nodeResults.flatMap((result) => result.outcomes);
-
-  nodeResults.forEach((result) => {
-    if (result.component) components.push(result.component);
-    contentParts.push(...result.contentParts);
-    embeds.push(...result.embeds);
-  });
-
-  const usesLayoutComponents = nodeResults.some((result) => result.usesLayoutComponents);
-  const usesContentComponents = nodeResults.some((result) => result.usesContentComponents);
-  const usesInteractiveComponents = nodeResults.some((result) => result.usesInteractiveComponents);
-  const usesComponentsV2 = view.rootNodeIds.length > 0;
+  const nodeResults = view.rootNodeIds.map((nodeId) =>
+    draftMode === "layout_v2" ? planLayoutNode(document, nodeId) : planStandardNode(document, nodeId, draftMode),
+  );
+  const nodeMeta = mergeResults(nodeResults);
+  const nodeOutcomes = nodeMeta.outcomes;
   const downgradedNodeCount = nodeOutcomes.filter((entry) => entry.status === "downgraded").length;
   const blockedNodeCount = nodeOutcomes.filter((entry) => entry.status === "blocked").length;
   const exactNodeCount = nodeOutcomes.filter((entry) => entry.status === "exact").length;
   const structuralDowngradeCount = nodeOutcomes.filter((entry) => entry.severity === "structural").length;
   const behaviorBreakingCount = nodeOutcomes.filter((entry) => entry.severity === "behavior-breaking").length;
-  const missingCustomIdCount = nodeResults.reduce((total, result) => total + result.missingCustomIdCount, 0);
-  const missingHandlerBindingCount = nodeResults.reduce((total, result) => total + result.missingHandlerBindingCount, 0);
-  const invalidMediaConfiguration = nodeResults.some((result) => result.invalidMediaConfiguration);
-  const emptyInteractiveMap = usesInteractiveComponents && !components.some((component) =>
-    component.type === COMPONENT_TYPES.ACTION_ROW ||
-    component.type === COMPONENT_TYPES.BUTTON ||
-    component.type === COMPONENT_TYPES.SELECT_MENU,
-  );
+  const usesLayoutComponents = nodeMeta.usesLayoutComponents;
+  const usesContentComponents = nodeMeta.usesContentComponents || Boolean(safeText(view.messageContent)) || (Array.isArray(view.embeds) && view.embeds.length > 0);
+  const usesInteractiveComponents = nodeMeta.usesInteractiveComponents;
+  const usesComponentsV2 = draftMode === "layout_v2";
 
-  let mode: StudioPublishMode = "exact";
-  if (blockedNodeCount > 0 || diagnostics.some((entry) => entry.level === "error")) {
+  let mode: StudioPublishPlan["mode"] = "exact";
+  if (blockedNodeCount > 0 || plannerDiagnostics.some((entry) => entry.level === "error")) {
     mode = "blocked";
-  } else if (downgradedNodeCount > 0) {
+  } else if (draftMode === "layout_v2" && (downgradedNodeCount > 0 || viewHasStandardBody)) {
     mode = "downgraded";
   }
 
-  const publishPath =
+  const exactComponents = nodeResults.map((result) => result.exactComponent).filter((component): component is EmbedComponentType => Boolean(component));
+  const standardContentParts = [
+    safeText(view.messageContent) ? String(view.messageContent) : "",
+    ...nodeMeta.standardContentParts,
+  ].filter(Boolean);
+  const standardEmbeds = [...(Array.isArray(view.embeds) ? view.embeds : []), ...nodeMeta.standardEmbeds];
+  const standardComponents = nodeMeta.standardComponents;
+  const standardAttachments = nodeMeta.standardAttachments;
+
+  const publishPath: StudioPublishPlan["publishPath"] =
     mode === "blocked"
       ? "blocked"
       : mode === "downgraded"
         ? "downgraded"
-        : usesComponentsV2
+        : draftMode === "layout_v2"
           ? "v2"
           : "legacy";
 
-  const flags = components.length > 0 && publishPath !== "blocked" ? COMPONENTS_V2_FLAG : undefined;
-  const payloadReady = Boolean(safeText(contentParts.join("\n\n")) || embeds.length > 0 || components.length > 0) && mode !== "blocked";
-  const v2FlagReady = components.length > 0 ? Boolean(flags) : !usesComponentsV2 || publishPath === "legacy";
-  const requiresStructuralConfirmation = mode === "downgraded" && structuralDowngradeCount > 0;
-  const requiresSimplifiedConfirmation = mode === "downgraded";
+  const liveMessage =
+    publishPath === "v2"
+      ? {
+          content: undefined,
+          embeds: [],
+          components: exactComponents,
+          attachments: standardAttachments.filter((attachment) => attachment.source === "asset"),
+          flags: exactComponents.length > 0 ? COMPONENTS_V2_FLAG : undefined,
+          publishPath,
+        }
+      : {
+          content: standardContentParts.join("\n\n").trim() || undefined,
+          embeds: standardEmbeds.slice(0, 10),
+          components: standardComponents,
+          attachments: standardAttachments,
+          flags: undefined,
+          publishPath,
+        };
 
-  const plannerDiagnostics: StudioDiagnostic[] = [
-    ...diagnostics,
-    {
-      level: mode === "blocked" ? "error" : mode === "downgraded" ? "warning" : "info",
-      code: "PUBLISH_MODE",
-      message:
-        mode === "blocked"
-          ? "Live publish is blocked until behavior-breaking or invalid nodes are fixed."
-          : mode === "downgraded"
-            ? "This page will publish in a simplified form unless you change the downgraded nodes."
-            : publishPath === "v2"
-              ? "This page can publish as an exact Components V2 message."
-              : "This page publishes cleanly as a standard Discord message.",
+  const emptyInteractiveMap = usesInteractiveComponents && liveMessage.components.length === 0;
+  let payloadReady = Boolean(
+    liveMessage.content ||
+    (liveMessage.embeds || []).length > 0 ||
+    (liveMessage.components || []).length > 0,
+  ) && mode !== "blocked";
+  let v2FlagReady = publishPath !== "v2" || Boolean(liveMessage.flags);
+
+  plannerDiagnostics.push({
+    level: mode === "blocked" ? "error" : mode === "downgraded" ? "warning" : "info",
+    code: "PUBLISH_MODE",
+    message:
+      mode === "blocked"
+        ? "Live publish is blocked until invalid or unsupported parts are fixed."
+        : mode === "downgraded"
+          ? "This draft will publish in simplified standard-message form."
+          : publishPath === "v2"
+            ? "This draft can publish as an exact Components V2 payload."
+            : "This draft can publish as an exact standard Discord message.",
+    path: `views.${view.id}`,
+  });
+
+  if (draftMode === "layout_v2" && publishPath === "v2" && (liveMessage.content || (liveMessage.embeds || []).length > 0)) {
+    plannerDiagnostics.push({
+      level: "error",
+      code: "V2_MIXED_BODY_UNSUPPORTED",
+      message: "Components V2 payloads cannot include message content or embeds.",
       path: `views.${view.id}`,
-    },
-  ];
+    });
+    mode = "blocked";
+    payloadReady = false;
+    v2FlagReady = false;
+  }
+
+  if (emptyInteractiveMap) {
+    plannerDiagnostics.push({
+      level: "warning",
+      code: "EMPTY_INTERACTIVE_MAP",
+      message: "Interactive intent exists, but no sendable live control payload was produced.",
+      path: `views.${view.id}`,
+    });
+  }
 
   nodeOutcomes
     .filter((entry) => entry.status !== "exact")
@@ -910,37 +1220,18 @@ export function buildStudioPublishPlan(
       });
     });
 
-  if (emptyInteractiveMap) {
-    plannerDiagnostics.push({
-      level: "warning",
-      code: "EMPTY_INTERACTIVE_MAP",
-      message: "This page includes interactive intent, but no sendable live interactive map was produced.",
-      path: `views.${view.id}`,
-    });
-  }
-
-  if (!v2FlagReady && usesComponentsV2) {
-    plannerDiagnostics.push({
-      level: "error",
-      code: "V2_FLAG_NOT_READY",
-      message: "Components V2 publish flag is not ready for this page.",
-      path: `views.${view.id}`,
-    });
-  }
-
   const summary =
     mode === "blocked"
-      ? "Blocked publish. Fix the blocked nodes before sending this page live."
+      ? "Blocked publish. Fix the highlighted parts before sending this draft live."
       : mode === "downgraded"
-        ? requiresStructuralConfirmation
-          ? "Downgraded publish. Live output will simplify structural layout, so review it before sending."
-          : "Downgraded publish. Live output will simplify some visual details."
+        ? "Simplified publish. This layout_v2 draft will be converted into a standard Discord message."
         : publishPath === "v2"
-          ? "Exact V2 publish. Preview and live payload can match."
-          : "Exact publish in the standard Discord message format.";
+          ? "Exact V2 publish. Preview and live payload are aligned."
+          : "Exact standard publish. Preview and live payload are aligned for a normal Discord message.";
 
   return {
     viewId: view.id,
+    draftMode,
     mode,
     label:
       mode === "blocked"
@@ -949,7 +1240,7 @@ export function buildStudioPublishPlan(
           ? "Downgraded publish"
           : publishPath === "v2"
             ? "Exact V2 publish"
-            : "Exact publish",
+            : "Exact standard publish",
     summary,
     publishPath,
     usesComponentsV2,
@@ -961,22 +1252,33 @@ export function buildStudioPublishPlan(
     exactNodeCount,
     structuralDowngradeCount,
     behaviorBreakingCount,
-    missingCustomIdCount,
-    missingHandlerBindingCount,
+    missingCustomIdCount: nodeMeta.missingCustomIdCount,
+    missingHandlerBindingCount: nodeMeta.missingHandlerBindingCount,
     emptyInteractiveMap,
-    invalidMediaConfiguration,
+    invalidMediaConfiguration: nodeMeta.invalidMediaConfiguration,
     v2FlagReady,
     payloadReady,
-    requiresSimplifiedConfirmation,
-    requiresStructuralConfirmation,
+    requiresSimplifiedConfirmation: mode === "downgraded",
+    requiresStructuralConfirmation: mode === "downgraded" && structuralDowngradeCount > 0,
     nodeOutcomes,
+    normalizedNodes: nodeMeta.normalizedNodes,
     diagnostics: dedupeDiagnostics(plannerDiagnostics),
-    liveMessage: {
-      content: contentParts.join("\n\n").trim() || undefined,
-      embeds: embeds.slice(0, 10),
-      components,
-      flags,
-      publishPath,
+    debug: {
+      draftMode,
+      serializerStage: "preflight",
+      payload: {
+        content: liveMessage.content,
+        embeds: liveMessage.embeds,
+        components: liveMessage.components,
+        flags: liveMessage.flags,
+        attachments: liveMessage.attachments,
+      },
+      serializerInputs: nodeMeta.normalizedNodes.map((entry) => ({
+        kind: "normalized_node" as const,
+        componentType: entry.intent,
+        nodeId: entry.nodeId,
+      })),
     },
+    liveMessage,
   };
 }

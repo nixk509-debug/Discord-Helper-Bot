@@ -1,5 +1,6 @@
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -14,11 +15,14 @@ import {
   SeparatorBuilder,
   TextDisplayBuilder,
 } from "@discordjs/builders";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type {
   EmbedComponentOption,
   EmbedComponentType,
   StudioDiagnostic,
   StudioPublishPlan,
+  StudioPublishAttachment,
 } from "@shared/schema";
 import { COMPONENT_TYPES } from "@shared/schema";
 import { toDiscordEmojiObject } from "@shared/discord-emoji";
@@ -31,6 +35,32 @@ function parseColor(value: unknown) {
   const normalized = value.trim().replace(/^#/, "");
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
   return parseInt(normalized, 16);
+}
+
+function toAttachmentFilename(value: string, fallback: string) {
+  const base = path.basename(value || fallback).replace(/[^a-zA-Z0-9._-]/g, "-");
+  return base || fallback;
+}
+
+function toStudioUploadPath(url: string) {
+  const normalized = String(url || "").trim().replace(/^https?:\/\/[^/]+/i, "");
+  const relative = normalized.replace(/^\/+/, "");
+  const absolute = path.resolve(process.cwd(), relative);
+  return existsSync(absolute) ? absolute : null;
+}
+
+function isBuilderLike(value: unknown): value is { toJSON: () => any } {
+  return Boolean(value && typeof value === "object" && typeof (value as any).toJSON === "function");
+}
+
+function isRawDiscordComponent(value: unknown): value is Record<string, unknown> {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as any).type === "number" &&
+    !("action" in (value as any)) &&
+    !("options" in (value as any) && Array.isArray((value as any).options) && (value as any).options.some((option: any) => option?.action)),
+  );
 }
 
 export function buildStudioEmbedBuilders(embedsInput: unknown[], tokenContext?: StudioTokenContext) {
@@ -84,7 +114,7 @@ export function buildStudioEmbedBuilders(embedsInput: unknown[], tokenContext?: 
     }
     if (Array.isArray(rawEmbed.fields) && rawEmbed.fields.length > 0) {
       embed.addFields(
-        rawEmbed.fields.slice(0, 25).map((field) => ({
+        rawEmbed.fields.slice(0, 25).map((field: any) => ({
           name: String(field.name || "-"),
           value: String(field.value || "-"),
           inline: Boolean(field.inline),
@@ -99,6 +129,24 @@ export function buildStudioEmbedBuilders(embedsInput: unknown[], tokenContext?: 
 
     return hasContent ? [embed] : [];
   });
+}
+
+function buildPayloadFiles(attachmentsInput: StudioPublishAttachment[] | undefined) {
+  const files: AttachmentBuilder[] = [];
+  const attachmentMap = new Map<string, { name: string; url: string }>();
+
+  for (const attachment of attachmentsInput || []) {
+    if (attachment.source !== "asset") continue;
+    const absolutePath = toStudioUploadPath(attachment.url);
+    if (!absolutePath) continue;
+    const baseName = toAttachmentFilename(attachment.url, `${attachment.id || "studio-file"}.bin`);
+    const name = attachment.spoiler && !baseName.startsWith("SPOILER_") ? `SPOILER_${baseName}` : baseName;
+    files.push(new AttachmentBuilder(absolutePath, { name }));
+    attachmentMap.set(attachment.url, { name, url: attachment.url });
+    if (attachment.id) attachmentMap.set(attachment.id, { name, url: attachment.url });
+  }
+
+  return { files, attachmentMap };
 }
 
 function buildButton(component: EmbedComponentType, publicationId: number, diagnostics: StudioDiagnostic[]) {
@@ -252,6 +300,7 @@ function buildV2Component(
   component: EmbedComponentType,
   publicationId: number,
   diagnostics: StudioDiagnostic[],
+  attachmentMap: Map<string, { name: string; url: string }>,
 ) {
   switch (component.type) {
     case COMPONENT_TYPES.TEXT_DISPLAY:
@@ -263,15 +312,16 @@ function buildV2Component(
       });
     case COMPONENT_TYPES.FILE: {
       const url = String(component.url || "").trim();
-      if (!/^https?:\/\//i.test(url)) {
+      const attachment = attachmentMap.get(url) || attachmentMap.get(String(component.id || ""));
+      if (!attachment) {
         diagnostics.push({
           level: "warning",
-          code: "FILE_URL_INVALID",
-          message: `File ${component.id || component.label || "file"} has an invalid URL.`,
+          code: "FILE_ATTACHMENT_MISSING",
+          message: `File ${component.id || component.label || "file"} is missing a publishable attachment.`,
         });
         return null;
       }
-      return new FileBuilder().setURL(url).setSpoiler(Boolean(component.spoiler));
+      return new FileBuilder().setURL(`attachment://${attachment.name}`).setSpoiler(Boolean(component.spoiler));
     }
     case COMPONENT_TYPES.MEDIA_GALLERY: {
       const items = Array.isArray(component.items) ? component.items : [];
@@ -309,7 +359,7 @@ function buildV2Component(
       );
       if (component.accessory?.type === COMPONENT_TYPES.BUTTON) {
         const button = buildButton(component.accessory, publicationId, diagnostics);
-        if (button) section.setButtonAccessory(button.toJSON() as any);
+        if (button) section.setButtonAccessory(button as any);
       }
       return section;
     }
@@ -319,12 +369,12 @@ function buildV2Component(
       if (accentColor !== null) container.setAccentColor(accentColor);
       container.setSpoiler(Boolean(component.spoiler));
       for (const child of component.components || []) {
-        const built = buildV2Component(child, publicationId, diagnostics);
+        const built = buildV2Component(child, publicationId, diagnostics, attachmentMap);
         if (!built) continue;
         container.spliceComponents(
           container.components.length,
           0,
-          (typeof (built as any).toJSON === "function" ? (built as any).toJSON() : built) as any,
+          safeToApiComponent(built, diagnostics, child) as any,
         );
       }
       return container;
@@ -345,17 +395,44 @@ function buildV2Component(
   }
 }
 
+function safeToApiComponent(
+  input: unknown,
+  diagnostics: StudioDiagnostic[],
+  source?: { type?: number; id?: string },
+) {
+  if (!input) return null;
+  if (isBuilderLike(input)) return input.toJSON();
+  if (isRawDiscordComponent(input)) return input;
+  diagnostics.push({
+    level: "warning",
+    code: "SERIALIZER_GAP",
+    message: `Component ${source?.id || source?.type || "unknown"} could not be converted into Discord API JSON safely.`,
+  });
+  return null;
+}
+
 function buildStudioMessageComponents(
-  componentsInput: EmbedComponentType[] | undefined,
+  componentsInput: Array<EmbedComponentType | Record<string, unknown> | { toJSON: () => any }> | undefined,
   publicationId: number,
   diagnostics: StudioDiagnostic[],
+  attachmentMap: Map<string, { name: string; url: string }>,
 ) {
   const built: any[] = [];
 
   for (const component of componentsInput || []) {
-    const next = buildV2Component(component, publicationId, diagnostics);
-    if (!next) continue;
-    built.push(typeof (next as any).toJSON === "function" ? (next as any).toJSON() : next);
+    if (isBuilderLike(component)) {
+      const next = safeToApiComponent(component, diagnostics);
+      if (next) built.push(next);
+      continue;
+    }
+    if (isRawDiscordComponent(component)) {
+      built.push(component);
+      continue;
+    }
+    const next = buildV2Component(component as EmbedComponentType, publicationId, diagnostics, attachmentMap);
+    const json = safeToApiComponent(next, diagnostics, component as any);
+    if (!json) continue;
+    built.push(json);
   }
 
   return built;
@@ -374,12 +451,14 @@ export function buildStudioDiscordPayload(
     ? resolveStudioTokensInValue(plan.liveMessage.components || [], tokenContext)
     : plan.liveMessage.components || [];
   const embeds = buildStudioEmbedBuilders(plan.liveMessage.embeds || [], tokenContext);
-  const components = buildStudioMessageComponents(resolvedComponents, publicationId, diagnostics);
+  const { files, attachmentMap } = buildPayloadFiles(plan.liveMessage.attachments || []);
+  const components = buildStudioMessageComponents(resolvedComponents as any, publicationId, diagnostics, attachmentMap);
 
   return {
     content: resolvedContent || undefined,
     embeds,
     components,
+    files,
     flags: plan.liveMessage.flags,
     diagnostics,
   };
