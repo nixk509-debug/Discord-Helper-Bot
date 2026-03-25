@@ -10,59 +10,57 @@
     --font-display: 'Syne', sans-serif;
     --font-mono: 'Fira Code', monospace;
 
-    --background: 220 18% 7%;
-    --foreground: 0 0% 96%;
+    /* Archivist Premium Palette */
+    --bg-app: #0A0D14;
+    --bg-shell: #0D1220;
+    --bg-panel: #111624;
+    --bg-panel-raised: #171E30;
+    --bg-panel-focus: #1B2340;
+    --bg-panel-inset: #0C111D;
+    --bg-panel-overlay: rgba(10, 13, 20, 0.9);
+    
+    --border-subtle: rgba(156, 167, 189, 0.1);
+    --border-default: #252E45;
+    --border-strong: rgba(110, 123, 255, 0.24);
+    --border-brand: rgba(110, 123, 255, 0.32);
 
-    --card: 220 18% 10%;
-    --card-foreground: 0 0% 96%;
-    --card-border: 0 0% 100% / 0.08;
+    --text-primary: #F3F6FF;
+    --text-secondary: #9CA7BD;
+    --text-muted: rgba(156, 167, 189, 0.6);
+    --text-faint: rgba(156, 167, 189, 0.4);
 
-    --popover: 220 18% 10%;
-    --popover-foreground: 0 0% 96%;
-    --popover-border: 0 0% 100% / 0.08;
+    --accent-primary: #6E7BFF;
+    --accent-secondary: #9D8CFF;
+    --success: #1FA971;
+    --warning: #C9952E;
+    --danger: #D95763;
 
-    --primary: 353 70% 44%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 220 15% 14%;
-    --secondary-foreground: 0 0% 92%;
-    --muted: 220 12% 14%;
-    --muted-foreground: 0 0% 68%;
-    --accent: 352 100% 64%;
-    --accent-foreground: 0 0% 98%;
+    /* Shadcn/UI Compatibility */
+    --background: 225 25% 7%;
+    --foreground: 220 25% 97%;
+    --card: 220 22% 9%;
+    --card-foreground: 220 25% 97%;
+    --card-border: 215 21% 85% / 0.1;
+    --popover: 220 22% 8%;
+    --popover-foreground: 220 25% 97%;
+    --popover-border: 215 21% 85% / 0.1;
+    --primary: 232 100% 72%;
+    --primary-foreground: 0 0% 99%;
+    --secondary: 219 20% 14%;
+    --secondary-foreground: 220 23% 92%;
+    --muted: 219 18% 13%;
+    --muted-foreground: 216 17% 69%;
+    --accent: 255 84% 77%;
+    --accent-foreground: 220 23% 9%;
+    --destructive: 353 65% 60%;
+    --destructive-foreground: 0 0% 99%;
+    --border: 217 17% 24%;
+    --input: 220 18% 14%;
+    --ring: 232 100% 72%;
+    --radius: 0.75rem;
 
-    --destructive: 347 77% 48%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 220 10% 22%;
-    --input: 220 10% 20%;
-    --ring: 353 70% 44%;
-
-    --primary-border: rgba(177, 18, 38, 0.34);
-    --secondary-border: rgba(255, 255, 255, 0.08);
-    --destructive-border: rgba(225, 29, 72, 0.32);
-    --button-outline: rgba(255, 255, 255, 0.1);
-    --badge-outline: rgba(255, 255, 255, 0.1);
-    --muted-border: rgba(255, 255, 255, 0.08);
-    --accent-border: rgba(255, 45, 77, 0.22);
-
-    --sidebar: 220 16% 8%;
-    --sidebar-foreground: 0 0% 90%;
-    --sidebar-primary: 353 70% 44%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-primary-border: rgba(177, 18, 38, 0.34);
-    --sidebar-accent: 220 14% 11%;
-    --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-accent-border: rgba(255, 255, 255, 0.08);
-    --sidebar-border: 220 10% 16%;
-    --sidebar-ring: 353 70% 44%;
-
-    --radius: 1rem;
-
-    --chart-1: 352 82% 38%;
-    --chart-2: 351 100% 59%;
-    --chart-3: 20 90% 55%;
-    --chart-4: 350 80% 48%;
-    --chart-5: 10 85% 50%;
+    --shadow-app: 0 28px 90px rgba(0, 0, 0, 0.5);
+    --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.3);
   }
 
   * {
@@ -75,206 +73,41 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground selection:bg-primary/30 selection:text-primary-foreground;
-    background-color: #0a0b0e;
-    background-image:
-      radial-gradient(circle at top left, rgba(170, 34, 58, 0.16), transparent 24%),
-      radial-gradient(circle at 100% 0%, rgba(90, 16, 31, 0.12), transparent 22%),
-      linear-gradient(180deg, #0a0b0e 0%, #0d0f13 46%, #090a0d 100%);
-    background-size: auto, auto, auto;
+    @apply font-sans antialiased bg-background text-foreground;
+    background-color: var(--bg-app);
+    background-image: 
+      radial-gradient(circle at 50% 0%, rgba(110, 123, 255, 0.05), transparent 40%),
+      linear-gradient(180deg, #0A0D14 0%, #0D1220 100%);
     background-attachment: fixed;
-    position: relative;
     min-height: 100vh;
-    min-height: 100dvh;
-  }
-
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 18%);
-    opacity: 0.55;
-  }
-
-  body::after {
-    content: none;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
     @apply tracking-tight font-bold;
   }
-
-  .section-header {
-    @apply text-xs font-semibold tracking-[0.18em] text-muted-foreground/70;
-  }
-
-  .archivist-eyebrow {
-    @apply text-[11px] font-medium tracking-[0.16em];
-    color: rgba(255, 255, 255, 0.52);
-  }
 }
 
 @layer utilities {
-  .text-glow {
-    text-shadow: 0 0 18px rgba(255, 45, 77, 0.18);
-  }
-
-  .box-glow {
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(177, 18, 38, 0.12);
-  }
-
-  .hover-elevate {
-    transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
-  }
-
-  .hover-elevate:hover {
-    transform: translateY(-2px);
-  }
-
-  .active-elevate-2:active {
-    transform: translateY(0);
-  }
-
-  .glass-card {
-    @apply border border-white/10 bg-white/[0.03] backdrop-blur-xl;
-    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
-  }
-
-  .glass-panel {
-    @apply border border-white/10 backdrop-blur-xl;
-    background-color: rgba(13, 15, 19, 0.92);
-  }
-
-  .gradient-brand {
-    background: linear-gradient(135deg, #b11226, #ff2d4d);
-  }
-
-  .gradient-hero {
-    background: linear-gradient(135deg, #0b0c0f 0%, #11141a 46%, #171b21 100%);
-  }
-
-  .feature-card {
-    @apply relative overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,20,25,0.97),rgba(12,14,18,0.98))] hover-elevate;
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
-  }
-
-  .feature-card:hover {
-    border-color: rgba(255, 255, 255, 0.14);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
-  }
-
   .archivist-panel {
-    @apply relative overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,20,24,0.98),rgba(11,13,17,0.98))];
-    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.2);
+    @apply relative overflow-hidden rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-panel)];
+    box-shadow: var(--shadow-panel);
   }
 
-  .archivist-panel::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 20%);
-  }
-
-  .archivist-panel-muted {
-    background-image: linear-gradient(180deg, rgba(16, 18, 22, 0.98), rgba(11, 13, 17, 0.98));
-  }
-
-  .archivist-stage {
-    @apply rounded-[20px] border border-white/10 bg-[linear-gradient(180deg,rgba(13,15,19,0.88),rgba(11,13,17,0.76))] p-3 sm:p-4;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  }
-
-  .archivist-field {
-    @apply h-12 w-full rounded-[14px] border border-white/10 bg-[#111318] px-4 text-[15px] text-white outline-none transition md:text-sm;
-  }
-
-  .archivist-field:focus {
-    border-color: rgba(173, 61, 79, 0.92);
-    box-shadow: 0 0 0 1px rgba(173, 61, 79, 0.28);
-  }
-
-  .archivist-field::placeholder {
-    color: rgba(255, 255, 255, 0.36);
-  }
-
-  .archivist-hero-shell {
-    position: relative;
-  }
-
-  .archivist-grid {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 34px 34px;
-  }
-
-  .archivist-embers {
-    background-image:
-      radial-gradient(circle at 12% 22%, rgba(255, 67, 96, 0.12) 0 1px, transparent 2px),
-      radial-gradient(circle at 74% 16%, rgba(255, 85, 109, 0.08) 0 1.5px, transparent 2.5px),
-      radial-gradient(circle at 30% 68%, rgba(190, 25, 46, 0.08) 0 1px, transparent 2px),
-      radial-gradient(circle at 60% 82%, rgba(255, 96, 120, 0.08) 0 1px, transparent 2px),
-      radial-gradient(circle at 90% 74%, rgba(146, 11, 31, 0.08) 0 1px, transparent 2px);
-    background-size: 220px 220px, 280px 280px, 260px 260px, 320px 320px, 280px 280px;
-  }
-
-  .archivist-divider {
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .archivist-row {
-    @apply flex items-center justify-between gap-3 border-b px-4 py-4 last:border-b-0;
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-
-  .archivist-action-rail {
-    @apply flex flex-wrap items-center gap-2 rounded-[18px] border border-white/10 p-2 backdrop-blur-xl;
-    background-color: rgba(17, 19, 24, 0.92);
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
-  }
-
-  .archivist-segment {
-    @apply grid gap-2 rounded-[18px] border border-white/10 bg-[#101216] p-1;
-  }
-
-  .archivist-segment-button {
-    @apply rounded-[14px] px-3 py-2.5 text-sm font-medium text-white/70 transition;
-  }
-
-  .archivist-segment-button[data-active="true"] {
-    @apply bg-white text-[#0d1014];
+  .archivist-panel-raised {
+    @apply bg-[var(--bg-panel-raised)] border-[var(--border-strong)];
   }
 
   .archivist-kicker {
-    @apply text-xs font-medium tracking-[0.12em] text-white/50;
+    @apply text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-faint)];
   }
 
-  .glitch-fragment {
-    position: absolute;
-    bottom: 4px;
-    right: 4px;
-    width: 8px;
-    height: 2px;
-    background: #ff2d4d;
-    opacity: 0;
-    pointer-events: none;
+  .archivist-field {
+    @apply h-11 w-full rounded-[12px] border border-[var(--border-default)] bg-[var(--bg-panel-inset)] px-4 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-primary/20;
   }
 
-  .feature-card:hover .glitch-fragment {
-    animation: glitch-anim 0.4s steps(2) infinite;
-  }
-
-  @keyframes glitch-anim {
-    0% { opacity: 0.8; transform: translate(0, 0); }
-    50% { opacity: 0.4; transform: translate(2px, -1px); }
-    100% { opacity: 0; transform: translate(-1px, 1px); }
-  }
-
-  .stats-monospace {
-    font-family: var(--font-mono);
+  .glass-card {
+    @apply border border-[var(--border-subtle)] bg-white/[0.02] backdrop-blur-md;
   }
 }
 

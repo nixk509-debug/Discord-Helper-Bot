@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
@@ -8,49 +8,42 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import NotFound from "@/pages/not-found";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { useAuth, useAuthOptions, useOwnerLogin } from "@/hooks/use-auth";
+import { DashboardEntryAnimation } from "@/components/dashboard-entry-animation";
 import Landing from "@/pages/landing";
 import Login from "@/pages/login";
+import NotFound from "@/pages/not-found";
 import DashboardOverview from "@/pages/dashboard/index";
 import WorkspacePage from "@/pages/dashboard/workspace";
 import SiteEditorPage from "@/pages/dashboard/site-editor";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { useAuth, useAuthOptions, useOwnerLogin } from "@/hooks/use-auth";
-import { useServers } from "@/hooks/use-bot";
-import { DashboardEntryAnimation } from "@/components/dashboard-entry-animation";
-import { buildArchivistSectionPath } from "@/lib/archivist-workspace";
+
+type AsyncPageComponent = ComponentType<any>;
 
 function AppLoadingState() {
   return (
-    <div className="min-h-screen bg-[#0B0D10] flex items-center justify-center">
-      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_15px_#B11226]" />
+    <div className="min-h-screen bg-[var(--bg-app)] flex items-center justify-center">
+      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_15px_rgba(110,123,255,0.35)]" />
     </div>
   );
 }
 
-function HomeRoute() {
-  const { data: user, isLoading } = useAuth();
-  const { data: servers, isLoading: serversLoading } = useServers({ enabled: !!user });
-  const [, setLocation] = useLocation();
-
-  useEffect(() => {
-    if (!isLoading && user && !serversLoading) {
-      const firstServerId = Array.isArray(servers) && servers.length > 0 ? servers[0].id : null;
-      setLocation(firstServerId ? buildArchivistSectionPath(firstServerId, "commands") : "/dashboard");
-    }
-  }, [isLoading, user, serversLoading, servers, setLocation]);
-
-  if (isLoading || (user && serversLoading)) return <AppLoadingState />;
-  if (user) return <AppLoadingState />;
-  return <Landing />;
+function RouteSuspense({
+  component: Component,
+}: {
+  component: AsyncPageComponent;
+}) {
+  return <Component />;
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function HomeRoute() {
+  return <RouteSuspense component={Landing} />;
+}
+
+function ProtectedRoute({ component: Component }: { component: AsyncPageComponent }) {
   const { data: user, isLoading } = useAuth();
   const { data: authOptions } = useAuthOptions();
-  const [location, setLocation] = useLocation();
-  const [showAnimation, setShowAnimation] = useState(false);
-  const [hasAnimated, setHasAnimated] = useState(false);
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -59,23 +52,13 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
       } else {
         setLocation("/login", { replace: true });
       }
-    } else if (!isLoading && user && !user.qaBypass && !hasAnimated && location.startsWith("/dashboard")) {
-      setShowAnimation(true);
     }
-  }, [authOptions?.discordLoginEnabled, hasAnimated, isLoading, location, setLocation, user]);
+  }, [authOptions?.discordLoginEnabled, isLoading, user, setLocation]);
 
   if (isLoading) return <AppLoadingState />;
-
   if (!user) return null;
 
-  if (showAnimation) {
-    return <DashboardEntryAnimation onComplete={() => {
-      setShowAnimation(false);
-      setHasAnimated(true);
-    }} />;
-  }
-
-  return <Component />;
+  return <RouteSuspense component={Component} />;
 }
 
 function OwnerUnlockPage({ returnTo }: { returnTo: string }) {
@@ -180,7 +163,7 @@ function OwnerUnlockPage({ returnTo }: { returnTo: string }) {
   );
 }
 
-function OwnerRoute({ component: Component }: { component: React.ComponentType }) {
+function OwnerRoute({ component: Component }: { component: AsyncPageComponent }) {
   const { data: user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
 
@@ -195,37 +178,24 @@ function OwnerRoute({ component: Component }: { component: React.ComponentType }
   if (!user) return <AppLoadingState />;
   if (!user.ownerAccess) return <OwnerUnlockPage returnTo={location} />;
 
-  return <Component />;
+  return <RouteSuspense component={Component} />;
 }
 
 function DashboardRoute() {
-  const { data: servers, isLoading } = useServers();
-  const [, setLocation] = useLocation();
-
-  useEffect(() => {
-    if (!isLoading) {
-      const firstServerId = Array.isArray(servers) && servers.length > 0 ? servers[0].id : null;
-      if (firstServerId) {
-        setLocation(buildArchivistSectionPath(firstServerId, "commands"));
-      }
-    }
-  }, [isLoading, servers, setLocation]);
-
-  if (isLoading) return <AppLoadingState />;
-  return <DashboardOverview />;
+  return <RouteSuspense component={DashboardOverview} />;
 }
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={HomeRoute} />
-      <Route path="/login" component={Login} />
+      <Route path="/login" component={() => <RouteSuspense component={Login} />} />
       <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardRoute} />} />
       <Route path="/dashboard/site-editor" component={() => <OwnerRoute component={SiteEditorPage} />} />
       <Route path="/dashboard/servers/:id/:section/:subpage" component={() => <ProtectedRoute component={WorkspacePage} />} />
       <Route path="/dashboard/servers/:id/:section" component={() => <ProtectedRoute component={WorkspacePage} />} />
       <Route path="/dashboard/servers/:id" component={() => <ProtectedRoute component={WorkspacePage} />} />
-      <Route component={NotFound} />
+      <Route component={() => <RouteSuspense component={NotFound} />} />
     </Switch>
   );
 }

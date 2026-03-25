@@ -102,8 +102,8 @@ const MODULE_BLUEPRINTS: Record<string, {
       "Define the first reward role or milestone.",
       "Create one command or panel that shows progress clearly.",
     ],
-    commandRoute: "all-commands",
-    studioRoute: "welcome",
+    commandRoute: "commands",
+    studioRoute: "ui-projects",
     settingsRoute: "roles",
     helperLabel: "Best when members can see progress in one obvious place.",
   },
@@ -114,7 +114,7 @@ const MODULE_BLUEPRINTS: Record<string, {
       "Reserve one reward or shop flow members can understand immediately.",
       "Wire one command lane for balances, claims, or redemption.",
     ],
-    commandRoute: "all-commands",
+    commandRoute: "commands",
     studioRoute: "components-v2",
     settingsRoute: "channels",
     helperLabel: "Economy works best with one earning loop and one spending loop first.",
@@ -126,7 +126,7 @@ const MODULE_BLUEPRINTS: Record<string, {
       "Decide whether answers are solo or group-paced.",
       "Show current wins somewhere members can keep coming back to.",
     ],
-    commandRoute: "slash-commands",
+    commandRoute: "commands",
     studioRoute: "components-v2",
     settingsRoute: "notifications",
     helperLabel: "Trivia stays healthy when the pace is fast and the recap is visible.",
@@ -138,8 +138,8 @@ const MODULE_BLUEPRINTS: Record<string, {
       "Lock down who can host or reroll a giveaway.",
       "Create one clean panel or post format to reuse every time.",
     ],
-    commandRoute: "slash-commands",
-    studioRoute: "tickets",
+    commandRoute: "commands",
+    studioRoute: "ui-projects",
     settingsRoute: "permissions",
     helperLabel: "Reuse one clean giveaway layout instead of reinventing each post.",
   },
@@ -150,7 +150,7 @@ const MODULE_BLUEPRINTS: Record<string, {
       "Set the streak expectation before adding bonuses.",
       "Add one reminder or recap message that keeps the loop visible.",
     ],
-    commandRoute: "auto-responses",
+    commandRoute: "commands",
     studioRoute: "components-v2",
     settingsRoute: "logging",
     helperLabel: "Daily rewards feel sticky when claims are fast and streak rules are obvious.",
@@ -666,7 +666,7 @@ export default function WorkspacePage() {
             {visibleServers[0] ? (
               <Button
                 variant="outline"
-                className="min-h-11 rounded-[18px] border-white/10 bg-white/[0.03]"
+                className="min-h-11 rounded-[18px]"
                 onClick={() => navigate(buildArchivistSectionPath(visibleServers[0].id, "commands"))}
               >
                 Open First Workspace
@@ -799,8 +799,8 @@ export default function WorkspacePage() {
                   className={cn(
                     "whitespace-nowrap rounded-full border px-3 py-2 text-sm transition",
                     commandFilter === filter.value
-                      ? "border-[#8e2635] bg-[#1b1115] text-white shadow-[0_0_18px_rgba(177,18,38,0.16)]"
-                      : "border-white/8 bg-[#0b0d10] text-white/55",
+                      ? "border-[var(--border-brand)] bg-[rgba(110,123,255,0.16)] text-[var(--text-primary)] shadow-[0_0_18px_rgba(38,48,92,0.12)]"
+                      : "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(15,18,24,0.98),rgba(10,13,18,1))] text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
                   )}
                 >
                   {filter.label}
@@ -866,7 +866,57 @@ function renderPageContent({
   const textChannels = (context?.channels || []).filter((channel: any) => channel.isTextBased && !channel.isThread);
 
   if (item.id === "commands-overview") {
-    return <CustomCommandV2Forge serverId={serverId} screen="hub" />;
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Commands", value: String(commands.length) },
+            { label: "Runs", value: String(overview?.metrics.recentCommands || 0) },
+            { label: "Failures", value: String(overview?.metrics.recentFailures || 0) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            <QuickActionRow
+              icon={Braces}
+              title="Commands"
+              description="Open the command library and focused builder lanes."
+              href={buildArchivistItemPath(serverId, "commands", "commands")}
+            />
+            <QuickActionRow
+              icon={ScrollText}
+              title="Variables"
+              description="Keep reusable command inputs and variable language visible."
+              href={buildArchivistItemPath(serverId, "commands", "variables")}
+            />
+            <QuickActionRow
+              icon={ShieldCheck}
+              title="Testing"
+              description="Review cooldowns and readiness before you tune live behavior."
+              href={buildArchivistItemPath(serverId, "commands", "testing")}
+            />
+            <QuickActionRow
+              icon={Logs}
+              title="Logs"
+              description="Inspect recent runs, failures, and command pressure."
+              href={buildArchivistItemPath(serverId, "commands", "logs")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Analytics"
+              description="See which commands are doing real work in this server."
+              href={buildArchivistItemPath(serverId, "commands", "analytics")}
+            />
+            <QuickActionRow
+              icon={CopyPlus}
+              title="Imports / Exports"
+              description="Move logic safely between builder flows and saved command sets."
+              href={buildArchivistItemPath(serverId, "commands", "imports")}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (item.id === "commands-all") {
@@ -992,6 +1042,161 @@ function renderPageContent({
           {!sorted.length ? <EmptyState label="No commands with cooldowns yet." /> : null}
         </CardContent>
       </Card>
+    );
+  }
+
+  if (item.id === "commands-analytics") {
+    const topCommands = (overview?.commandUsage || []).slice(0, 8);
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Tracked", value: String(topCommands.length) },
+            { label: "Recent Runs", value: String(overview?.metrics.recentCommands || 0) },
+            { label: "Recent Failures", value: String(overview?.metrics.recentFailures || 0) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Command analytics</CardTitle>
+            <CardDescription>See which command lanes are carrying the most traffic before you change logic or imports.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {topCommands.map((entry: any) => (
+              <div key={entry.command} className="flex items-center justify-between gap-3 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] px-4 py-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]">/{entry.command}</p>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">Recent command activity in this server.</p>
+                </div>
+                <CommandBadge>{entry.count}</CommandBadge>
+              </div>
+            ))}
+            {!topCommands.length ? <EmptyState label="No command analytics have been recorded yet." /> : null}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "studio-overview") {
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Drafts", value: String(drafts.length) },
+            { label: "Templates", value: String(templates.length) },
+            { label: "Published", value: String(publications.length) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            <QuickActionRow
+              icon={LayoutTemplate}
+              title="Embeds"
+              description="Build embed-driven message systems and announcement surfaces."
+              href={buildArchivistItemPath(serverId, "studio", "embeds")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Components V2"
+              description="Create button, select, and interaction-driven Discord UI."
+              href={buildArchivistItemPath(serverId, "studio", "components-v2")}
+            />
+            <QuickActionRow
+              icon={FileStack}
+              title="UI Projects"
+              description="Resume active visual systems, drafts, and in-progress surfaces."
+              href={buildArchivistItemPath(serverId, "studio", "ui-projects")}
+            />
+            <QuickActionRow
+              icon={CopyPlus}
+              title="Templates"
+              description="Reuse deployment-ready layouts and saved message patterns."
+              href={buildArchivistItemPath(serverId, "studio", "templates")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Brand Kit"
+              description="Keep visual direction, copy tone, and reusable identity aligned."
+              href={buildArchivistItemPath(serverId, "studio", "brand-kit")}
+            />
+            <QuickActionRow
+              icon={FileStack}
+              title="Assets"
+              description="See which documents already carry media and deployment assets."
+              href={buildArchivistItemPath(serverId, "studio", "assets")}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "studio-brand-kit") {
+    const recentBrandDocs = documents
+      .filter((document: any) => ["welcome", "verify", "ticket_panel", "tickets"].includes(document.moduleBinding || ""))
+      .slice(0, 6);
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Styled surfaces", value: String(recentBrandDocs.length) },
+            { label: "Drafts", value: String(drafts.length) },
+            { label: "Templates", value: String(templates.length) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Brand kit</CardTitle>
+            <CardDescription>Keep reusable visual direction visible without turning Studio into a giant launcher.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {recentBrandDocs.map((document: any) => (
+              <QuickActionRow
+                key={document.id}
+                icon={Sparkles}
+                title={document.name}
+                description={document.moduleBinding ? document.moduleBinding.replace(/_/g, " ") : "Styled Studio surface"}
+                href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: document.id } })}
+              />
+            ))}
+            {!recentBrandDocs.length ? <EmptyState label="No reusable brand-facing Studio surfaces are ready yet." /> : null}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "studio-assets") {
+    const assetDocuments = documents.filter((document: any) => Array.isArray(document.assets) ? document.assets.length > 0 : false);
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Asset docs", value: String(assetDocuments.length) },
+            { label: "All docs", value: String(documents.length) },
+            { label: "Published", value: String(publications.length) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Assets</CardTitle>
+            <CardDescription>Documents carrying media-backed assets, attachments, or reusable payloads.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {assetDocuments.map((document: any) => (
+              <QuickActionRow
+                key={document.id}
+                icon={FileStack}
+                title={document.name}
+                description={`${document.assets.length} attached asset${document.assets.length === 1 ? "" : "s"}`}
+                href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: document.id } })}
+              />
+            ))}
+            {!assetDocuments.length ? <EmptyState label="No Studio documents with attached assets are available yet." /> : null}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -1196,6 +1401,60 @@ function renderPageContent({
       <div className="space-y-4">
         <MetricGrid
           items={[
+            { label: "Games", value: String(MODULE_CARDS.length) },
+            { label: "Tracked", value: String(enabledModuleCards.length) },
+            { label: "Members", value: String(context?.memberCount || overview?.server.memberCount || 0) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            <QuickActionRow
+              icon={Gamepad2}
+              title="Games"
+              description="Turn on and tune the active game systems and engagement modules."
+              href={buildArchivistItemPath(serverId, "fun", "games")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Creative Tools"
+              description="Open event-style tools and live engagement surfaces."
+              href={buildArchivistItemPath(serverId, "fun", "creative-tools")}
+            />
+            <QuickActionRow
+              icon={CopyPlus}
+              title="Shop"
+              description="Shape economy, rewards, redemption, and earning loops."
+              href={buildArchivistItemPath(serverId, "fun", "shop")}
+            />
+            <QuickActionRow
+              icon={Users}
+              title="Profile"
+              description="Control visible member identity, leveling, and progression posture."
+              href={buildArchivistItemPath(serverId, "fun", "profile")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Achievements"
+              description="Handle streaks, daily loops, and repeatable milestones."
+              href={buildArchivistItemPath(serverId, "fun", "achievements")}
+            />
+            <QuickActionRow
+              icon={ScrollText}
+              title="Leaderboards"
+              description="Review rankings, winners, and competitive output."
+              href={buildArchivistItemPath(serverId, "fun", "leaderboards")}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "creative-overview") {
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
             { label: "Modules", value: String(MODULE_CARDS.length) },
             { label: "Tracked", value: String(enabledModuleCards.length) },
             { label: "Recent Runs", value: String(overview?.metrics.recentCommands || 0) },
@@ -1330,8 +1589,8 @@ function renderPageContent({
                     href={buildArchivistItemPath(serverId, "studio", MODULE_BLUEPRINTS[module.id].studioRoute)}
                   />
                   <MiniRouteLink
-                    label="Settings"
-                    href={buildArchivistItemPath(serverId, "settings", MODULE_BLUEPRINTS[module.id].settingsRoute)}
+                    label="Server"
+                    href={buildArchivistItemPath(serverId, "server", MODULE_BLUEPRINTS[module.id].settingsRoute)}
                   />
                 </div>
               </div>
@@ -1452,9 +1711,9 @@ function renderPageContent({
                 />
                 <QuickActionRow
                   icon={Settings2}
-                  title="Settings lane"
-                  description="Open the supporting settings route that normally matters next."
-                  href={buildArchivistItemPath(serverId, "settings", MODULE_BLUEPRINTS[moduleId].settingsRoute)}
+                  title="Server lane"
+                  description="Open the supporting server-management route that normally matters next."
+                  href={buildArchivistItemPath(serverId, "server", MODULE_BLUEPRINTS[moduleId].settingsRoute)}
                 />
               </div>
             </CardContent>
@@ -1498,6 +1757,60 @@ function renderPageContent({
             </Card>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (item.id === "settings-overview") {
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Roles", value: String(context?.roles.length || 0) },
+            { label: "Channels", value: String(context?.channels.length || 0) },
+            { label: "Gateway", value: typeof botStatus?.gatewayPingMs === "number" ? `${Math.round(botStatus.gatewayPingMs)}ms` : "Pending" },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            <QuickActionRow
+              icon={Users}
+              title="Roles"
+              description="Manage authority, role groups, rewards, and protected access."
+              href={buildArchivistItemPath(serverId, "server", "roles")}
+            />
+            <QuickActionRow
+              icon={MessageSquareText}
+              title="Channels"
+              description="Control destinations, channel posture, and operational routing."
+              href={buildArchivistItemPath(serverId, "server", "channels")}
+            />
+            <QuickActionRow
+              icon={ShieldCheck}
+              title="Permissions"
+              description="Set access rules, moderation posture, and protected behavior."
+              href={buildArchivistItemPath(serverId, "server", "permissions")}
+            />
+            <QuickActionRow
+              icon={Sparkles}
+              title="Onboarding"
+              description="Handle welcome, verification, and member entry flow."
+              href={buildArchivistItemPath(serverId, "server", "onboarding")}
+            />
+            <QuickActionRow
+              icon={Logs}
+              title="Logging"
+              description="Review operational signals, failures, and alert routing."
+              href={buildArchivistItemPath(serverId, "server", "logging")}
+            />
+            <QuickActionRow
+              icon={CopyPlus}
+              title="Backups / Sync"
+              description="Protect exports, sync posture, and server recovery paths."
+              href={buildArchivistItemPath(serverId, "server", "backups-sync")}
+            />
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -1675,6 +1988,119 @@ function renderPageContent({
                 href={buildArchivistItemPath(serverId, "settings", "channels")}
               />
             </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "settings-member-flow") {
+    const welcomeDocs = documents.filter((document: any) => ["welcome", "welcome_dm", "verify"].includes(document.moduleBinding || ""));
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Welcome surfaces", value: String(welcomeDocs.length) },
+            { label: "Roles", value: String(context?.roles.length || 0) },
+            { label: "Channels", value: String(textChannels.length) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Onboarding</CardTitle>
+            <CardDescription>Keep member entry clean: welcome surfaces, verification paths, and staff-visible fallbacks.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <QuickActionRow
+              icon={LayoutTemplate}
+              title="Welcome surfaces"
+              description="Open the Studio welcome and verify assets tied to entry flow."
+              href={buildArchivistItemPath(serverId, "studio", "welcome")}
+            />
+            <QuickActionRow
+              icon={ShieldCheck}
+              title="Verification roles"
+              description="Review the roles that matter once a member passes verification."
+              href={buildArchivistItemPath(serverId, "server", "roles")}
+            />
+            <QuickActionRow
+              icon={MessageSquareText}
+              title="Entry channels"
+              description="Choose the visible lanes members land in first."
+              href={buildArchivistItemPath(serverId, "server", "channels")}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "settings-signals-logging") {
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Activity", value: String(logs?.activity?.length || 0) },
+            { label: "Failures", value: String(logs?.failures?.length || 0) },
+            { label: "Tracked commands", value: String(commands.length) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Signals &amp; logging</CardTitle>
+            <CardDescription>Operational history, failure visibility, and alert routing without a bloated settings wall.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(logs?.activity || []).slice(0, 6).map((entry: any) => (
+              <ActivityRow key={entry.id} title={`/${entry.commandPath}`} subtitle={entry.summary} status={entry.status} />
+            ))}
+            {!logs?.activity?.length ? <EmptyState label="No recent command activity is available right now." /> : null}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (item.id === "settings-safety-recovery") {
+    return (
+      <div className="space-y-4">
+        <MetricGrid
+          items={[
+            { label: "Commands", value: String(commands.length) },
+            { label: "Roles", value: String(context?.roles.length || 0) },
+            { label: "Channels", value: String(context?.channels.length || 0) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle>Backups / sync</CardTitle>
+            <CardDescription>Use command exports, channel visibility, and operational context as the current recovery layer.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <QuickActionRow
+              icon={CopyPlus}
+              title="Imports / Exports"
+              description="Move command logic safely before larger server changes."
+              href={buildArchivistItemPath(serverId, "commands", "imports")}
+            />
+            <QuickActionRow
+              icon={MessageSquareText}
+              title="Channels"
+              description="Verify the live channel map before you copy or rebuild anything."
+              href={buildArchivistItemPath(serverId, "server", "channels")}
+            />
+            <QuickActionRow
+              icon={Users}
+              title="Roles"
+              description="Review protected roles and reward mappings before restore work."
+              href={buildArchivistItemPath(serverId, "server", "roles")}
+            />
+            <QuickActionRow
+              icon={Logs}
+              title="Logging"
+              description="Keep recent failures and change signals visible during recovery work."
+              href={buildArchivistItemPath(serverId, "server", "logging")}
+            />
           </CardContent>
         </Card>
       </div>
@@ -2056,13 +2482,13 @@ function PageHeader({
     <Card className="archivist-panel overflow-hidden">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-[16px] border border-[#8e2635]/50 bg-[#140d11] text-[#ff6276] shadow-[0_0_20px_rgba(177,18,38,0.14)]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[16px] border border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(110,123,255,0.16),rgba(21,28,44,0.98))] text-[var(--brand-primary-strong)] shadow-[0_18px_36px_rgba(16,22,38,0.24)]">
             <ItemIcon icon={item.icon} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-[0.32em] text-white/34">{ARCHIVIST_NAVIGATION.find((entry) => entry.id === item.section)?.label}</p>
-            <h1 className="mt-2 text-xl font-bold text-white sm:text-2xl">{title}</h1>
-            <p className="mt-2 text-sm leading-6 text-white/52">{description}</p>
+            <p className="text-[10px] uppercase tracking-[0.32em] text-[var(--text-faint)]">{ARCHIVIST_NAVIGATION.find((entry) => entry.id === item.section)?.label}</p>
+            <h1 className="mt-2 text-xl font-bold text-[var(--text-primary)] sm:text-2xl">{title}</h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">{description}</p>
           </div>
         </div>
         {(primaryAction || secondaryAction) ? (
@@ -2083,8 +2509,8 @@ function MetricGrid({ items }: { items: Array<{ label: string; value: string }> 
       {items.map((item) => (
         <Card key={item.label} className="archivist-panel">
           <CardContent className="p-4">
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/34">{item.label}</p>
-            <p className="mt-2 text-lg font-semibold text-white">{item.value}</p>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-[var(--text-faint)]">{item.label}</p>
+            <p className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{item.value}</p>
           </CardContent>
         </Card>
       ))}
@@ -2105,15 +2531,15 @@ function QuickActionRow({
 }) {
   return (
     <Link href={href}>
-      <a className="flex min-h-[76px] items-center gap-3 rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4 transition hover:border-[#8e2635] hover:bg-[#121418]">
-        <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/8 bg-[#111317] text-[#ff6276]">
+      <a className="flex min-h-[76px] items-center gap-3 rounded-[20px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(20,25,39,0.88),rgba(14,18,29,0.98))] px-4 py-4 transition hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(24,30,46,0.94),rgba(16,21,33,1))]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-[var(--border-subtle)] bg-[rgba(110,123,255,0.1)] text-[var(--brand-primary-strong)]">
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white">{title}</p>
-          <p className="mt-1 text-sm text-white/46">{description}</p>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>
         </div>
-        <ArrowRight className="h-4 w-4 text-white/26" />
+        <ArrowRight className="h-4 w-4 text-[var(--text-faint)]" />
       </a>
     </Link>
   );
@@ -2140,21 +2566,21 @@ function QuickLaunchCard({
         className={cn(
           "rounded-[22px] border p-4 transition",
           tone === "primary"
-            ? "border-[#8e2635]/55 bg-[linear-gradient(180deg,rgba(30,13,18,0.98),rgba(13,10,12,0.98))] hover:border-[#b3384b] hover:bg-[linear-gradient(180deg,rgba(36,14,20,0.98),rgba(15,11,13,0.98))]"
-            : "border-white/8 bg-[#0a0c0f] hover:border-[#8e2635] hover:bg-[#121418]",
+            ? "border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(32,39,61,0.96),rgba(18,23,38,0.99))] hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(37,46,70,0.98),rgba(20,26,42,1))]"
+            : "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(20,25,39,0.9),rgba(14,18,29,0.98))] hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(24,30,46,0.94),rgba(16,21,33,1))]",
           compact ? "min-h-[108px]" : "min-h-[144px]",
         )}
       >
         <div
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-[15px] border text-[#ff6276]",
-            tone === "primary" ? "border-[#8e2635]/45 bg-[#170d11]" : "border-white/8 bg-[#111317]",
+            "flex h-11 w-11 items-center justify-center rounded-[15px] border text-[var(--brand-primary-strong)]",
+            tone === "primary" ? "border-[var(--border-strong)] bg-[rgba(110,123,255,0.14)]" : "border-[var(--border-subtle)] bg-[rgba(110,123,255,0.08)]",
           )}
         >
           <Icon className="h-4 w-4" />
         </div>
-        <p className="mt-3 text-sm font-semibold text-white">{title}</p>
-        {subtitle ? <p className="mt-1 text-sm leading-6 text-white/48">{subtitle}</p> : null}
+        <p className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+        {subtitle ? <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{subtitle}</p> : null}
       </a>
     </Link>
   );
@@ -2162,9 +2588,9 @@ function QuickLaunchCard({
 
 function StudioCountBadge({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-right">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-white/34">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    <div className="rounded-full border border-[var(--border-subtle)] bg-[rgba(110,123,255,0.05)] px-3 py-2 text-right">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{value}</p>
     </div>
   );
 }
@@ -2172,7 +2598,7 @@ function StudioCountBadge({ label, value }: { label: string; value: string }) {
 function MiniRouteLink({ label, href }: { label: string; href: string }) {
   return (
     <Link href={href}>
-      <a className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/68 transition hover:border-[#8e2635] hover:text-white">
+      <a className="rounded-full border border-[var(--border-subtle)] bg-[rgba(110,123,255,0.05)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
         {label}
       </a>
     </Link>
@@ -2196,11 +2622,11 @@ function ChecklistPanel({
       </CardHeader>
       <CardContent className="space-y-2">
         {items.map((entry, index) => (
-          <div key={entry} className="flex items-start gap-3 rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
-            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#7d2432]/60 bg-[#160f12] text-[11px] font-semibold text-[#ff8695]">
+          <div key={entry} className="flex items-start gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] px-4 py-4">
+            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[rgba(110,123,255,0.12)] text-[11px] font-semibold text-[var(--brand-primary-strong)]">
               {index + 1}
             </div>
-            <p className="text-sm text-white/68">{entry}</p>
+            <p className="text-sm text-[var(--text-secondary)]">{entry}</p>
           </div>
         ))}
       </CardContent>
@@ -2220,14 +2646,14 @@ function ChannelSuggestionCard({
   emptyLabel: string;
 }) {
   return (
-    <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
+    <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] p-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
         <CommandBadge>{badge}</CommandBadge>
       </div>
       <div className="mt-3 space-y-2">
         {channels.length ? channels.map((channel: any) => (
-          <div key={channel.id} className="rounded-[18px] border border-white/8 bg-[#101216] px-3 py-3 text-sm text-white/68">
+          <div key={channel.id} className="rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-3 text-sm text-[var(--text-secondary)]">
             #{channel.name}
           </div>
         )) : <EmptyState label={emptyLabel} />}
@@ -2246,11 +2672,11 @@ function ActivityRow({
   status: "success" | "failure";
 }) {
   return (
-    <div className={cn("rounded-[20px] border px-4 py-4", status === "failure" ? "border-[#6d202c] bg-[#160f12]" : "border-white/8 bg-[#0a0c0f]")}>
+    <div className={cn("rounded-[20px] border px-4 py-4", status === "failure" ? "border-[rgba(217,87,99,0.35)] bg-[rgba(217,87,99,0.12)]" : "border-[var(--border-subtle)] bg-[var(--bg-panel-inset)]")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">{title}</p>
-          <p className="mt-1 text-sm text-white/54">{subtitle}</p>
+          <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">{subtitle}</p>
         </div>
         <CommandBadge>{status}</CommandBadge>
       </div>
@@ -2282,12 +2708,12 @@ function SettingsGroupCard({
       <CardContent className="p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-white">{title}</p>
-            <p className="mt-1 text-sm text-white/46">{description}</p>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>
           </div>
           <Button
             variant="outline"
-            className="min-h-10 w-full rounded-[16px] border-white/10 bg-white/[0.03] sm:w-auto"
+            className="min-h-10 w-full rounded-[16px] sm:w-auto"
             onClick={onToggle}
           >
             {isExpanded ? "Hide Details" : "View Details"}
@@ -2299,20 +2725,20 @@ function SettingsGroupCard({
           ))}
         </div>
         {isExpanded ? (
-          <div className="mt-4 space-y-4 rounded-[20px] border border-white/8 bg-[#0a0c0f] p-4">
+          <div className="mt-4 space-y-4 rounded-[20px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] p-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-white/34">Available roles</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-[var(--text-faint)]">Available roles</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {availableValues.length ? availableValues.map((value) => (
                   <CommandBadge key={`${title}-available-${value}`}>{value}</CommandBadge>
-                )) : <span className="text-sm text-white/46">No live roles are available for this server yet.</span>}
+                )) : <span className="text-sm text-[var(--text-muted)]">No live roles are available for this server yet.</span>}
               </div>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" className="min-h-10 flex-1 rounded-[16px] border-white/10 bg-white/[0.03]" onClick={onOpenPermissions}>
+              <Button variant="outline" className="min-h-10 flex-1 rounded-[16px]" onClick={onOpenPermissions}>
                 Open Permissions
               </Button>
-              <Button variant="outline" className="min-h-10 flex-1 rounded-[16px] border-white/10 bg-white/[0.03]" onClick={onOpenChannels}>
+              <Button variant="outline" className="min-h-10 flex-1 rounded-[16px]" onClick={onOpenChannels}>
                 Open Channels
               </Button>
             </div>
@@ -3870,7 +4296,7 @@ function ItemIcon({ icon }: { icon: ArchivistNavItem["icon"] }) {
 
 function CommandBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full border border-[#6d202c] bg-[#170f13] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-white/72">
+    <span className="rounded-full border border-[var(--border-subtle)] bg-[rgba(155,180,201,0.08)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-[rgba(222,231,240,0.92)]">
       {children}
     </span>
   );
@@ -3898,10 +4324,10 @@ function ChannelListRow({
       className={cn(
         "flex flex-wrap items-center gap-3 rounded-[18px] border px-3 py-3 transition",
         active
-          ? "border-[#8e2635] bg-[#171014]"
+          ? "border-[var(--border-brand)] bg-[linear-gradient(180deg,rgba(28,17,22,0.98),rgba(18,13,17,1))] shadow-[0_0_0_1px_rgba(163,33,57,0.14)]"
           : picked
-            ? "border-[#6d202c] bg-[#151015]"
-            : "border-white/8 bg-[#101216] hover:border-[#7d2432] hover:bg-[#15181d]",
+            ? "border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(21,25,32,0.98),rgba(14,17,22,1))]"
+            : "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(16,18,22,0.98),rgba(10,12,16,1))] hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(20,24,31,0.98),rgba(13,16,21,1))]",
       )}
     >
       <button
@@ -3909,8 +4335,8 @@ function ChannelListRow({
         onClick={onOpen}
         className="min-w-0 flex-1 basis-[13rem] text-left"
       >
-        <p className="truncate text-sm font-medium text-white">{title}</p>
-        <p className="mt-1 text-xs text-white/42">{subtitle}</p>
+        <p className="truncate text-sm font-medium text-[var(--text-primary)]">{title}</p>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">{subtitle}</p>
       </button>
       <div className="flex shrink-0 items-center gap-2">
         {badges ? <div className="hidden flex-wrap justify-end gap-2 sm:flex">{badges}</div> : null}
@@ -3920,8 +4346,8 @@ function ChannelListRow({
           className={cn(
             "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition",
             picked
-              ? "border-[#8e2635] bg-[#1b1115] text-white"
-              : "border-white/10 bg-[#0b0d10] text-white/58 hover:border-[#7d2432] hover:text-white",
+              ? "border-[var(--border-brand)] bg-[rgba(163,33,57,0.16)] text-[var(--text-primary)]"
+              : "border-[var(--border-subtle)] bg-[rgba(155,180,201,0.04)] text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
           )}
       >
         {picked ? "Picked" : "Pick"}
@@ -3933,14 +4359,14 @@ function ChannelListRow({
 }
 
 function EmptyState({ label }: { label: string }) {
-  return <div className="rounded-[20px] border border-dashed border-white/10 bg-[#0a0c0f] px-4 py-5 text-sm text-white/46">{label}</div>;
+  return <div className="rounded-[20px] border border-dashed border-[var(--border-subtle)] bg-[rgba(155,180,201,0.03)] px-4 py-5 text-sm text-[var(--text-muted)]">{label}</div>;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
-      <p className="text-sm text-white/54">{label}</p>
-      <p className="max-w-[60%] truncate text-sm font-medium text-white">{value}</p>
+    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(16,18,22,0.98),rgba(10,12,16,1))] px-4 py-4">
+      <p className="text-sm text-[var(--text-muted)]">{label}</p>
+      <p className="max-w-[60%] truncate text-sm font-medium text-[var(--text-primary)]">{value}</p>
     </div>
   );
 }

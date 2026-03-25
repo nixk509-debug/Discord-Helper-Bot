@@ -12,7 +12,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-11 items-center justify-center rounded-[16px] border border-white/8 bg-[#111318] p-1 text-muted-foreground",
+      "inline-flex min-h-12 items-center justify-center rounded-[18px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(18,22,29,0.96),rgba(11,14,19,0.98))] p-1 text-[var(--text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
       className
     )}
     {...props}
@@ -27,7 +27,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-[12px] px-3 py-2 text-sm font-medium text-white/64 ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-[#0d1014] data-[state=active]:shadow-sm",
+      "inline-flex items-center justify-center whitespace-nowrap rounded-[14px] px-3 py-2.5 text-sm font-medium text-[var(--text-muted)] ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border data-[state=active]:border-[var(--border-cold)] data-[state=active]:bg-[linear-gradient(180deg,rgba(230,238,245,0.96),rgba(198,214,227,0.88))] data-[state=active]:text-[#091018] data-[state=active]:shadow-[0_12px_28px_rgba(11,16,23,0.28)] hover:text-[var(--text-primary)]",
       className
     )}
     {...props}

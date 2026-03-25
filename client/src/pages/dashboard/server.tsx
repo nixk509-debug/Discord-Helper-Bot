@@ -47,11 +47,11 @@ export default function ServerCommandsPage() {
     return (
       <DashboardLayout>
         <div className="space-y-4">
-          <Skeleton className="h-[160px] rounded-[28px] bg-white/5" />
+          <Skeleton className="h-[160px] rounded-[28px] bg-[rgba(155,180,201,0.08)]" />
           <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_320px]">
-            <Skeleton className="h-[720px] rounded-[28px] bg-white/5" />
-            <Skeleton className="h-[720px] rounded-[28px] bg-white/5" />
-            <Skeleton className="h-[720px] rounded-[28px] bg-white/5" />
+            <Skeleton className="h-[720px] rounded-[28px] bg-[rgba(155,180,201,0.08)]" />
+            <Skeleton className="h-[720px] rounded-[28px] bg-[rgba(155,180,201,0.08)]" />
+            <Skeleton className="h-[720px] rounded-[28px] bg-[rgba(155,180,201,0.08)]" />
           </div>
         </div>
       </DashboardLayout>

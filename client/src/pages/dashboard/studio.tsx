@@ -17,8 +17,8 @@ export default function StudioPage() {
     return (
       <DashboardLayout>
         <div className="space-y-4">
-          <Skeleton className="h-[180px] rounded-[24px] bg-white/5" />
-          <Skeleton className="h-[720px] rounded-[24px] bg-white/5" />
+          <Skeleton className="h-[180px] rounded-[24px] bg-[rgba(155,180,201,0.08)]" />
+          <Skeleton className="h-[720px] rounded-[24px] bg-[rgba(155,180,201,0.08)]" />
         </div>
       </DashboardLayout>
     );
@@ -26,8 +26,8 @@ export default function StudioPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5">
-        <SurfacePanel>
+      <div className="archivist-category-studio space-y-5">
+        <SurfacePanel className="archivist-panel-focus">
           <SurfaceHeader
             eyebrow="Design Studio"
             title="Build Discord messages in one focused flow."
@@ -39,7 +39,7 @@ export default function StudioPage() {
               </div>
             }
           />
-          <div className="divide-y divide-white/6">
+          <div className="divide-y divide-[var(--border-subtle)]">
             <SurfaceRow
               title="Embeds and message bodies"
               description="Compose copy, visuals, and structure without losing the live message context."
@@ -58,13 +58,13 @@ export default function StudioPage() {
           </div>
         </SurfacePanel>
 
-        <SurfacePanel className="overflow-hidden">
-          <div className="border-b border-white/6 px-4 py-4 md:px-6">
+        <SurfacePanel className="archivist-panel-raised overflow-hidden">
+          <div className="border-b border-[var(--border-subtle)] px-4 py-4 md:px-6">
             <div className="flex items-center gap-3">
               <StudioIcon icon={MessageSquareText} />
               <div>
-                <p className="text-sm font-semibold text-white">Studio workspace</p>
-                <p className="mt-1 text-sm text-white/56">Live draft editing for {server.name}</p>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Studio workspace</p>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">Live draft editing for {server.name}</p>
               </div>
             </div>
           </div>
@@ -79,7 +79,7 @@ export default function StudioPage() {
 
 function StudioIcon({ icon: Icon }: { icon: typeof LayoutPanelTop }) {
   return (
-    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/8 bg-[#171a20] text-[#ff6479]">
+    <div className="flex h-10 w-10 items-center justify-center rounded-[13px] border border-[var(--border-cold)] bg-[linear-gradient(180deg,rgba(155,180,201,0.1),rgba(155,180,201,0.04))] text-[var(--category-accent)]">
       <Icon className="h-4 w-4" />
     </div>
   );

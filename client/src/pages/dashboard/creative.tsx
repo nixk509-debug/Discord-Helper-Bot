@@ -34,8 +34,8 @@ export default function CreativePage() {
     return (
       <DashboardLayout>
         <div className="space-y-4">
-          <Skeleton className="h-[180px] rounded-[24px] bg-white/5" />
-          <Skeleton className="h-[520px] rounded-[24px] bg-white/5" />
+          <Skeleton className="h-[180px] rounded-[24px] bg-[rgba(155,180,201,0.08)]" />
+          <Skeleton className="h-[520px] rounded-[24px] bg-[rgba(155,180,201,0.08)]" />
         </div>
       </DashboardLayout>
     );
@@ -43,7 +43,7 @@ export default function CreativePage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5">
+      <div className="archivist-category-creative space-y-5">
         <SurfacePanel>
           <SurfaceHeader
             eyebrow="Fun & Creative"
@@ -56,7 +56,7 @@ export default function CreativePage() {
               </div>
             }
           />
-          <div className="divide-y divide-white/6">
+          <div className="divide-y divide-[var(--border-subtle)]">
             {CREATIVE_ROWS.map((row) => {
               const Icon = row.icon;
               return (
@@ -65,14 +65,14 @@ export default function CreativePage() {
                   title={row.title}
                   description={row.description}
                   accent={
-                    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/8 bg-[#171a20] text-[#ff6479]">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-[13px] border border-[rgba(213,155,54,0.16)] bg-[linear-gradient(180deg,rgba(213,155,54,0.1),rgba(155,180,201,0.04))] text-[var(--category-accent)]">
                       <Icon className="h-4 w-4" />
                     </div>
                   }
                   meta={
                     <>
                       <StatusPill>Planning</StatusPill>
-                      <ArrowUpRight className="h-4 w-4 text-white/24" />
+                      <ArrowUpRight className="h-4 w-4 text-[var(--text-faint)]" />
                     </>
                   }
                 />
@@ -83,11 +83,11 @@ export default function CreativePage() {
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
           <SurfacePanel>
-            <div className="border-b border-white/6 px-4 py-4 md:px-6">
-              <p className="text-sm font-semibold text-white">Signals from the live runtime</p>
-              <p className="mt-1 text-sm text-white/56">Recent command activity and failure posture, without a heavy analytics shell.</p>
+            <div className="border-b border-[var(--border-subtle)] px-4 py-4 md:px-6">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Signals from the live runtime</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">Recent command activity and failure posture, without a heavy analytics shell.</p>
             </div>
-            <div className="divide-y divide-white/6">
+            <div className="divide-y divide-[var(--border-subtle)]">
               {logsQuery.data?.activity?.slice(0, 6).length ? (
                 logsQuery.data?.activity?.slice(0, 6).map((entry) => (
                   <SurfaceRow
@@ -101,14 +101,14 @@ export default function CreativePage() {
                       </>
                     }
                     accent={
-                      <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-white/8 bg-[#171a20] text-white/60">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-[13px] border border-[rgba(213,155,54,0.16)] bg-[linear-gradient(180deg,rgba(213,155,54,0.08),rgba(155,180,201,0.03))] text-[var(--category-accent)]">
                         <Sparkles className="h-4 w-4" />
                       </div>
                     }
                   />
                 ))
               ) : (
-                <div className="px-4 py-10 text-sm text-white/46 md:px-6">
+                <div className="px-4 py-10 text-sm text-[var(--text-muted)] md:px-6">
                   No recent creative runtime activity has been recorded for this server yet.
                 </div>
               )}
@@ -116,9 +116,9 @@ export default function CreativePage() {
           </SurfacePanel>
 
           <SurfacePanel>
-            <div className="border-b border-white/6 px-4 py-4 md:px-6">
-              <p className="text-sm font-semibold text-white">Current context</p>
-              <p className="mt-1 text-sm text-white/56">A quick snapshot of the current server and recent behavior.</p>
+            <div className="border-b border-[var(--border-subtle)] px-4 py-4 md:px-6">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Current context</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">A quick snapshot of the current server and recent behavior.</p>
             </div>
             <div className="space-y-2 px-4 py-4 md:px-6">
               <ContextRow label="Guild" value={server.name} />
@@ -135,9 +135,9 @@ export default function CreativePage() {
 
 function ContextRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#111318] px-3 py-3">
-      <span className="text-sm text-white/58">{label}</span>
-      <span className="text-sm font-semibold text-white">{value}</span>
+    <div className="flex items-center justify-between rounded-[18px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(21,25,32,0.96),rgba(11,14,19,0.98))] px-3 py-3">
+      <span className="text-sm text-[var(--text-muted)]">{label}</span>
+      <span className="text-sm font-semibold text-[var(--text-primary)]">{value}</span>
     </div>
   );
 }

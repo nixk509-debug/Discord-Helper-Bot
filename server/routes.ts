@@ -2801,7 +2801,9 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   // --- SEED DATABASE ---
-  await seedDatabase();
+  if (process.env.NODE_ENV !== "production") {
+    await seedDatabase();
+  }
 
   // =========================================================
   // === NEW ROUTES: Audit, Snapshots, Codes, Sync, Permissions, Lock

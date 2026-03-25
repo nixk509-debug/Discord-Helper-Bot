@@ -60,15 +60,15 @@ function getServerInitials(name: string) {
 function statusBadgeClass(tone: "healthy" | "warning" | "danger" | "neutral" | "brand") {
   switch (tone) {
     case "healthy":
-      return "border-emerald-500/20 bg-emerald-500/[0.12] text-emerald-100";
+      return "border-[rgba(62,167,123,0.24)] bg-[rgba(62,167,123,0.12)] text-[rgba(222,245,234,0.94)]";
     case "warning":
-      return "border-amber-500/20 bg-amber-500/[0.12] text-amber-100";
+      return "border-[rgba(213,155,54,0.22)] bg-[rgba(213,155,54,0.12)] text-[rgba(248,233,198,0.96)]";
     case "danger":
-      return "border-rose-500/20 bg-rose-500/[0.12] text-rose-100";
+      return "border-[rgba(220,84,103,0.24)] bg-[rgba(220,84,103,0.12)] text-[rgba(255,221,227,0.95)]";
     case "brand":
-      return "border-primary/20 bg-primary/[0.14] text-white";
+      return "border-[var(--border-brand)] bg-[rgba(163,33,57,0.16)] text-[var(--text-primary)]";
     default:
-      return "border-white/10 bg-white/[0.04] text-white/[0.72]";
+      return "border-[var(--border-subtle)] bg-[rgba(155,180,201,0.08)] text-[rgba(222,231,240,0.92)]";
   }
 }
 
@@ -109,64 +109,64 @@ export function ServerDashboardHero({
   ];
 
   return (
-    <section className="archivist-hero-shell relative overflow-hidden rounded-[32px] border border-white/10 bg-[#050608] shadow-[0_36px_120px_rgba(0,0,0,0.58)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,45,77,0.18),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(127,12,28,0.34),transparent_38%)]" />
-      <div className="absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),transparent)]" />
-      <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,45,77,0.9),transparent)]" />
+    <section className="archivist-hero-shell archivist-panel-featured relative overflow-hidden rounded-[34px]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(214,227,238,0.12),transparent_22%),radial-gradient(circle_at_bottom_left,rgba(155,180,201,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.028),rgba(255,255,255,0)_16%)]" />
+      <div className="absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),transparent)]" />
+      <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(214,227,238,0.22),rgba(214,227,238,0.34),transparent)]" />
 
       <div className="relative grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.9fr)] lg:p-6">
         <div className="space-y-5">
           <div className="flex items-start gap-4">
             {server.iconUrl ? (
-              <img src={server.iconUrl} alt={server.name} className="h-20 w-20 rounded-[24px] border border-white/10 object-cover shadow-[0_20px_50px_rgba(177,18,38,0.22)] sm:h-24 sm:w-24" data-testid="img-server-icon" />
+              <img src={server.iconUrl} alt={server.name} className="h-20 w-20 rounded-[24px] border border-[var(--border-strong)] object-cover shadow-[0_20px_44px_rgba(0,0,0,0.34)] sm:h-24 sm:w-24" data-testid="img-server-icon" />
             ) : (
-              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-white/10 bg-[linear-gradient(135deg,rgba(177,18,38,0.88),rgba(23,24,28,0.98))] text-2xl font-display font-bold text-white shadow-[0_20px_50px_rgba(177,18,38,0.22)] sm:h-24 sm:w-24" data-testid="img-server-icon-fallback">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] border border-[var(--border-strong)] bg-[linear-gradient(135deg,rgba(155,180,201,0.34),rgba(20,24,31,0.98)_38%,rgba(12,15,21,1))] text-2xl font-display font-bold text-[var(--text-primary)] shadow-[0_20px_44px_rgba(0,0,0,0.34)] sm:h-24 sm:w-24" data-testid="img-server-icon-fallback">
                 {getServerInitials(server.name)}
               </div>
             )}
             <div className="min-w-0 flex-1 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <SurfaceBadge tone="brand">Archivist Rebuild</SurfaceBadge>
+                <SurfaceBadge tone="neutral">Discord Control Surface</SurfaceBadge>
                 <SurfaceBadge tone={botReady ? "healthy" : "danger"}>{botReady ? "Bot Live" : "Bot Offline"}</SurfaceBadge>
                 <SurfaceBadge tone={pendingPublish ? "warning" : "healthy"}>{pendingPublish ? "Drafts Need Review" : "Studio Stable"}</SurfaceBadge>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.38em] text-white/[0.42]">Reboot Shell</p>
-                <h1 className="mt-2 truncate text-3xl font-display font-bold text-white sm:text-[2.35rem]" data-testid="text-server-name">{server.name}</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/[0.68]" data-testid="text-server-info">
+                <p className="text-[10px] uppercase tracking-[0.38em] text-[var(--text-faint)]">Reboot Shell</p>
+                <h1 className="mt-2 truncate text-3xl font-display font-bold text-[var(--text-primary)] sm:text-[2.35rem]" data-testid="text-server-name">{server.name}</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-muted)]" data-testid="text-server-info">
                   Archivist now uses a cleaner server workspace: Studio, commands, settings, and module controls stay connected so you can move through setup without losing your place.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {stats.map((stat) => (
-              <div key={stat.label} className="rounded-[22px] border border-white/[0.08] bg-white/[0.03] px-4 py-4 backdrop-blur-sm">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-white/[0.40]">{stat.label}</p>
-                <p className="mt-3 text-xl font-display font-bold text-white">{stat.value}</p>
+                <div key={stat.label} className="rounded-[22px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(23,28,36,0.9),rgba(12,15,20,0.98))] px-4 py-4 shadow-[var(--shadow-inset)]">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--text-faint)]">{stat.label}</p>
+                <p className="mt-3 text-xl font-display font-bold text-[var(--text-primary)]">{stat.value}</p>
               </div>
             ))}
           </div>
         </div>
 
         <div className="flex flex-col gap-3">
-          <div className="archivist-panel rounded-[28px] p-4">
+          <div className="archivist-panel archivist-panel-raised rounded-[28px] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.3em] text-white/[0.42]">Current Focus</p>
-                <p className="mt-2 text-xl font-display font-bold text-white">{pendingPublish ? "Finish the Studio publish pass" : "Workspace is live"}</p>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--text-faint)]">Current Focus</p>
+                <p className="mt-2 text-xl font-display font-bold text-[var(--text-primary)]">{pendingPublish ? "Finish the Studio publish pass" : "Workspace is live"}</p>
               </div>
               {pendingPublish ? <Rocket className="h-5 w-5 text-primary" /> : <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-              <div className="rounded-[22px] border border-white/[0.08] bg-black/20 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.28em] text-white/[0.42]">Bot Status</p>
-                <p className="mt-2 text-sm font-semibold text-white">{botReady ? "Connected" : "Needs reconnect"}</p>
+              <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(20,24,31,0.92),rgba(12,15,20,0.96))] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[var(--text-faint)]">Bot Status</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{botReady ? "Connected" : "Needs reconnect"}</p>
               </div>
-              <div className="rounded-[22px] border border-white/[0.08] bg-black/20 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.28em] text-white/[0.42]">Legacy Modules</p>
-                <p className="mt-2 text-sm font-semibold text-white">Routed into the new workspace</p>
+              <div className="rounded-[22px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(20,24,31,0.92),rgba(12,15,20,0.96))] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[var(--text-faint)]">Legacy Modules</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">Routed into the new workspace</p>
               </div>
             </div>
           </div>
@@ -176,7 +176,7 @@ export function ServerDashboardHero({
               Open Studio
               <Sparkles className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" className="min-h-12 rounded-[20px] justify-between border border-white/10 bg-white/[0.03] px-4 text-white/[0.86] hover:bg-white/[0.06]" onClick={() => onModuleChange("settings")}>
+            <Button variant="outline" className="min-h-12 rounded-[20px] justify-between px-4" onClick={() => onModuleChange("settings")}>
               Rebuild Settings
               <Settings2 className="h-4 w-4" />
             </Button>
@@ -263,37 +263,37 @@ export function ServerOverviewTab({
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.3em] text-white/[0.45]">Rebuild Status</p>
-                <CardTitle className="mt-2 text-xl text-white">Current foundation</CardTitle>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--text-faint)]">Rebuild Status</p>
+                <CardTitle className="mt-2 text-xl">Current foundation</CardTitle>
               </div>
-              <SurfaceBadge tone="brand">Shell only</SurfaceBadge>
+              <SurfaceBadge tone="neutral">Shell only</SurfaceBadge>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[20px] border border-white/[0.08] bg-black/20 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.28em] text-white/[0.40]">Bot</p>
-                <p className="mt-2 text-sm font-semibold text-white">{botReady ? "Connected" : "Offline"}</p>
+              <div className="rounded-[20px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(17,21,28,0.92),rgba(10,13,18,0.96))] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[var(--text-faint)]">Bot</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{botReady ? "Connected" : "Offline"}</p>
               </div>
-              <div className="rounded-[20px] border border-white/[0.08] bg-black/20 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.28em] text-white/[0.40]">Dashboard</p>
-                <p className="mt-2 text-sm font-semibold text-white">{activeModules} minimal surfaces</p>
+              <div className="rounded-[20px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(17,21,28,0.92),rgba(10,13,18,0.96))] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[var(--text-faint)]">Dashboard</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">{activeModules} minimal surfaces</p>
               </div>
-              <div className="rounded-[20px] border border-white/[0.08] bg-black/20 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.28em] text-white/[0.40]">Legacy Commands</p>
-                <p className="mt-2 text-sm font-semibold text-white">Disabled</p>
+              <div className="rounded-[20px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(17,21,28,0.92),rgba(10,13,18,0.96))] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.28em] text-[var(--text-faint)]">Legacy Commands</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--text-primary)]">Disabled</p>
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-primary/20 bg-[linear-gradient(180deg,rgba(177,18,38,0.18),rgba(9,10,12,0.96))] p-5">
-              <p className="text-sm font-semibold text-white">{pendingPublish ? `${unpublishedDraftCount} draft${unpublishedDraftCount === 1 ? "" : "s"} still need review` : "Studio is the main rebuild lane now"}</p>
-              <p className="mt-2 text-sm text-white/[0.72]">{latestDraft ? `Resume: ${latestDraft.name}` : "Start a fresh message draft and rebuild from the Studio outward."}</p>
+            <div className="archivist-panel-featured rounded-[24px] p-5">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{pendingPublish ? `${unpublishedDraftCount} draft${unpublishedDraftCount === 1 ? "" : "s"} still need review` : "Studio is the main rebuild lane now"}</p>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">{latestDraft ? `Resume: ${latestDraft.name}` : "Start a fresh message draft and rebuild from the Studio outward."}</p>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                 <Button className="min-h-11 rounded-[18px] px-4" onClick={createPrimaryDraft} disabled={createDocumentMutation.isPending}>
                   <FilePlus2 className="h-4 w-4" />
                   New Draft
                 </Button>
-                <Button variant="outline" className="min-h-11 rounded-[18px] px-4 text-white/[0.86]" onClick={() => openStudio(latestDraft?.id)}>
+                <Button variant="outline" className="min-h-11 rounded-[18px] px-4" onClick={() => openStudio(latestDraft?.id)}>
                   <FileClock className="h-4 w-4" />
                   {latestDraft ? "Resume Last Draft" : "Open Studio"}
                 </Button>
@@ -304,7 +304,7 @@ export function ServerOverviewTab({
 
         <Card className="archivist-panel archivist-panel-muted">
           <CardHeader className="pb-3">
-            <CardTitle className="text-xl text-white">Recent Publish Failures</CardTitle>
+            <CardTitle className="text-xl">Recent Publish Failures</CardTitle>
             <CardDescription>Failures still surface here so Studio remains debuggable during the rebuild.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -313,18 +313,18 @@ export function ServerOverviewTab({
                 key={`publish-failure-${publication.id}`}
                 type="button"
                 onClick={() => openStudio(publication.documentId)}
-                className="flex w-full items-start justify-between gap-3 rounded-[20px] border border-white/[0.08] bg-white/[0.03] px-4 py-4 text-left transition hover:border-primary/30 hover:bg-white/[0.05]"
+                className="flex w-full items-start justify-between gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(18,22,29,0.94),rgba(12,15,20,0.98))] px-4 py-4 text-left transition hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(22,27,35,0.96),rgba(14,18,24,1))]"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">{publication.lastFailureSummary}</p>
+                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{publication.lastFailureSummary}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Publication #{publication.id} · {publication.channelId || "Unknown channel"} · {formatRelativeEditTime(publication.lastFailureAt || publication.updatedAt)}
+                    Publication #{publication.id} - {publication.channelId || "Unknown channel"} - {formatRelativeEditTime(publication.lastFailureAt || publication.updatedAt)}
                   </p>
                 </div>
-                <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-white/44" />
+                <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-[var(--text-faint)]" />
               </button>
             )) : (
-              <div className="rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-muted-foreground">
+              <div className="rounded-[20px] border border-dashed border-[var(--border-subtle)] bg-[rgba(155,180,201,0.03)] px-4 py-5 text-sm text-muted-foreground">
                 No recent publish failures.
               </div>
             )}
@@ -334,7 +334,7 @@ export function ServerOverviewTab({
 
       <Card className="archivist-panel archivist-panel-muted">
         <CardHeader className="pb-3">
-          <CardTitle className="text-xl text-white">Drafts Needing Attention</CardTitle>
+          <CardTitle className="text-xl">Drafts Needing Attention</CardTitle>
           <CardDescription>Only the real Studio work queue remains in the reboot shell.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -343,16 +343,16 @@ export function ServerOverviewTab({
               key={record.id}
               type="button"
               onClick={() => openStudio(record.id)}
-              className="flex w-full items-center justify-between gap-3 rounded-[20px] border border-white/[0.08] bg-white/[0.03] px-4 py-4 text-left transition hover:border-primary/30 hover:bg-white/[0.05]"
+              className="flex w-full items-center justify-between gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(18,22,29,0.94),rgba(12,15,20,0.98))] px-4 py-4 text-left transition hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(22,27,35,0.96),rgba(14,18,24,1))]"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-white">{record.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Needs publish review · Edited {formatRelativeEditTime(record.updatedAt)}</p>
+                <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{record.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Needs publish review - Edited {formatRelativeEditTime(record.updatedAt)}</p>
               </div>
-              <ArrowUpRight className="h-4 w-4 shrink-0 text-white/44" />
+              <ArrowUpRight className="h-4 w-4 shrink-0 text-[var(--text-faint)]" />
             </button>
           )) : (
-            <div className="rounded-[20px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-muted-foreground">
+            <div className="rounded-[20px] border border-dashed border-[var(--border-subtle)] bg-[rgba(155,180,201,0.03)] px-4 py-5 text-sm text-muted-foreground">
               No drafts are waiting on review right now.
             </div>
           )}
