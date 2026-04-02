@@ -75,6 +75,14 @@ import {
 import { isApiResponseError } from "@/hooks/use-bot";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  LevelingPage,
+  GiveawaysPage,
+  StarboardPage,
+  EconomyPage,
+  ReactionRolesPage,
+  PollsPage,
+} from "@/pages/dashboard/community-modules";
 
 const COMMAND_FILTERS = [
   { label: "All", value: "all" },
@@ -1731,6 +1739,31 @@ function renderPageContent({
         </div>
       </div>
     );
+  }
+
+  // ─── Community module pages ────────────────────────────────────────────────
+  const communityRoles: any[] = context?.roles || [];
+
+  if (item.id === "community-profile") {
+    return <LevelingPage serverId={serverId} channels={textChannels} />;
+  }
+  if (item.id === "community-creative-tools") {
+    return <GiveawaysPage serverId={serverId} channels={textChannels} />;
+  }
+  if (item.id === "community-starboard") {
+    return <StarboardPage serverId={serverId} channels={textChannels} />;
+  }
+  if (item.id === "community-reaction-roles") {
+    return <ReactionRolesPage serverId={serverId} channels={textChannels} roles={communityRoles} />;
+  }
+  if (item.id === "community-leaderboards") {
+    return <EconomyPage serverId={serverId} />;
+  }
+  if (item.id === "community-shop") {
+    return <EconomyPage serverId={serverId} />;
+  }
+  if (item.id === "community-polls") {
+    return <PollsPage serverId={serverId} channels={textChannels} />;
   }
 
   if (item.id === "settings-overview") {

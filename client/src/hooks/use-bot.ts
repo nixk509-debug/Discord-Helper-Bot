@@ -835,3 +835,80 @@ export function useStudioPreflight(serverId: number) {
     },
   });
 }
+
+// ─── Leveling ────────────────────────────────────────────────────────────────
+export function useLeveling(serverId: number) {
+  return useQuery({ queryKey: ["leveling", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/leveling`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch leveling"); return r.json(); }) });
+}
+export function useUpdateLeveling(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/leveling`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to update leveling"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["leveling", serverId] }) });
+}
+
+// ─── Starboard ───────────────────────────────────────────────────────────────
+export function useStarboard(serverId: number) {
+  return useQuery({ queryKey: ["starboard", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/starboard`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch starboard"); return r.json(); }) });
+}
+export function useUpdateStarboard(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/starboard`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to update starboard"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["starboard", serverId] }) });
+}
+
+// ─── Reaction Roles ──────────────────────────────────────────────────────────
+export function useReactionRoles(serverId: number) {
+  return useQuery({ queryKey: ["reaction-roles", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/reaction-roles`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch reaction roles"); return r.json(); }) });
+}
+export function useCreateReactionRole(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/reaction-roles`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to create reaction role"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["reaction-roles", serverId] }) });
+}
+export function useDeleteReactionRole(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/reaction-roles/${id}`), { method: "DELETE", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to delete reaction role"); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["reaction-roles", serverId] }) });
+}
+
+// ─── Economy ─────────────────────────────────────────────────────────────────
+export function useEconomyLeaderboard(serverId: number) {
+  return useQuery({ queryKey: ["economy-leaderboard", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/economy/leaderboard`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch economy leaderboard"); return r.json(); }) });
+}
+export function useRoleShop(serverId: number) {
+  return useQuery({ queryKey: ["role-shop", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/shop`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch role shop"); return r.json(); }) });
+}
+export function useCreateShopItem(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/shop`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to create shop item"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["role-shop", serverId] }) });
+}
+export function useDeleteShopItem(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/servers/${serverId}/shop/${id}`), { method: "DELETE", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to delete shop item"); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["role-shop", serverId] }) });
+}
+
+// ─── Giveaways ───────────────────────────────────────────────────────────────
+export function useGiveaways(serverId: number) {
+  return useQuery({ queryKey: ["giveaways", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/giveaways`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch giveaways"); return r.json(); }) });
+}
+export function useCreateGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/giveaways`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to create giveaway"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["giveaways", serverId] }) });
+}
+export function useDeleteGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/servers/${serverId}/giveaways/${id}`), { method: "DELETE", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to delete giveaway"); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["giveaways", serverId] }) });
+}
+export function useRerollGiveaway(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/servers/${serverId}/giveaways/${id}/reroll`), { method: "POST", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to reroll giveaway"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["giveaways", serverId] }) });
+}
+
+// ─── Polls ───────────────────────────────────────────────────────────────────
+export function usePolls(serverId: number) {
+  return useQuery({ queryKey: ["polls", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/polls`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch polls"); return r.json(); }) });
+}
+export function useCreatePoll(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: any) => fetch(buildApiUrl(`/api/servers/${serverId}/polls`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to create poll"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["polls", serverId] }) });
+}
+export function useDeletePoll(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/servers/${serverId}/polls/${id}`), { method: "DELETE", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to delete poll"); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["polls", serverId] }) });
+}
