@@ -15,7 +15,7 @@ export type StudioSelection =
   | {
     kind: "embed";
     embedIndex: number;
-    region?: "embed" | "author" | "title" | "description" | "field_name" | "field_value" | "color" | "footer" | "image" | "thumbnail";
+    region?: "embed" | "author" | "title" | "description" | "fields" | "field_name" | "field_value" | "color" | "footer" | "image" | "thumbnail";
     fieldIndex?: number | null;
   }
   | { kind: "node"; nodeId: string };
@@ -350,6 +350,20 @@ export function moveNodeInDocument(document: StudioDocument, nodeId: string, dir
   return true;
 }
 
+export function moveEmbedInView(document: StudioDocument, viewId: string, embedIndex: number, direction: -1 | 1) {
+  const embeds = document.views[viewId]?.embeds;
+  if (!embeds) return false;
+
+  const nextIndex = embedIndex + direction;
+  if (embedIndex < 0 || embedIndex >= embeds.length || nextIndex < 0 || nextIndex >= embeds.length) {
+    return false;
+  }
+
+  const [movedEmbed] = embeds.splice(embedIndex, 1);
+  embeds.splice(nextIndex, 0, movedEmbed);
+  return true;
+}
+
 export function collectInteractionRows(document: StudioDocument, viewId: string) {
   const rows: Array<{ label: string; action: string }> = [];
   const visit = (nodeId: string) => {
@@ -427,6 +441,7 @@ export function getSelectionLabel(selection: StudioSelection, document: StudioDo
     if (selection.region === "author") return `Embed ${selection.embedIndex + 1} Author`;
     if (selection.region === "title") return `Embed ${selection.embedIndex + 1} Title`;
     if (selection.region === "description") return `Embed ${selection.embedIndex + 1} Description`;
+    if (selection.region === "fields") return `Embed ${selection.embedIndex + 1} Fields`;
     if (selection.region === "color") return `Embed ${selection.embedIndex + 1} Color`;
     if (selection.region === "footer") return `Embed ${selection.embedIndex + 1} Footer`;
     if (selection.region === "image") return `Embed ${selection.embedIndex + 1} Image`;

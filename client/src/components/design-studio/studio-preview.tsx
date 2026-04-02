@@ -25,6 +25,7 @@ export type StudioEmbedEditRegion =
   | "author"
   | "title"
   | "description"
+  | "fields"
   | "field_name"
   | "field_value"
   | "color"
@@ -275,6 +276,31 @@ function InlineEmbedButton({
   );
 }
 
+function EmbedInspectorJumpButton({
+  label,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-3 py-1.5 text-[11px] font-medium transition",
+        active
+          ? "border-[rgba(146,48,61,0.24)] bg-[rgba(28,14,18,0.92)] text-white shadow-[0_12px_22px_rgba(0,0,0,0.22)]"
+          : "border-white/10 bg-white/[0.03] text-[#c8ccd2] hover:border-white/20 hover:bg-white/[0.06] hover:text-white",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
 function isBlankSpacerField(field: { name?: string; value?: string }) {
   return String(field?.name || "") === "\u200B" && String(field?.value || "") === "\u200B";
 }
@@ -299,6 +325,7 @@ function getSelectorPreviewLabel(node: StudioNode) {
 function EmbedPreviewCard({
   embed,
   index,
+  surface = "preview",
   editable = false,
   selected = false,
   activeRegion = null,
@@ -310,6 +337,7 @@ function EmbedPreviewCard({
 }: {
   embed: StudioEmbedDraft;
   index: number;
+  surface?: "preview" | "editor";
   editable?: boolean;
   selected?: boolean;
   activeRegion?: StudioEmbedEditRegion | null;
@@ -322,7 +350,8 @@ function EmbedPreviewCard({
   const fields = Array.isArray(embed.fields) ? embed.fields : [];
   const edit = (region: StudioEmbedEditRegion, fieldIndex?: number) => onEdit?.(index, region, fieldIndex);
   const hasInlineFields = fields.some((field) => field.inline);
-  const inlineEditing = editable && selected && Boolean(onChange);
+  const inspectorDriven = editable && surface === "editor";
+  const inlineEditing = editable && selected && Boolean(onChange) && surface !== "editor";
   const [expandedSlots, setExpandedSlots] = useState({
     author: false,
     titleUrl: false,
@@ -421,6 +450,8 @@ function EmbedPreviewCard({
   const authorValue = String(embed.authorName || "");
   const footerValue = String(embed.footerText || "");
   const embedColor = normalizeEmbedColor(embed.color);
+  const fieldsSelected = activeRegion === "fields" || activeRegion === "field_name" || activeRegion === "field_value";
+  const mediaSelected = activeRegion === "image" || activeRegion === "thumbnail";
   const makeFieldNameTargetRef = (fieldIndex: number) =>
     ({
       get current() {
@@ -485,8 +516,27 @@ function EmbedPreviewCard({
                 </div>
                 {onDelete ? <InlineEmbedButton tone="danger" onClick={() => onDelete(index)}>Remove</InlineEmbedButton> : null}
               </div>
+            ) : inspectorDriven && selected ? (
+              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/10 px-3 py-1.5 text-[11px] text-[#c8ccd2]">
+                <span className="h-2 w-2 rounded-full bg-[rgba(208,91,111,0.8)]" />
+                Inspector-driven
+              </div>
             ) : editable ? <button type="button" className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#b5bac1]" onClick={() => edit("embed")}>Edit</button> : null}
           </div>
+          {inspectorDriven && selected ? (
+            <div className="rounded-xl border border-white/8 bg-black/10 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <EmbedInspectorJumpButton label="Content" active={!activeRegion || activeRegion === "embed" || activeRegion === "title" || activeRegion === "description" || activeRegion === "color"} onClick={() => edit("embed")} />
+                <EmbedInspectorJumpButton label="Author" active={activeRegion === "author"} onClick={() => edit("author")} />
+                <EmbedInspectorJumpButton label="Media" active={mediaSelected} onClick={() => edit(embed.imageUrl ? "image" : embed.thumbnailUrl ? "thumbnail" : "image")} />
+                <EmbedInspectorJumpButton label="Fields" active={fieldsSelected} onClick={() => edit("fields")} />
+                <EmbedInspectorJumpButton label="Footer" active={activeRegion === "footer"} onClick={() => edit("footer")} />
+              </div>
+              <p className="mt-3 text-xs leading-5 text-[#949ba4]">
+                Keep the preview visual. Use these inspector sections to add author, media, fields, and footer without switching back into legacy inline controls.
+              </p>
+            </div>
+          ) : null}
           {authorEditing ? (
             <div className="space-y-2 rounded-xl border border-white/10 bg-black/10 p-3">
               <div className="flex items-center gap-2">
@@ -800,8 +850,20 @@ function EmbedPreviewCard({
                 </div>
               ) : null}
               {fields.length === 0 && editable && !inlineEditing ? (
-                <PreviewRegion label="Select embed fields" onClick={() => edit("embed")} className="col-span-full rounded-xl border border-dashed border-white/10 p-3">
-                  <p className="text-xs text-[#949ba4]">Select the embed, then add fields directly inside it.</p>
+                <PreviewRegion label="Manage embed fields" onClick={inspectorDriven ? () => edit("fields") : () => edit("embed")} selected={selected && fieldsSelected} className="col-span-full rounded-xl border border-dashed border-white/10 p-3">
+                  <p className="text-xs text-[#949ba4]">
+                    {inspectorDriven
+                      ? "Open Fields in the inspector to add rows, spacer fields, and inline layouts."
+                      : "Select the embed, then add fields directly inside it."}
+                  </p>
+                </PreviewRegion>
+              ) : null}
+              {inspectorDriven && selected && fields.length > 0 ? (
+                <PreviewRegion label="Manage embed fields" onClick={() => edit("fields")} selected={fieldsSelected} className="col-span-full rounded-xl border border-white/8 bg-black/10 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-[#c8ccd2]">Fields are managed from the inspector so the preview can stay focused on structure.</p>
+                    <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#b5bac1]">{fields.length} field{fields.length === 1 ? "" : "s"}</span>
+                  </div>
                 </PreviewRegion>
               ) : null}
             </div>
@@ -1189,6 +1251,7 @@ export function StudioPreview({
                         key={`studio-embed-${index}`}
                         embed={embed}
                         index={index}
+                        surface={surface}
                         editable={surface === "editor"}
                         selected={selectedEmbedIndex === index}
                         activeRegion={selectedEmbedIndex === index ? selectedEmbedRegion : null}
@@ -1224,7 +1287,7 @@ export function StudioPreview({
                     ) : (
                       <div className="text-sm text-[#949ba4]">No live message content.</div>
                     )}
-                    {(publishPlan?.liveMessage.embeds || []).map((embed, index) => <EmbedPreviewCard key={`live-embed-${index}`} embed={embed} index={index} />)}
+                    {(publishPlan?.liveMessage.embeds || []).map((embed, index) => <EmbedPreviewCard key={`live-embed-${index}`} embed={embed} index={index} surface="preview" />)}
                     {(publishPlan?.liveMessage.components || []).length > 0 ? (
                       <div className="space-y-2 rounded-xl border border-white/10 bg-[#2b2d31]/80 p-3">
                         {(publishPlan?.liveMessage.components || []).map((component, index) => (

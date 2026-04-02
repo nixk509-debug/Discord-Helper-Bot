@@ -63,6 +63,7 @@ import {
   getSelectionLabel,
   getView,
   makeId,
+  moveEmbedInView,
   moveNodeInDocument,
   normalizeStudioDocument,
   parseDate,
@@ -406,6 +407,35 @@ function StudioTabButton({
   );
 }
 
+function DesktopEditorSection({
+  title,
+  description,
+  children,
+  tone = "default",
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-[20px] border px-4 py-4 shadow-[0_16px_36px_rgba(0,0,0,0.18)]",
+        tone === "danger"
+          ? "border-[rgba(124,44,58,0.22)] bg-[linear-gradient(180deg,rgba(20,12,14,0.98),rgba(10,9,10,1))]"
+          : "border-white/8 bg-[linear-gradient(180deg,rgba(12,13,15,0.98),rgba(8,9,10,1))]",
+      )}
+    >
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="text-xs leading-5 text-white/44">{description}</p>
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
 function BuildSelectionEditor({
   draft,
   selectedViewId,
@@ -441,6 +471,27 @@ function BuildSelectionEditor({
         </MobileEditorSection>
       ))}
     </Accordion>
+  );
+  const renderInspectorSections = (
+    defaults: string[],
+    sections: Array<{ value: string; title: string; description: string; content: ReactNode; tone?: "default" | "danger" }>,
+  ) => (
+    isMobile
+      ? wrapForMobile(defaults, sections)
+      : (
+        <div className="space-y-3">
+          {sections.map((section) => (
+            <DesktopEditorSection
+              key={section.value}
+              title={section.title}
+              description={section.description}
+              tone={section.tone}
+            >
+              {section.content}
+            </DesktopEditorSection>
+          ))}
+        </div>
+      )
   );
   const desktopDanger = (onRemove: () => void, label = "Remove Block") => (
     <Button variant="ghost" className="justify-start rounded-[18px] px-0 text-red-300 hover:bg-transparent hover:text-red-200" onClick={onRemove}>
@@ -1005,195 +1056,222 @@ function BuildSelectionEditor({
   };
 
   if (selection.kind === "message") {
-    if (isMobile) {
-      return wrapForMobile(["identity", "body"], [
-        {
-          value: "identity",
-          title: "Draft identity",
-          description: "Name the draft so it is easy to reuse in commands and publish flows.",
-          content: (
-            <div className="space-y-2">
-              <Label>Draft name</Label>
-              <Input value={draft.meta.name} onChange={(event) => onChangeDraft((document) => { document.meta.name = event.target.value; })} placeholder="Untitled Message" />
-            </div>
-          ),
-        },
-        {
-          value: "body",
-          title: "Message body",
-          description: "Write the main message members will see in Discord.",
-          content: (
-            <div className="space-y-2">
-              <Label>Message body</Label>
-              <Textarea
-                value={String(view.messageContent || "")}
-                onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].messageContent = event.target.value; })}
-                placeholder="Write the message members will see..."
-                className="min-h-[220px]"
-              />
-            </div>
-          ),
-        },
-      ]);
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>Draft name</Label>
-          <Input value={draft.meta.name} onChange={(event) => onChangeDraft((document) => { document.meta.name = event.target.value; })} placeholder="Untitled Message" />
-        </div>
-        <div className="space-y-2">
-          <Label>Message body</Label>
-          <Textarea
-            value={String(view.messageContent || "")}
-            onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].messageContent = event.target.value; })}
-            placeholder="Write the message members will see..."
-            className="min-h-[220px]"
-          />
-        </div>
-      </div>
-    );
+    return renderInspectorSections(["identity", "body"], [
+      {
+        value: "identity",
+        title: "Draft identity",
+        description: "Name the draft so it is easy to reuse in commands and publish flows.",
+        content: (
+          <div className="space-y-2">
+            <Label>Draft name</Label>
+            <Input value={draft.meta.name} onChange={(event) => onChangeDraft((document) => { document.meta.name = event.target.value; })} placeholder="Untitled Message" />
+          </div>
+        ),
+      },
+      {
+        value: "body",
+        title: "Message body",
+        description: "Write the main message members will see in Discord.",
+        content: (
+          <div className="space-y-2">
+            <Label>Message body</Label>
+            <Textarea
+              value={String(view.messageContent || "")}
+              onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].messageContent = event.target.value; })}
+              placeholder="Write the message members will see..."
+              className="min-h-[220px]"
+            />
+          </div>
+        ),
+      },
+    ]);
   }
 
   if (selection.kind === "embed") {
     const embed = view.embeds[selection.embedIndex] || createBlankEmbed();
-    const updateMobileEmbed = (updater: (currentEmbed: typeof embed) => void) => {
+    const updateSelectedEmbed = (updater: (currentEmbed: typeof embed) => void) => {
       onChangeDraft((document) => {
         const nextEmbed = document.views[selectedViewId].embeds[selection.embedIndex];
         updater(nextEmbed);
       });
     };
     const moveField = (fieldIndex: number, direction: -1 | 1) => {
-      updateMobileEmbed((currentEmbed) => {
+      updateSelectedEmbed((currentEmbed) => {
         currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
         const nextIndex = fieldIndex + direction;
         if (nextIndex < 0 || nextIndex >= currentEmbed.fields.length) return;
         [currentEmbed.fields[fieldIndex], currentEmbed.fields[nextIndex]] = [currentEmbed.fields[nextIndex], currentEmbed.fields[fieldIndex]];
       });
     };
+    const addField = (blank = false) => {
+      updateSelectedEmbed((currentEmbed) => {
+        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
+        if (currentEmbed.fields.length >= 25) return;
+        currentEmbed.fields.push(blank ? { name: "\u200B", value: "\u200B", inline: false } : { name: "", value: "", inline: false });
+      });
+    };
+    const fieldCount = Array.isArray(embed.fields) ? embed.fields.length : 0;
+    const selectedFieldIndex = typeof selection.fieldIndex === "number" ? selection.fieldIndex : null;
+    const contentDefault = selection.region === "image" || selection.region === "thumbnail"
+      ? "media"
+      : selection.region === "author"
+        ? "author"
+        : selection.region === "footer"
+          ? "footer"
+          : selection.region === "fields" || selection.region === "field_name" || selection.region === "field_value"
+            ? "fields"
+            : "content";
 
-    if (isMobile) {
-      const contentDefault = selection.region === "image" || selection.region === "thumbnail"
-        ? "media"
-        : selection.region === "author"
-          ? "author"
-          : selection.region === "footer"
-            ? "footer"
-            : selection.region === "field_name" || selection.region === "field_value"
-              ? "fields"
-              : "content";
-      return wrapForMobile([contentDefault], [
-        {
-          value: "content",
-          title: "Content",
-          description: "Edit the main text and accent for this embed.",
-          content: (
-            <div className="space-y-4">
-              <div className="grid gap-4">
-                <div className="space-y-2">
-                  <Label>Title</Label>
-                  <Input value={embed.title || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].title = event.target.value; })} placeholder="Embed headline" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Title URL</Label>
-                  <Input value={embed.url || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].url = event.target.value; })} placeholder="https://..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Accent color</Label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      value={embed.color || "#B11226"}
-                      onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].color = event.target.value; })}
-                      className="h-11 w-12 rounded-[14px] border border-white/10 bg-transparent"
-                    />
-                    <Input value={embed.color || "#B11226"} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].color = event.target.value; })} placeholder="#B11226" />
-                  </div>
-                </div>
+    return renderInspectorSections([contentDefault], [
+      {
+        value: "content",
+        title: "Content",
+        description: "Shape the primary headline, body, and accent before you add optional embed details.",
+        content: (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Title</Label>
+                <Input value={embed.title || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.title = event.target.value; })} placeholder="Embed headline" />
               </div>
               <div className="space-y-2">
-                <Label>Description</Label>
-                <Textarea value={embed.description || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].description = event.target.value; })} placeholder="Describe the embed..." className="min-h-[180px]" />
+                <Label>Title URL</Label>
+                <Input value={embed.url || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.url = event.target.value; })} placeholder="https://..." />
               </div>
             </div>
-          ),
-        },
-        {
-          value: "author",
-          title: "Author",
-          description: "Add the small author row that appears above the embed title.",
-          content: (
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-[auto_minmax(0,1fr)]">
               <div className="space-y-2">
-                <Label>Author name</Label>
-                <Input value={embed.authorName || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].authorName = event.target.value; })} placeholder="Archivist Team" />
+                <Label>Accent color</Label>
+                <input
+                  type="color"
+                  value={embed.color || "#B11226"}
+                  onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.color = event.target.value; })}
+                  className="h-11 w-12 rounded-[14px] border border-white/10 bg-transparent"
+                />
               </div>
               <div className="space-y-2">
+                <Label>Hex value</Label>
+                <Input value={embed.color || "#B11226"} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.color = event.target.value; })} placeholder="#B11226" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={embed.description || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.description = event.target.value; })} placeholder="Describe the embed..." className="min-h-[180px]" />
+            </div>
+          </div>
+        ),
+      },
+      {
+        value: "author",
+        title: "Author",
+        description: "Use the author row when the embed needs attribution, a publisher label, or a linked source.",
+        content: (
+          <div className="space-y-4">
+            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3 text-xs leading-5 text-white/52">
+              Author is optional. Leave it empty when the embed should feel quieter and let the title lead the hierarchy.
+            </div>
+            <div className="space-y-2">
+              <Label>Author name</Label>
+              <Input value={embed.authorName || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorName = event.target.value; })} placeholder="Archivist Team" />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
                 <Label>Author URL</Label>
-                <Input value={embed.authorUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].authorUrl = event.target.value; })} placeholder="https://..." />
+                <Input value={embed.authorUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorUrl = event.target.value; })} placeholder="https://..." />
               </div>
               <div className="space-y-2">
                 <Label>Author icon URL</Label>
-                <Input value={embed.authorIconUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].authorIconUrl = event.target.value; })} placeholder="https://..." />
+                <Input value={embed.authorIconUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorIconUrl = event.target.value; })} placeholder="https://..." />
               </div>
             </div>
-          ),
-        },
-        {
-          value: "media",
-          title: "Media",
-          description: "Attach visual media without leaving the editor.",
-          content: (
-            <div className="space-y-4">
+          </div>
+        ),
+      },
+      {
+        value: "media",
+        title: "Media",
+        description: "Keep the embed visual, but controlled. Images and thumbnails should support the message instead of overpowering it.",
+        content: (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Image URL</Label>
-                <Input value={embed.imageUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].imageUrl = event.target.value; })} placeholder="https://..." />
+                <Input value={embed.imageUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.imageUrl = event.target.value; })} placeholder="https://..." />
               </div>
               <div className="space-y-2">
                 <Label>Thumbnail URL</Label>
-                <Input value={embed.thumbnailUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].thumbnailUrl = event.target.value; })} placeholder="https://..." />
+                <Input value={embed.thumbnailUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.thumbnailUrl = event.target.value; })} placeholder="https://..." />
               </div>
             </div>
-          ),
-        },
-        {
-          value: "fields",
-          title: "Fields",
-          description: "Manage field rows the way the old embed builder did, but in one mobile section.",
-          content: (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-white/62">{Array.isArray(embed.fields) ? embed.fields.length : 0} / 25 fields</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => updateMobileEmbed((currentEmbed) => {
-                    currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-                    if (currentEmbed.fields.length >= 25) return;
-                    currentEmbed.fields.push({ name: "", value: "", inline: false });
-                  })}
-                >
-                  Add Field
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] p-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/34">Image</p>
+                <p className="mt-2 text-sm text-white/74">{embed.imageUrl ? "Full-width image configured." : "No large image attached yet."}</p>
+              </div>
+              <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] p-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-white/34">Thumbnail</p>
+                <p className="mt-2 text-sm text-white/74">{embed.thumbnailUrl ? "Compact thumbnail configured." : "No thumbnail attached yet."}</p>
+              </div>
+            </div>
+          </div>
+        ),
+      },
+      {
+        value: "fields",
+        title: "Fields",
+        description: "Manage structured detail rows here so the live preview stays focused on layout and hierarchy.",
+        content: (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-white">{fieldCount} / 25 fields</p>
+                <p className="mt-1 text-xs leading-5 text-white/48">Fields stay in the inspector now, so the selected embed remains visual while you edit structure.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => addField(false)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  New field
+                </Button>
+                <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => addField(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  Spacer
                 </Button>
               </div>
-              {(embed.fields || []).length === 0 ? (
-                <div className="rounded-[18px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-white/50">
-                  No fields yet.
-                </div>
-              ) : (
-                (embed.fields || []).map((field, fieldIndex) => (
-                  <div key={`mobile-field-${fieldIndex}`} className="space-y-3 rounded-[20px] border border-white/10 bg-white/[0.03] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-white">Field {fieldIndex + 1}</p>
+            </div>
+            {fieldCount === 0 ? (
+              <div className="rounded-[18px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-white/52">
+                No fields yet. Add one when the embed needs structured facts, stats, or grouped supporting detail.
+              </div>
+            ) : (
+              (embed.fields || []).map((field, fieldIndex) => {
+                const activeField = selectedFieldIndex === fieldIndex || selection.region === "fields";
+                return (
+                  <div
+                    key={`embed-field-${fieldIndex}`}
+                    className={cn(
+                      "space-y-3 rounded-[20px] border p-4",
+                      activeField
+                        ? "border-[rgba(142,46,60,0.2)] bg-[linear-gradient(180deg,rgba(20,13,15,0.98),rgba(10,10,11,1))]"
+                        : "border-white/8 bg-[#0b0d10]",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">Field {fieldIndex + 1}</p>
+                        <p className="mt-1 text-xs text-white/46">{field.inline ? "Inline layout enabled." : "Full-width field."}</p>
+                      </div>
                       <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => moveField(fieldIndex, -1)} disabled={fieldIndex === 0}>Up</Button>
-                        <Button variant="ghost" size="sm" onClick={() => moveField(fieldIndex, 1)} disabled={fieldIndex === (embed.fields || []).length - 1}>Down</Button>
+                        <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => moveField(fieldIndex, -1)} disabled={fieldIndex === 0}>
+                          Up
+                        </Button>
+                        <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => moveField(fieldIndex, 1)} disabled={fieldIndex === fieldCount - 1}>
+                          Down
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-red-300 hover:text-red-200"
-                          onClick={() => updateMobileEmbed((currentEmbed) => {
+                          className="rounded-full text-red-300 hover:bg-transparent hover:text-red-200"
+                          onClick={() => updateSelectedEmbed((currentEmbed) => {
                             currentEmbed.fields = Array.isArray(currentEmbed.fields) ? currentEmbed.fields.filter((_, index) => index !== fieldIndex) : [];
                           })}
                         >
@@ -1203,96 +1281,67 @@ function BuildSelectionEditor({
                     </div>
                     <div className="space-y-2">
                       <Label>Name</Label>
-                      <Input value={field.name || ""} onChange={(event) => updateMobileEmbed((currentEmbed) => {
+                      <Input value={field.name || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => {
                         currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
                         currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || { inline: false }), name: event.target.value };
                       })} placeholder="Field title" />
                     </div>
                     <div className="space-y-2">
                       <Label>Value</Label>
-                      <Textarea value={field.value || ""} onChange={(event) => updateMobileEmbed((currentEmbed) => {
+                      <Textarea value={field.value || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => {
                         currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
                         currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || { inline: false }), value: event.target.value };
                       })} placeholder="Field value" className="min-h-[110px]" />
                     </div>
-                    <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+                    <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#090a0d] px-4 py-3">
                       <div>
                         <p className="text-sm font-medium text-white">Show inline</p>
-                        <p className="text-xs text-white/55">Turn this on when the field should share a row with others.</p>
+                        <p className="text-xs text-white/55">Use inline only when this field should share a row with other short details.</p>
                       </div>
-                      <Switch checked={Boolean(field.inline)} onCheckedChange={(value) => updateMobileEmbed((currentEmbed) => {
+                      <Switch checked={Boolean(field.inline)} onCheckedChange={(value) => updateSelectedEmbed((currentEmbed) => {
                         currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
                         currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || {}), inline: value };
                       })} />
                     </div>
                   </div>
-                ))
-              )}
+                );
+              })
+            )}
+          </div>
+        ),
+      },
+      {
+        value: "footer",
+        title: "Footer",
+        description: "Use the footer for timestamped context, signatures, and low-emphasis metadata.",
+        content: (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Footer text</Label>
+              <Input value={embed.footerText || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.footerText = event.target.value; })} placeholder="Footer text" />
             </div>
-          ),
-        },
-        {
-          value: "footer",
-          title: "Footer",
-          description: "Control the footer line and timestamp.",
-          content: (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Footer text</Label>
-                <Input value={embed.footerText || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].footerText = event.target.value; })} placeholder="Footer text" />
-              </div>
-              <div className="space-y-2">
-                <Label>Footer icon URL</Label>
-                <Input value={embed.footerIconUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].footerIconUrl = event.target.value; })} placeholder="https://..." />
-              </div>
-              <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-white">Timestamp</p>
-                  <p className="text-xs text-white/55">Show the current date/time in the footer.</p>
-                </div>
-                <Switch checked={Boolean(embed.timestamp)} onCheckedChange={(value) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].timestamp = value; })} />
-              </div>
+            <div className="space-y-2">
+              <Label>Footer icon URL</Label>
+              <Input value={embed.footerIconUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.footerIconUrl = event.target.value; })} placeholder="https://..." />
             </div>
-          ),
-        },
-        {
-          value: "danger",
-          title: "Danger zone",
-          description: "Remove the embed if this draft should return to a lighter message layout.",
-          content: desktopDanger(() => onDeleteEmbed(selection.embedIndex), "Remove Embed"),
-        },
-      ]);
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Title</Label>
-            <Input value={embed.title || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].title = event.target.value; })} placeholder="Embed headline" />
+            <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-white">Timestamp</p>
+                <p className="text-xs text-white/55">Show the current date and time in the footer when the message needs live timing context.</p>
+              </div>
+              <Switch checked={Boolean(embed.timestamp)} onCheckedChange={(value) => updateSelectedEmbed((currentEmbed) => { currentEmbed.timestamp = value; })} />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label>Accent color</Label>
-            <Input value={embed.color || "#B11226"} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].color = event.target.value; })} placeholder="#B11226" />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label>Description</Label>
-          <Textarea value={embed.description || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].description = event.target.value; })} placeholder="Describe the embed..." className="min-h-[180px]" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Image URL</Label>
-            <Input value={embed.imageUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].imageUrl = event.target.value; })} placeholder="https://..." />
-          </div>
-          <div className="space-y-2">
-            <Label>Thumbnail URL</Label>
-            <Input value={embed.thumbnailUrl || ""} onChange={(event) => onChangeDraft((document) => { document.views[selectedViewId].embeds[selection.embedIndex].thumbnailUrl = event.target.value; })} placeholder="https://..." />
-          </div>
-        </div>
-        {desktopDanger(() => onDeleteEmbed(selection.embedIndex), "Remove Embed")}
-      </div>
-    );
+        ),
+      },
+      {
+        value: "danger",
+        title: "Danger zone",
+        description: "Remove the embed if the message should collapse back to a lighter composition.",
+        tone: "danger",
+        content: desktopDanger(() => onDeleteEmbed(selection.embedIndex), "Remove Embed"),
+      },
+    ]);
   }
 
   const node = draft.nodes[selection.nodeId];
@@ -2321,9 +2370,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   ) => {
     setSelection(nextSelection);
     if (isMobile) {
-      if (nextSelection.kind !== "node") {
+      if (nextSelection.kind === "message") {
         setMobileStudioScreen("editor");
         setMobileInspectorOpen(false);
+        return;
+      }
+
+      if (nextSelection.kind === "embed") {
+        setMobileStudioScreen("editor");
+        setMobileInspectorOpen(true);
         return;
       }
 
@@ -2378,6 +2433,25 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     });
     if (!moved) return;
     select({ kind: "node", nodeId }, { nodeType: draft.nodes[nodeId]?.type || null });
+  };
+
+  const moveEmbed = (embedIndex: number, direction: -1 | 1) => {
+    if (!currentView) return;
+    const nextIndex = embedIndex + direction;
+    if (nextIndex < 0 || nextIndex >= currentView.embeds.length) return;
+
+    let moved = false;
+    touchDraft((document) => {
+      moved = moveEmbedInView(document, selectedViewId, embedIndex, direction);
+    });
+    if (!moved) return;
+
+    select({
+      kind: "embed",
+      embedIndex: nextIndex,
+      region: selection.kind === "embed" ? selection.region : "embed",
+      fieldIndex: selection.kind === "embed" ? selection.fieldIndex : undefined,
+    });
   };
 
   const beginRename = (record: StudioDocumentRecord) => {
@@ -2937,10 +3011,18 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     />
   );
 
-  const selectionPanelTitle = selection.kind === "node" ? "Component controls" : selection.kind === "embed" ? "Embed controls" : "Message controls";
+  const selectionPanelTitle = selection.kind === "node" ? "Component controls" : selection.kind === "embed" ? "Embed inspector" : "Message controls";
   const selectionPanelDescription = selection.kind === "node"
     ? "Only the controls for the selected block stay visible here."
-    : "The live message is the editor. Use this panel only when you need deeper settings.";
+    : selection.kind === "embed"
+      ? "Keep the live canvas visual while this inspector handles embed structure, fields, media, and footer details."
+      : "The live message is the editor. Use this panel only when you need deeper settings.";
+  const selectedEmbed = selection.kind === "embed" ? currentView?.embeds[selection.embedIndex] || null : null;
+  const selectedEmbedIndex = selection.kind === "embed" ? selection.embedIndex : -1;
+  const selectedEmbedRegion = selection.kind === "embed" ? selection.region ?? "embed" : null;
+  const selectedEmbedCount = currentView?.embeds.length || 0;
+  const canMoveSelectedEmbedUp = selectedEmbedIndex > 0;
+  const canMoveSelectedEmbedDown = selectedEmbedIndex > -1 && selectedEmbedIndex < selectedEmbedCount - 1;
   const selectedNodeSiblings = selectedNode
     ? selectedNode.parentId && draft.nodes[selectedNode.parentId]
       ? draft.nodes[selectedNode.parentId].childIds
@@ -2950,6 +3032,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const canMoveSelectedNodeUp = selectedNodeIndex > 0;
   const canMoveSelectedNodeDown = selectedNodeIndex > -1 && selectedNodeIndex < selectedNodeSiblings.length - 1;
   const selectedNodeSupportsInlineInspector = Boolean(selectedNode && !needsDedicatedMobileNodeScreen(selectedNode.type));
+  const openSelectedEmbedInspector = () => {
+    if (!selectedEmbed) return;
+    setMobileStudioScreen("editor");
+    setMobileInspectorOpen(true);
+  };
   const openSelectedNodeEditor = () => {
     if (!selectedNode) return;
     if (needsDedicatedMobileNodeScreen(selectedNode.type)) {
@@ -2973,7 +3060,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     }
   };
 
-  const selectionFocusPanel = selectedNode ? (
+  const selectionContextPanel = selectedNode ? (
     <div className="rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,14,17,0.98),rgba(7,8,9,1))] px-4 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -3006,12 +3093,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           <ArrowDown className="h-4 w-4" />
           Move down
         </Button>
-          {isInsertTargetNode(selectedNode.type) ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-full border-white/10 bg-white/[0.03]"
+        {isInsertTargetNode(selectedNode.type) ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full border-white/10 bg-white/[0.03]"
             onClick={() => openInsertFlow(selectedNode.id)}
           >
             <Plus className="h-4 w-4" />
@@ -3020,11 +3107,100 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         ) : null}
       </div>
     </div>
+  ) : selectedEmbed ? (
+    <div className="rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,14,17,0.98),rgba(7,8,9,1))] px-4 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/34">Embed surface</p>
+          <p className="mt-2 text-base font-semibold text-white">
+            {summarizeStudioCopy(String(selectedEmbed.title || selectedEmbed.description || ""), `Embed ${selectedEmbedIndex + 1}`)}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-white/52">
+            {(selectedEmbed.fields?.length || 0) > 0 || selectedEmbed.imageUrl || selectedEmbed.thumbnailUrl
+              ? `${selectedEmbed.fields?.length || 0} field${(selectedEmbed.fields?.length || 0) === 1 ? "" : "s"}${selectedEmbed.imageUrl || selectedEmbed.thumbnailUrl ? " / media attached" : ""}`
+              : "Start with content, then add media or fields only when the embed needs stronger structure."}
+          </p>
+        </div>
+        <Badge variant="outline">{selectedLabel}</Badge>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full border-white/10 bg-white/[0.03]"
+          onClick={() => moveEmbed(selectedEmbedIndex, -1)}
+          disabled={!canMoveSelectedEmbedUp}
+        >
+          <ArrowUp className="h-4 w-4" />
+          Move up
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full border-white/10 bg-white/[0.03]"
+          onClick={() => moveEmbed(selectedEmbedIndex, 1)}
+          disabled={!canMoveSelectedEmbedDown}
+        >
+          <ArrowDown className="h-4 w-4" />
+          Move down
+        </Button>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {[
+          {
+            id: "content",
+            label: "Content",
+            active: !selectedEmbedRegion || selectedEmbedRegion === "embed" || selectedEmbedRegion === "title" || selectedEmbedRegion === "description" || selectedEmbedRegion === "color",
+            onSelect: () => select({ kind: "embed", embedIndex: selectedEmbedIndex, region: "embed" }),
+          },
+          {
+            id: "author",
+            label: "Author",
+            active: selectedEmbedRegion === "author",
+            onSelect: () => select({ kind: "embed", embedIndex: selectedEmbedIndex, region: "author" }),
+          },
+          {
+            id: "media",
+            label: "Media",
+            active: selectedEmbedRegion === "image" || selectedEmbedRegion === "thumbnail",
+            onSelect: () => select({ kind: "embed", embedIndex: selectedEmbedIndex, region: selectedEmbed.imageUrl ? "image" : selectedEmbed.thumbnailUrl ? "thumbnail" : "image" }),
+          },
+          {
+            id: "fields",
+            label: "Fields",
+            active: selectedEmbedRegion === "fields" || selectedEmbedRegion === "field_name" || selectedEmbedRegion === "field_value",
+            onSelect: () => select({ kind: "embed", embedIndex: selectedEmbedIndex, region: "fields" }),
+          },
+          {
+            id: "footer",
+            label: "Footer",
+            active: selectedEmbedRegion === "footer",
+            onSelect: () => select({ kind: "embed", embedIndex: selectedEmbedIndex, region: "footer" }),
+          },
+        ].map((action) => (
+          <Button
+            key={action.id}
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              "rounded-full border-white/10 bg-white/[0.03]",
+              action.active ? "border-[rgba(168,41,63,0.24)] bg-[linear-gradient(180deg,rgba(23,14,16,0.98),rgba(10,10,11,1))] text-white" : "text-white/72",
+            )}
+            onClick={action.onSelect}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </div>
+    </div>
   ) : null;
 
   const selectionPanelContent = (
     <div className="space-y-4">
-      {selectionFocusPanel}
+      {selectionContextPanel}
       <BuildSelectionEditor
         draft={draft}
         selectedViewId={selectedViewId}
@@ -3600,6 +3776,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                             ? selectedNodeSupportsInlineInspector
                               ? "The block stays on-canvas while its focused editor opens as a lighter mobile inspector."
                               : "Interaction-heavy blocks still open in a dedicated screen so the canvas never gets cramped."
+                            : selection.kind === "embed"
+                              ? "Embeds stay visual on the canvas while the inspector handles structure, fields, media, and footer details."
                             : "Build directly on the live message surface."}
                         </span>
                         <div className="ml-auto flex gap-2">
@@ -3617,6 +3795,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                               <PencilLine className="h-4 w-4" />
                               {selectedNodeSupportsInlineInspector ? "Inspect" : "Deep edit"}
                             </Button>
+                          ) : selection.kind === "embed" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full"
+                              onClick={openSelectedEmbedInspector}
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              Inspect
+                            </Button>
                           ) : null}
                         </div>
                       </div>
@@ -3631,7 +3819,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               <div
                 className={cn(
                   "grid gap-4",
-                  selection.kind === "node"
+                  selection.kind !== "message"
                     ? "xl:grid-cols-[320px_minmax(0,1fr)_360px]"
                     : "xl:grid-cols-[320px_minmax(0,1fr)]",
                 )}
@@ -3666,6 +3854,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                       <span className="text-sm text-white/58">
                         {selection.kind === "node"
                           ? "The right panel stays focused on the selected block while the canvas stays visible."
+                          : selection.kind === "embed"
+                            ? "The embed preview stays visual while the inspector carries deeper structure, media, and field controls."
                           : "Use the composition map for structure, then add the next surface from the catalog instead of jumping between insertion patterns."}
                       </span>
                     </div>
@@ -3673,7 +3863,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                   </CardContent>
                 </Card>
 
-                {selection.kind === "node" ? selectionPanel : null}
+                {selection.kind !== "message" ? selectionPanel : null}
               </div>
             )}
           </div>
