@@ -52,6 +52,19 @@ import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_17721149
 
 type DashboardLayoutMode = "workspace" | "overview" | "site-editor";
 
+const DASH_STARS = [
+  { top: "4%",  left: "7%",  s: 1.5, op: 0.16, dur: 7,  del: 0   },
+  { top: "9%",  left: "63%", s: 2,   op: 0.22, dur: 5,  del: 1.4 },
+  { top: "16%", left: "91%", s: 1.5, op: 0.18, dur: 8,  del: 0.7 },
+  { top: "28%", left: "3%",  s: 2,   op: 0.2,  dur: 6,  del: 2.2 },
+  { top: "38%", left: "78%", s: 1.5, op: 0.15, dur: 9,  del: 0.5 },
+  { top: "52%", left: "45%", s: 2,   op: 0.18, dur: 7,  del: 3.1 },
+  { top: "65%", left: "88%", s: 1.5, op: 0.14, dur: 8,  del: 1.8 },
+  { top: "78%", left: "12%", s: 2,   op: 0.2,  dur: 6,  del: 0.9 },
+  { top: "88%", left: "55%", s: 1.5, op: 0.16, dur: 7,  del: 2.5 },
+  { top: "95%", left: "30%", s: 2,   op: 0.18, dur: 5,  del: 1.2 },
+];
+
 const SECTION_ICON_MAP: Record<ArchivistCanonicalSection, typeof Braces> = {
   commands: Braces,
   studio: Sparkles,
@@ -318,10 +331,35 @@ export function DashboardLayout({
     onOpenChange: setToolDrawerOpen,
   });
 
+  const ambientLayers = (
+    <>
+      {/* Grain */}
+      <div className="pointer-events-none fixed inset-0 z-[1] opacity-[0.028]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          backgroundSize: "160px 160px",
+        }}
+      />
+      {/* Stars */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+        <style>{`@keyframes dash-twinkle{0%,100%{opacity:var(--op,0.2);transform:scale(1)}50%{opacity:calc(var(--op,0.2)*0.2);transform:scale(0.5)}}`}</style>
+        {DASH_STARS.map((s, i) => (
+          <span key={i} style={{
+            position: "absolute", top: s.top, left: s.left,
+            width: s.s, height: s.s, borderRadius: "50%",
+            background: "#fff", opacity: s.op,
+            animation: `dash-twinkle ${s.dur}s ease-in-out ${s.del}s infinite`,
+          }} />
+        ))}
+      </div>
+    </>
+  );
+
   if (!isWorkspaceMode) {
     return (
       <div className="relative min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">
-        <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(146,18,39,0.18),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(83,9,22,0.18),transparent_28%),linear-gradient(180deg,#050506_0%,#09090b_46%,#060607_100%)]" />
+        <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(224,0,26,0.12),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(140,0,16,0.1),transparent_28%),linear-gradient(180deg,#050507_0%,#09090c_46%,#060608_100%)]" />
+        {ambientLayers}
         <SimpleHeader mode={mode} />
         <main className="relative mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-7xl flex-col px-4 py-6 md:px-6 md:py-8">
           {children}
@@ -332,7 +370,8 @@ export function DashboardLayout({
 
   return (
     <div className="relative min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(153,23,46,0.24),transparent_22%),radial-gradient(circle_at_80%_22%,rgba(78,10,22,0.28),transparent_22%),radial-gradient(circle_at_bottom,rgba(41,7,12,0.22),transparent_28%),linear-gradient(180deg,#040405_0%,#070708_45%,#040405_100%)]" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,rgba(224,0,26,0.16),transparent_22%),radial-gradient(circle_at_80%_22%,rgba(140,0,16,0.14),transparent_22%),radial-gradient(circle_at_bottom,rgba(80,0,10,0.12),transparent_28%),linear-gradient(180deg,#040406_0%,#070709_45%,#040406_100%)]" />
+      {ambientLayers}
       <div className="pointer-events-none fixed inset-x-0 top-0 z-10 h-32 bg-[linear-gradient(180deg,rgba(0,0,0,0.52),transparent)]" />
 
       <header className="sticky top-0 z-30 border-b border-white/6 bg-[rgba(6,6,7,0.74)] backdrop-blur-2xl">

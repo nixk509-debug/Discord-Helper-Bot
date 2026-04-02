@@ -93,10 +93,10 @@ export function StudioV2EmptyState({
       <SurfacePanel className="overflow-hidden">
         <div className="grid gap-0 xl:grid-cols-[minmax(0,1.08fr)_360px]">
           <div className="relative px-4 py-5 md:px-6 md:py-6">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(104,28,40,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent)]" />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(224,0,26,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent)]" />
             <div className="relative space-y-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[rgba(101,33,43,0.34)] bg-[rgba(10,11,13,0.92)] shadow-[0_18px_34px_rgba(0,0,0,0.34)]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[rgba(224,0,26,0.34)] bg-[rgba(10,11,13,0.92)] shadow-[0_18px_34px_rgba(0,0,0,0.34)]">
                   <img src={archivistLogo} alt="Archivist" className="h-8 w-8 object-contain" />
                 </div>
                 <div className="min-w-0">
@@ -114,7 +114,7 @@ export function StudioV2EmptyState({
                       className={cn(
                         "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]",
                         index === 0
-                          ? "border-[rgba(116,40,51,0.24)] bg-[rgba(31,13,17,0.44)] text-[rgba(255,232,236,0.9)]"
+                          ? "border-[rgba(224,0,26,0.24)] bg-[rgba(31,13,17,0.44)] text-[rgba(255,232,236,0.9)]"
                           : "border-white/10 bg-white/[0.03] text-white/64",
                       )}
                     >
@@ -149,14 +149,14 @@ export function StudioV2EmptyState({
                       className={cn(
                         "group flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition",
                         index === 0
-                          ? "border-[rgba(122,43,55,0.26)] bg-[linear-gradient(180deg,rgba(17,12,14,0.98),rgba(9,9,10,1))] shadow-[0_16px_30px_rgba(0,0,0,0.26)] hover:border-[rgba(144,53,66,0.34)]"
-                          : "border-white/8 bg-[linear-gradient(180deg,rgba(12,13,15,0.98),rgba(8,9,10,1))] hover:border-[rgba(102,40,51,0.22)] hover:bg-[linear-gradient(180deg,rgba(15,13,14,0.98),rgba(9,8,9,1))]",
+                          ? "border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(17,12,14,0.98),rgba(9,9,10,1))] shadow-[0_16px_30px_rgba(0,0,0,0.26)] hover:border-[rgba(224,0,26,0.3)]"
+                          : "border-white/8 bg-[linear-gradient(180deg,rgba(12,13,15,0.98),rgba(8,9,10,1))] hover:border-[rgba(224,0,26,0.18)] hover:bg-[linear-gradient(180deg,rgba(15,13,14,0.98),rgba(9,8,9,1))]",
                       )}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className={cn(
-                          "flex h-10 w-10 items-center justify-center rounded-[12px] border text-[#f09aa7]",
-                          index === 0 ? "border-[rgba(123,42,53,0.32)] bg-[rgba(24,13,16,0.94)]" : "border-[rgba(88,31,40,0.24)] bg-[rgba(16,12,14,0.94)]",
+                          "flex h-10 w-10 items-center justify-center rounded-[12px] border text-[#ff6070]",
+                          index === 0 ? "border-[rgba(224,0,26,0.2)] bg-[rgba(24,13,16,0.94)]" : "border-[rgba(224,0,26,0.16)] bg-[rgba(16,12,14,0.94)]",
                         )}>
                           <Icon className="h-4 w-4" />
                         </div>
@@ -165,7 +165,7 @@ export function StudioV2EmptyState({
                           <p className="mt-1 text-sm text-white/46">{row.description}</p>
                         </div>
                       </div>
-                      <ArrowUpRight className="h-4 w-4 shrink-0 text-white/28 transition group-hover:text-[#f2a5b1]" />
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-white/28 transition group-hover:text-[#ff6070]" />
                     </button>
                   );
                 })}
@@ -176,8 +176,8 @@ export function StudioV2EmptyState({
                   className={cn(
                     "rounded-[18px] border px-4 py-4",
                     statusBanner.tone === "error"
-                      ? "border-[rgba(113,34,47,0.44)] bg-[rgba(22,12,15,0.96)]"
-                      : "border-[rgba(95,26,36,0.34)] bg-[rgba(15,12,13,0.96)]",
+                      ? "border-[rgba(224,0,26,0.3)] bg-[rgba(22,12,15,0.96)]"
+                      : "border-[rgba(224,0,26,0.22)] bg-[rgba(15,12,13,0.96)]",
                   )}
                 >
                   <p className="text-sm font-semibold text-white">{statusBanner.title}</p>
@@ -194,7 +194,7 @@ export function StudioV2EmptyState({
               <div className="rounded-[20px] border border-white/10 bg-[#090b0e]/88 p-3 backdrop-blur-sm">
                 <img src={dashboardArt} alt="Studio preview" className="w-full rounded-[14px] border border-white/10 object-cover" />
               </div>
-              <div className="rounded-[18px] border border-[rgba(110,38,49,0.2)] bg-[rgba(9,11,14,0.9)] px-4 py-4 backdrop-blur-sm">
+              <div className="rounded-[18px] border border-[rgba(224,0,26,0.16)] bg-[rgba(9,11,14,0.9)] px-4 py-4 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-[0.22em] text-white/38">{recommendedFlowLabel}</p>
                 <p className="mt-2 text-sm font-semibold text-white">{recommendedFlowTitle}</p>
                 <p className="mt-1 text-sm leading-6 text-white/50">{recommendedFlowDescription}</p>
@@ -302,8 +302,8 @@ function DraftAccent({ tone = "accent" }: { tone?: "accent" | "danger" }) {
       className={cn(
         "flex h-10 w-10 items-center justify-center rounded-[12px] border",
         tone === "danger"
-          ? "border-[rgba(112,38,49,0.34)] bg-[rgba(25,13,16,0.92)] text-[#f5b3be]"
-          : "border-[rgba(92,32,42,0.28)] bg-[rgba(17,12,14,0.9)] text-[#f09aa7]",
+          ? "border-[rgba(224,0,26,0.22)] bg-[rgba(25,13,16,0.92)] text-[#ff6070]"
+          : "border-[rgba(224,0,26,0.18)] bg-[rgba(17,12,14,0.9)] text-[#ff6070]",
       )}
     >
       <Box className="h-4 w-4" />
@@ -313,7 +313,7 @@ function DraftAccent({ tone = "accent" }: { tone?: "accent" | "danger" }) {
 
 function FailureAccent() {
   return (
-    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(112,38,49,0.34)] bg-[rgba(25,13,16,0.92)] text-[#f5b3be]">
+    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[rgba(224,0,26,0.22)] bg-[rgba(25,13,16,0.92)] text-[#ff6070]">
       <AlertTriangle className="h-4 w-4" />
     </div>
   );
