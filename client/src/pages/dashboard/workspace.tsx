@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { ControlCenterHome } from "@/components/dashboard/control-center-home";
 import { inferStudioPrimarySurfaceType } from "@/components/design-studio/studio-defaults";
 import { CustomCommandV2Forge } from "@/components/server-shell/custom-command-v2/custom-command-v2-forge";
 import {
@@ -558,6 +559,7 @@ export default function WorkspacePage() {
   const [location, navigate] = useLocation();
   const parsed = parseArchivistLocation(location);
   const { section, item, serverId } = parsed;
+  const isServerHome = /^\/dashboard\/servers\/\d+\/?$/.test(location);
   const [moduleEnabled, setModuleEnabled] = useState<Record<string, boolean>>(DEFAULT_MODULE_ENABLED);
   const [commandFilter, setCommandFilter] = useState<string>("all");
   const [activeSettingsGroupId, setActiveSettingsGroupId] = useState<string | null>(null);
@@ -566,6 +568,7 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     if (!serverId) return;
+    if (isServerHome) return; // keep the control center home URL as-is
     const canonicalSearch = typeof window === "undefined"
       ? {}
       : Object.fromEntries(new URLSearchParams(window.location.search).entries());
@@ -574,7 +577,7 @@ export default function WorkspacePage() {
     if (currentLocation !== canonicalPath) {
       navigate(canonicalPath, { replace: true });
     }
-  }, [item.slug, location, navigate, section, serverId]);
+  }, [isServerHome, item.slug, location, navigate, section, serverId]);
 
   useEffect(() => {
     if (!serverId || typeof window === "undefined") return;
@@ -780,6 +783,23 @@ export default function WorkspacePage() {
     );
   }
 
+  if (isServerHome && server) {
+    return (
+      <DashboardLayout>
+        <ControlCenterHome
+          serverId={serverId}
+          server={server}
+          botStatus={botStatus}
+          commands={commands}
+          overview={overview}
+          documents={documents}
+          publications={publications}
+          navigate={navigate}
+        />
+      </DashboardLayout>
+    );
+  }
+
   if (item.id === "commands-create") {
     const searchParams = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
     const commandId = Number(searchParams.get("commandId") || 0);
@@ -842,7 +862,7 @@ export default function WorkspacePage() {
                   className={cn(
                     "whitespace-nowrap rounded-full border px-3 py-2 text-sm transition",
                     commandFilter === filter.value
-                      ? "border-[var(--border-brand)] bg-[rgba(110,123,255,0.16)] text-[var(--text-primary)] shadow-[0_0_18px_rgba(38,48,92,0.12)]"
+                      ? "border-[var(--border-brand)] bg-[rgba(224,0,26,0.12)] text-[var(--text-primary)] shadow-[0_0_18px_rgba(80,0,10,0.12)]"
                       : "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(15,18,24,0.98),rgba(10,13,18,1))] text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
                   )}
                 >
@@ -1542,7 +1562,7 @@ function renderPageContent({
                   />
                   <MiniRouteLink
                     label="Server"
-                    href={buildArchivistItemPath(serverId, "server", MODULE_BLUEPRINTS[module.id].settingsRoute)}
+                    href={buildArchivistItemPath(serverId, "operations", MODULE_BLUEPRINTS[module.id].settingsRoute)}
                   />
                 </div>
               </div>
@@ -1665,7 +1685,7 @@ function renderPageContent({
                   icon={Settings2}
                   title="Server lane"
                   description="Open the supporting server-management route that normally matters next."
-                  href={buildArchivistItemPath(serverId, "server", MODULE_BLUEPRINTS[moduleId].settingsRoute)}
+                  href={buildArchivistItemPath(serverId, "operations", MODULE_BLUEPRINTS[moduleId].settingsRoute)}
                 />
               </div>
             </CardContent>
@@ -1769,10 +1789,10 @@ function renderPageContent({
               <CardDescription>Quick jumps for the settings routes you are most likely to need first.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2">
-              <QuickLaunchCard title="General" icon={Settings2} href={buildArchivistItemPath(serverId, "settings", "general")} />
-              <QuickLaunchCard title="Server Config" icon={Braces} href={buildArchivistItemPath(serverId, "settings", "server-config")} />
-              <QuickLaunchCard title="Notifications" icon={MessageSquareText} href={buildArchivistItemPath(serverId, "settings", "notifications")} />
-              <QuickLaunchCard title="Backups" icon={CopyPlus} href={buildArchivistItemPath(serverId, "settings", "backups")} />
+              <QuickLaunchCard title="General" icon={Settings2} href={buildArchivistItemPath(serverId, "operations", "general")} />
+              <QuickLaunchCard title="Server Config" icon={Braces} href={buildArchivistItemPath(serverId, "operations", "server-config")} />
+              <QuickLaunchCard title="Notifications" icon={MessageSquareText} href={buildArchivistItemPath(serverId, "operations", "notifications")} />
+              <QuickLaunchCard title="Backups" icon={CopyPlus} href={buildArchivistItemPath(serverId, "operations", "backups")} />
             </CardContent>
           </Card>
         </div>
@@ -1781,52 +1801,63 @@ function renderPageContent({
   }
 
   if (item.id === "settings-roles") {
-    const roleGroups = [
-      {
-        id: "verification",
-        title: "Verification Roles",
-        description: "Roles used when members pass identity or onboarding checks.",
-        values: context?.roles.slice(0, 2).map((role: any) => role.name) || [],
-      },
-      {
-        id: "rewards",
-        title: "Reward Roles",
-        description: "Progression and engagement rewards mapped to higher participation.",
-        values: context?.roles.slice(2, 4).map((role: any) => role.name) || [],
-      },
-      {
-        id: "admin",
-        title: "Admin Roles",
-        description: "Privileged roles allowed to configure or override bot behavior.",
-        values: context?.roles.slice(0, 1).map((role: any) => role.name) || [],
-      },
-      {
-        id: "restricted",
-        title: "Restricted Roles",
-        description: "Roles excluded from certain workflows, modules, or command lanes.",
-        values: context?.roles.slice(4, 6).map((role: any) => role.name) || [],
-      },
-    ] as const;
+    const roles: any[] = context?.roles || [];
+    const sortedRoles = [...roles].sort((a, b) => (b.position || 0) - (a.position || 0));
+
+    const roleColorHex = (color: number | undefined) => {
+      if (!color || color === 0) return null;
+      return `#${color.toString(16).padStart(6, "0")}`;
+    };
 
     return (
       <div className="space-y-4">
-        <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] px-4 py-4 text-sm text-white/62">
-          These role groups are a live planning view built from the current server role list, so you can sort out intent before deeper role-mapping tools expand.
-        </div>
-        <div className="grid gap-3">
-        {roleGroups.map((group) => (
-          <SettingsGroupCard
-            key={group.id}
-            title={group.title}
-            description={group.description}
-            values={group.values.length ? group.values : ["Not set"]}
-            isExpanded={activeSettingsGroupId === group.id}
-            onToggle={() => setActiveSettingsGroupId((current: string | null) => current === group.id ? null : group.id)}
-            onOpenPermissions={() => navigate(buildArchivistItemPath(serverId, "settings", "permissions"))}
-            onOpenChannels={() => navigate(buildArchivistItemPath(serverId, "settings", "channels"))}
-            availableValues={(context?.roles || []).slice(0, 8).map((role: any) => role.name)}
+        <MetricGrid
+          items={[
+            { label: "Total Roles", value: String(roles.length) },
+            { label: "Colored", value: String(roles.filter((r) => r.color && r.color !== 0).length) },
+            { label: "Channels", value: String(context?.channels?.length || 0) },
+          ]}
+        />
+        <Card className="archivist-panel">
+          <CardHeader>
+            <CardTitle className="text-white">Server roles</CardTitle>
+            <CardDescription>All roles in this server, sorted by position. Colors and IDs are pulled live from Discord.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {sortedRoles.length ? sortedRoles.map((role) => {
+              const hex = roleColorHex(role.color);
+              return (
+                <div key={role.id} className="flex items-center gap-3 rounded-[18px] border border-white/8 bg-[#0a0c0f] px-3 py-2.5">
+                  <div
+                    className="h-4 w-4 shrink-0 rounded-full border border-white/10"
+                    style={{ backgroundColor: hex || "rgba(255,255,255,0.12)" }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium" style={{ color: hex || "rgba(255,255,255,0.78)" }}>
+                      {role.name}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-white/28">pos {role.position || 0}</span>
+                </div>
+              );
+            }) : (
+              <EmptyState label="No roles returned from Discord context yet. Try reloading the workspace." />
+            )}
+          </CardContent>
+        </Card>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <QuickActionRow
+            icon={MessageSquareText}
+            title="View Channels"
+            description="See the channel structure alongside role access."
+            href={buildArchivistItemPath(serverId, "operations", "channels")}
           />
-        ))}
+          <QuickActionRow
+            icon={ShieldCheck}
+            title="Permission Rules"
+            description="Set which roles can access specific bot features."
+            href={buildArchivistItemPath(serverId, "operations", "permissions")}
+          />
         </div>
       </div>
     );
@@ -1890,13 +1921,13 @@ function renderPageContent({
                 icon={Users}
                 title="Open Roles"
                 description="Review role groups that drive permission rules."
-                href={buildArchivistItemPath(serverId, "settings", "roles")}
+                href={buildArchivistItemPath(serverId, "operations", "roles")}
               />
               <QuickActionRow
                 icon={MessageSquareText}
                 title="Open Channels"
                 description="Inspect the channels that these permission rules affect."
-                href={buildArchivistItemPath(serverId, "settings", "channels")}
+                href={buildArchivistItemPath(serverId, "operations", "channels")}
               />
             </div>
           </CardContent>
@@ -1932,13 +1963,13 @@ function renderPageContent({
               icon={ShieldCheck}
               title="Verification roles"
               description="Review the roles that matter once a member passes verification."
-              href={buildArchivistItemPath(serverId, "server", "roles")}
+              href={buildArchivistItemPath(serverId, "operations", "roles")}
             />
             <QuickActionRow
               icon={MessageSquareText}
               title="Entry channels"
               description="Choose the visible lanes members land in first."
-              href={buildArchivistItemPath(serverId, "server", "channels")}
+              href={buildArchivistItemPath(serverId, "operations", "channels")}
             />
           </CardContent>
         </Card>
@@ -1998,19 +2029,19 @@ function renderPageContent({
               icon={MessageSquareText}
               title="Channels"
               description="Verify the live channel map before you copy or rebuild anything."
-              href={buildArchivistItemPath(serverId, "server", "channels")}
+              href={buildArchivistItemPath(serverId, "operations", "channels")}
             />
             <QuickActionRow
               icon={Users}
               title="Roles"
               description="Review protected roles and reward mappings before restore work."
-              href={buildArchivistItemPath(serverId, "server", "roles")}
+              href={buildArchivistItemPath(serverId, "operations", "roles")}
             />
             <QuickActionRow
               icon={Logs}
               title="Logging"
               description="Keep recent failures and change signals visible during recovery work."
-              href={buildArchivistItemPath(serverId, "server", "logging")}
+              href={buildArchivistItemPath(serverId, "operations", "logging")}
             />
           </CardContent>
         </Card>

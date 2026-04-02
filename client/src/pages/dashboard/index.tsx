@@ -13,7 +13,7 @@ import { useBotStatus, useServers, useStudioDocuments, useWorkspaceOverview } fr
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { buildArchivistSectionPath } from "@/lib/archivist-workspace";
+import { buildArchivistSectionPath, getPreferredArchivistServer } from "@/lib/archivist-workspace";
 import { formatDistanceToNow } from "date-fns";
 
 function ServerBadge({ server, size = "md" }: { server: any; size?: "sm" | "md" | "lg" }) {
@@ -77,8 +77,8 @@ export default function DashboardOverview() {
   const { data: servers, isLoading } = useServers();
   const { data: botStatus } = useBotStatus();
   const { data: user } = useAuth();
-  
-  const leadServer = servers?.[0] ?? null;
+
+  const leadServer = getPreferredArchivistServer(servers);
   const leadServerId = leadServer?.id ?? 0;
   
   const leadOverviewQuery = useWorkspaceOverview(leadServerId, { enabled: !!leadServerId });

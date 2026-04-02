@@ -24,10 +24,12 @@ import type {
   StudioDocument,
   StudioDocumentRecord,
   StudioDraftMode,
+  StudioEmbedDraft,
   StudioNode,
   StudioPublication,
   StudioPublishPlan,
 } from "@shared/schema";
+import { EmbedInspector } from "./studio-embed-inspector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -447,6 +449,8 @@ function BuildSelectionEditor({
   onDeleteEmbed,
   onDeleteNode,
   onMoveNode,
+  onAddEmbed,
+  onSwitchEmbed,
 }: {
   draft: StudioDocument;
   selectedViewId: string;
@@ -458,6 +462,8 @@ function BuildSelectionEditor({
   onDeleteEmbed: (embedIndex: number) => void;
   onDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, direction: -1 | 1) => void;
+  onAddEmbed?: () => void;
+  onSwitchEmbed?: (index: number) => void;
 }) {
   const view = getView(draft, selectedViewId);
   const wrapForMobile = (
@@ -1088,260 +1094,25 @@ function BuildSelectionEditor({
   }
 
   if (selection.kind === "embed") {
-    const embed = view.embeds[selection.embedIndex] || createBlankEmbed();
-    const updateSelectedEmbed = (updater: (currentEmbed: typeof embed) => void) => {
+    const updateSelectedEmbed = (updater: (currentEmbed: StudioEmbedDraft) => void) => {
       onChangeDraft((document) => {
-        const nextEmbed = document.views[selectedViewId].embeds[selection.embedIndex];
-        updater(nextEmbed);
+        while (document.views[selectedViewId].embeds.length <= selection.embedIndex) {
+          document.views[selectedViewId].embeds.push(createBlankEmbed());
+        }
+        updater(document.views[selectedViewId].embeds[selection.embedIndex]);
       });
     };
-    const moveField = (fieldIndex: number, direction: -1 | 1) => {
-      updateSelectedEmbed((currentEmbed) => {
-        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-        const nextIndex = fieldIndex + direction;
-        if (nextIndex < 0 || nextIndex >= currentEmbed.fields.length) return;
-        [currentEmbed.fields[fieldIndex], currentEmbed.fields[nextIndex]] = [currentEmbed.fields[nextIndex], currentEmbed.fields[fieldIndex]];
-      });
-    };
-    const addField = (blank = false) => {
-      updateSelectedEmbed((currentEmbed) => {
-        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-        if (currentEmbed.fields.length >= 25) return;
-        currentEmbed.fields.push(blank ? { name: "\u200B", value: "\u200B", inline: false } : { name: "", value: "", inline: false });
-      });
-    };
-    const fieldCount = Array.isArray(embed.fields) ? embed.fields.length : 0;
-    const selectedFieldIndex = typeof selection.fieldIndex === "number" ? selection.fieldIndex : null;
-    const contentDefault = selection.region === "image" || selection.region === "thumbnail"
-      ? "media"
-      : selection.region === "author"
-        ? "author"
-        : selection.region === "footer"
-          ? "footer"
-          : selection.region === "fields" || selection.region === "field_name" || selection.region === "field_value"
-            ? "fields"
-            : "content";
-
-    return renderInspectorSections([contentDefault], [
-      {
-        value: "content",
-        title: "Content",
-        description: "Shape the primary headline, body, and accent before you add optional embed details.",
-        content: (
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Title</Label>
-                <Input value={embed.title || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.title = event.target.value; })} placeholder="Embed headline" />
-              </div>
-              <div className="space-y-2">
-                <Label>Title URL</Label>
-                <Input value={embed.url || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.url = event.target.value; })} placeholder="https://..." />
-              </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-[auto_minmax(0,1fr)]">
-              <div className="space-y-2">
-                <Label>Accent color</Label>
-                <input
-                  type="color"
-                  value={embed.color || "#B11226"}
-                  onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.color = event.target.value; })}
-                  className="h-11 w-12 rounded-[14px] border border-white/10 bg-transparent"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Hex value</Label>
-                <Input value={embed.color || "#B11226"} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.color = event.target.value; })} placeholder="#B11226" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea value={embed.description || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.description = event.target.value; })} placeholder="Describe the embed..." className="min-h-[180px]" />
-            </div>
-          </div>
-        ),
-      },
-      {
-        value: "author",
-        title: "Author",
-        description: "Use the author row when the embed needs attribution, a publisher label, or a linked source.",
-        content: (
-          <div className="space-y-4">
-            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3 text-xs leading-5 text-white/52">
-              Author is optional. Leave it empty when the embed should feel quieter and let the title lead the hierarchy.
-            </div>
-            <div className="space-y-2">
-              <Label>Author name</Label>
-              <Input value={embed.authorName || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorName = event.target.value; })} placeholder="Archivist Team" />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Author URL</Label>
-                <Input value={embed.authorUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorUrl = event.target.value; })} placeholder="https://..." />
-              </div>
-              <div className="space-y-2">
-                <Label>Author icon URL</Label>
-                <Input value={embed.authorIconUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.authorIconUrl = event.target.value; })} placeholder="https://..." />
-              </div>
-            </div>
-          </div>
-        ),
-      },
-      {
-        value: "media",
-        title: "Media",
-        description: "Keep the embed visual, but controlled. Images and thumbnails should support the message instead of overpowering it.",
-        content: (
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Image URL</Label>
-                <Input value={embed.imageUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.imageUrl = event.target.value; })} placeholder="https://..." />
-              </div>
-              <div className="space-y-2">
-                <Label>Thumbnail URL</Label>
-                <Input value={embed.thumbnailUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.thumbnailUrl = event.target.value; })} placeholder="https://..." />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] p-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-white/34">Image</p>
-                <p className="mt-2 text-sm text-white/74">{embed.imageUrl ? "Full-width image configured." : "No large image attached yet."}</p>
-              </div>
-              <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] p-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-white/34">Thumbnail</p>
-                <p className="mt-2 text-sm text-white/74">{embed.thumbnailUrl ? "Compact thumbnail configured." : "No thumbnail attached yet."}</p>
-              </div>
-            </div>
-          </div>
-        ),
-      },
-      {
-        value: "fields",
-        title: "Fields",
-        description: "Manage structured detail rows here so the live preview stays focused on layout and hierarchy.",
-        content: (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-white">{fieldCount} / 25 fields</p>
-                <p className="mt-1 text-xs leading-5 text-white/48">Fields stay in the inspector now, so the selected embed remains visual while you edit structure.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => addField(false)}>
-                  <Plus className="h-3.5 w-3.5" />
-                  New field
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => addField(true)}>
-                  <Plus className="h-3.5 w-3.5" />
-                  Spacer
-                </Button>
-              </div>
-            </div>
-            {fieldCount === 0 ? (
-              <div className="rounded-[18px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-white/52">
-                No fields yet. Add one when the embed needs structured facts, stats, or grouped supporting detail.
-              </div>
-            ) : (
-              (embed.fields || []).map((field, fieldIndex) => {
-                const activeField = selectedFieldIndex === fieldIndex || selection.region === "fields";
-                return (
-                  <div
-                    key={`embed-field-${fieldIndex}`}
-                    className={cn(
-                      "space-y-3 rounded-[20px] border p-4",
-                      activeField
-                        ? "border-[rgba(142,46,60,0.2)] bg-[linear-gradient(180deg,rgba(20,13,15,0.98),rgba(10,10,11,1))]"
-                        : "border-white/8 bg-[#0b0d10]",
-                    )}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-white">Field {fieldIndex + 1}</p>
-                        <p className="mt-1 text-xs text-white/46">{field.inline ? "Inline layout enabled." : "Full-width field."}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => moveField(fieldIndex, -1)} disabled={fieldIndex === 0}>
-                          Up
-                        </Button>
-                        <Button variant="outline" size="sm" className="rounded-full border-white/10 bg-white/[0.03]" onClick={() => moveField(fieldIndex, 1)} disabled={fieldIndex === fieldCount - 1}>
-                          Down
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="rounded-full text-red-300 hover:bg-transparent hover:text-red-200"
-                          onClick={() => updateSelectedEmbed((currentEmbed) => {
-                            currentEmbed.fields = Array.isArray(currentEmbed.fields) ? currentEmbed.fields.filter((_, index) => index !== fieldIndex) : [];
-                          })}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Name</Label>
-                      <Input value={field.name || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => {
-                        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-                        currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || { inline: false }), name: event.target.value };
-                      })} placeholder="Field title" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Value</Label>
-                      <Textarea value={field.value || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => {
-                        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-                        currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || { inline: false }), value: event.target.value };
-                      })} placeholder="Field value" className="min-h-[110px]" />
-                    </div>
-                    <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#090a0d] px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-white">Show inline</p>
-                        <p className="text-xs text-white/55">Use inline only when this field should share a row with other short details.</p>
-                      </div>
-                      <Switch checked={Boolean(field.inline)} onCheckedChange={(value) => updateSelectedEmbed((currentEmbed) => {
-                        currentEmbed.fields = Array.isArray(currentEmbed.fields) ? [...currentEmbed.fields] : [];
-                        currentEmbed.fields[fieldIndex] = { ...(currentEmbed.fields[fieldIndex] || {}), inline: value };
-                      })} />
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        ),
-      },
-      {
-        value: "footer",
-        title: "Footer",
-        description: "Use the footer for timestamped context, signatures, and low-emphasis metadata.",
-        content: (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Footer text</Label>
-              <Input value={embed.footerText || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.footerText = event.target.value; })} placeholder="Footer text" />
-            </div>
-            <div className="space-y-2">
-              <Label>Footer icon URL</Label>
-              <Input value={embed.footerIconUrl || ""} onChange={(event) => updateSelectedEmbed((currentEmbed) => { currentEmbed.footerIconUrl = event.target.value; })} placeholder="https://..." />
-            </div>
-            <div className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-white">Timestamp</p>
-                <p className="text-xs text-white/55">Show the current date and time in the footer when the message needs live timing context.</p>
-              </div>
-              <Switch checked={Boolean(embed.timestamp)} onCheckedChange={(value) => updateSelectedEmbed((currentEmbed) => { currentEmbed.timestamp = value; })} />
-            </div>
-          </div>
-        ),
-      },
-      {
-        value: "danger",
-        title: "Danger zone",
-        description: "Remove the embed if the message should collapse back to a lighter composition.",
-        tone: "danger",
-        content: desktopDanger(() => onDeleteEmbed(selection.embedIndex), "Remove Embed"),
-      },
-    ]);
+    return (
+      <EmbedInspector
+        embeds={view.embeds}
+        embedIndex={selection.embedIndex}
+        onSwitchEmbed={(i) => onSwitchEmbed?.(i)}
+        onAddEmbed={() => onAddEmbed?.()}
+        onChange={updateSelectedEmbed}
+        onDelete={() => onDeleteEmbed(selection.embedIndex)}
+        activeRegion={selection.region ?? null}
+      />
+    );
   }
 
   const node = draft.nodes[selection.nodeId];
@@ -3212,6 +2983,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         onDeleteEmbed={deleteEmbed}
         onDeleteNode={deleteNode}
         onMoveNode={moveNode}
+        onAddEmbed={addEmbed}
+        onSwitchEmbed={(i) => select({ kind: "embed", embedIndex: i })}
       />
     </div>
   );

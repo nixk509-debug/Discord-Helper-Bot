@@ -350,7 +350,7 @@ export function FunOverview({
         <CardContent className="space-y-5 p-5">
           <div className="space-y-3">
             <p className="archivist-kicker">Community Layer</p>
-            <h1 className="text-[1.9rem] font-bold leading-tight text-white sm:text-[2.5rem]">Fun and creative tools should feel like a real suite, not filler modules.</h1>
+            <h1 className="text-[1.9rem] font-bold leading-tight text-white sm:text-[2.5rem]">Community systems — built to run, not just configured.</h1>
             <p className="max-w-2xl text-sm leading-7 text-[var(--text-muted)]">
               Keep the active systems visible, show the community pulse, and make it obvious where the next creative layer belongs.
             </p>
@@ -378,7 +378,7 @@ export function FunOverview({
                   title={moduleId.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}
                   description="Active in the current community stack."
                   icon={Gamepad2}
-                  onClick={() => navigate(buildArchivistItemPath(serverId, "fun", "games"))}
+                  onClick={() => navigate(buildArchivistItemPath(serverId, "community", "games"))}
                 />
               )) : (
                 <div className="rounded-[20px] border border-dashed border-[var(--border-subtle)] px-4 py-5 text-sm text-[var(--text-muted)]">
@@ -400,19 +400,19 @@ export function FunOverview({
                 title="Leveling"
                 description="Progression, profile identity, and visible status."
                 icon={Users}
-                onClick={() => navigate(buildArchivistItemPath(serverId, "fun", "profile"))}
+                onClick={() => navigate(buildArchivistItemPath(serverId, "community", "profile"))}
               />
               <LaneButton
                 title="Giveaways"
                 description="Live moments, event energy, and reward loops."
                 icon={Sparkles}
-                onClick={() => navigate(buildArchivistItemPath(serverId, "fun", "creative-tools"))}
+                onClick={() => navigate(buildArchivistItemPath(serverId, "community", "creative-tools"))}
               />
               <LaneButton
                 title="Leaderboards"
                 description="Visible competition and community ranking."
                 icon={Logs}
-                onClick={() => navigate(buildArchivistItemPath(serverId, "fun", "leaderboards"))}
+                onClick={() => navigate(buildArchivistItemPath(serverId, "community", "leaderboards"))}
               />
             </div>
           </CardContent>

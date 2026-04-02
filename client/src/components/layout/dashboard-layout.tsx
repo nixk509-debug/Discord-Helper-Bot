@@ -68,8 +68,8 @@ const DASH_STARS = [
 const SECTION_ICON_MAP: Record<ArchivistCanonicalSection, typeof Braces> = {
   commands: Braces,
   studio: Sparkles,
-  fun: Gamepad2,
-  server: ShieldCheck,
+  community: Gamepad2,
+  operations: ShieldCheck,
 };
 
 function useDismissDrawerOnLocationChange({
