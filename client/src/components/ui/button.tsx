@@ -10,13 +10,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border-[var(--border-brand)] bg-[linear-gradient(180deg,rgba(157,140,255,0.94),rgba(110,123,255,0.98))] text-primary-foreground shadow-[0_18px_36px_rgba(37,48,96,0.28)] hover:-translate-y-0.5 hover:border-[rgba(157,140,255,0.55)] hover:brightness-105",
+          "border-[rgba(224,0,26,0.38)] bg-[linear-gradient(180deg,rgba(224,0,26,0.92),rgba(180,0,20,0.98))] text-white shadow-[0_12px_32px_rgba(224,0,26,0.22)] hover:-translate-y-0.5 hover:shadow-[0_16px_38px_rgba(224,0,26,0.32)] hover:brightness-110",
         destructive:
-          "border-[rgba(220,84,103,0.34)] bg-[linear-gradient(180deg,rgba(220,84,103,0.94),rgba(121,32,47,0.96))] text-white shadow-[0_18px_34px_rgba(121,32,47,0.24)] hover:-translate-y-0.5 hover:brightness-105",
+          "border-[rgba(224,0,26,0.4)] bg-[linear-gradient(180deg,rgba(224,0,26,0.94),rgba(160,0,18,0.98))] text-white shadow-[0_12px_28px_rgba(224,0,26,0.2)] hover:-translate-y-0.5 hover:brightness-110",
         outline:
-          "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(24,30,44,0.96),rgba(14,18,29,0.98))] text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(30,37,55,0.98),rgba(17,22,34,1))]",
+          "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(18,18,22,0.96),rgba(11,11,14,0.98))] text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(22,22,26,0.98),rgba(14,14,17,1))]",
         secondary:
-          "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(26,33,49,0.94),rgba(17,22,34,0.98))] text-[var(--text-secondary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] hover:bg-[linear-gradient(180deg,rgba(31,39,58,0.98),rgba(19,24,37,1))]",
+          "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(20,20,24,0.94),rgba(13,13,16,0.98))] text-[var(--text-secondary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] hover:bg-[linear-gradient(180deg,rgba(24,24,28,0.98),rgba(15,15,18,1))]",
         ghost:
           "border-transparent bg-transparent text-[var(--text-muted)] hover:border-[var(--border-subtle)] hover:bg-white/[0.04] hover:text-[var(--text-primary)]",
       },

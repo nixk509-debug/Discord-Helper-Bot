@@ -9,7 +9,7 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:
-          "border-[var(--border-brand)] bg-[rgba(163,33,57,0.16)] text-[var(--text-primary)] shadow-[0_12px_28px_rgba(92,18,34,0.18)]",
+          "border-[var(--border-brand)] bg-[rgba(224,0,26,0.12)] text-[var(--text-primary)] shadow-[0_8px_24px_rgba(224,0,26,0.12)]",
         secondary: "border-[var(--border-default)] bg-white/[0.04] text-[var(--text-secondary)]",
         destructive:
           "border-[rgba(220,84,103,0.24)] bg-[rgba(220,84,103,0.12)] text-[rgba(255,221,227,0.95)] shadow-[0_12px_24px_rgba(121,32,47,0.12)]",

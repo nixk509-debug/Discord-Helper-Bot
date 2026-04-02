@@ -19,7 +19,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex min-h-11 w-full items-center justify-between rounded-[18px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(18,22,29,0.96),rgba(11,14,19,0.98))] px-4 py-2 text-base text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] data-[placeholder]:text-[var(--text-faint)] focus:outline-none focus:ring-2 focus:ring-primary/38 focus:border-[rgba(209,43,71,0.42)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 md:text-sm",
+      "flex min-h-11 w-full items-center justify-between rounded-[18px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(14,14,17,0.96),rgba(9,9,12,0.98))] px-4 py-2 text-base text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] data-[placeholder]:text-[var(--text-faint)] focus:outline-none focus:ring-2 focus:ring-primary/38 focus:border-[rgba(224,0,26,0.42)] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 md:text-sm",
       className
     )}
     {...props}
@@ -75,7 +75,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[10rem] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(14,17,22,0.98),rgba(8,10,14,0.99))] text-[var(--text-primary)] shadow-[0_24px_60px_rgba(0,0,0,0.45)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 origin-[--radix-select-content-transform-origin]",
+        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[10rem] overflow-y-auto overflow-x-hidden rounded-[22px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(13,13,16,0.98),rgba(8,8,11,0.99))] text-[var(--text-primary)] shadow-[0_24px_60px_rgba(0,0,0,0.45)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 origin-[--radix-select-content-transform-origin]",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
