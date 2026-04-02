@@ -27,6 +27,12 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { inferStudioPrimarySurfaceType } from "@/components/design-studio/studio-defaults";
 import { DesignStudioTab } from "@/components/design-studio/design-studio-tab";
 import { CustomCommandV2Forge } from "@/components/server-shell/custom-command-v2/custom-command-v2-forge";
+import {
+  CommandsOverview,
+  StudioOverview,
+  FunOverview,
+  SystemOverview,
+} from "@/components/workspace/archivist-pillar-overviews";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,8 +44,10 @@ import {
   ARCHIVIST_NAVIGATION,
   buildArchivistItemPath,
   buildArchivistSectionPath,
+  getPreferredArchivistServer,
   getDefaultArchivistItem,
   parseArchivistLocation,
+  writeLastArchivistServerId,
   type ArchivistNavItem,
 } from "@/lib/archivist-workspace";
 import {
@@ -53,7 +61,7 @@ import {
   usePermissionRules,
   useServer,
   useServers,
-  useServerCommands,
+  useServerCommandsV2,
   useStudioDocuments,
   useStudioPublications,
   useUpsertChannelSettings,
@@ -70,6 +78,39 @@ const COMMAND_FILTERS = [
   { label: "Auto", value: "auto" },
   { label: "Disabled", value: "disabled" },
 ] as const;
+
+function getWorkflowCommandFamily(command: any) {
+  switch (command?.triggerType) {
+    case "slash":
+      return "slash";
+    case "keyword":
+      return "message";
+    case "button":
+    case "select":
+    case "modal_submit":
+      return "button";
+    default:
+      return "auto";
+  }
+}
+
+function getWorkflowCommandTriggerLabel(command: any) {
+  const family = getWorkflowCommandFamily(command);
+  if (family === "message") return "keyword";
+  return family;
+}
+
+function getWorkflowCommandCooldown(command: any) {
+  return Number(command?.definition?.behavior?.cooldownSeconds || 0);
+}
+
+function getWorkflowCommandStatusLabel(command: any) {
+  const issues = Array.isArray(command?.lastValidation) ? command.lastValidation : [];
+  if (issues.some((entry: any) => entry?.severity === "error")) return "Needs Fix";
+  if (!command?.enabled) return "Draft";
+  if (issues.some((entry: any) => entry?.severity === "warning")) return "Warnings";
+  return "Live";
+}
 
 const MODULE_CARDS = [
   { id: "leveling", title: "Leveling", description: "Progression, XP pacing, and milestone rewards." },
@@ -559,7 +600,7 @@ export default function WorkspacePage() {
   const { data: server, isLoading: serverLoading } = useServer(serverId || 0);
   const serversQuery = useServers({ enabled: true });
   const overviewQuery = useWorkspaceOverview(serverId || 0, { enabled: !!serverId });
-  const commandsQuery = useServerCommands(serverId || 0, { enabled: !!serverId });
+  const commandsQuery = useServerCommandsV2(serverId || 0, { enabled: !!serverId });
   const logsQuery = useCommandLogs(serverId || 0, { enabled: !!serverId });
   const studioDocumentsQuery = useStudioDocuments(serverId || 0, { enabled: !!serverId });
   const studioPublicationsQuery = useStudioPublications(serverId || 0, { enabled: !!serverId });
@@ -589,11 +630,17 @@ export default function WorkspacePage() {
   ].find((error) => isApiResponseError(error) && (error.status === 403 || error.status === 404));
 
   useEffect(() => {
+    if (!serverId || !server) return;
+    writeLastArchivistServerId(serverId);
+  }, [server, serverId]);
+
+  useEffect(() => {
     if (!serverId || serverLoading || serversQuery.isLoading) return;
     if (server) return;
 
-    if (visibleServers.length > 0) {
-      navigate(buildArchivistSectionPath(visibleServers[0].id, section), { replace: true });
+    const fallbackServer = getPreferredArchivistServer(visibleServers, { excludeId: serverId });
+    if (fallbackServer?.id) {
+      navigate(buildArchivistSectionPath(fallbackServer.id, section), { replace: true });
     }
   }, [navigate, section, server, serverId, serverLoading, serversQuery.isLoading, visibleServers]);
 
@@ -604,7 +651,7 @@ export default function WorkspacePage() {
     if (redirectGuardRef.current === redirectKey) return;
     redirectGuardRef.current = redirectKey;
 
-    const fallbackServer = visibleServers.find((entry: any) => entry.id !== serverId) || visibleServers[0];
+    const fallbackServer = getPreferredArchivistServer(visibleServers, { excludeId: serverId });
     toast({
       title: "Workspace moved",
       description: workspaceAccessError.message || "That server is no longer available in this session, so Archivist moved you to a safe page.",
@@ -641,9 +688,7 @@ export default function WorkspacePage() {
     return commands.filter((command) => {
       if (commandFilter === "all") return true;
       if (commandFilter === "disabled") return !command.enabled;
-      const triggerType = command.triggerType || "";
-      if (commandFilter === "auto") return !["slash", "message"].includes(triggerType);
-      return triggerType === commandFilter;
+      return getWorkflowCommandFamily(command) === commandFilter;
     });
   }, [commandFilter, commands]);
 
@@ -663,13 +708,18 @@ export default function WorkspacePage() {
             <Button className="min-h-11 rounded-[18px]" onClick={() => navigate("/dashboard")}>
               Back to Dashboard
             </Button>
-            {visibleServers[0] ? (
+            {getPreferredArchivistServer(visibleServers) ? (
               <Button
                 variant="outline"
                 className="min-h-11 rounded-[18px]"
-                onClick={() => navigate(buildArchivistSectionPath(visibleServers[0].id, "commands"))}
+                onClick={() => {
+                  const preferredServer = getPreferredArchivistServer(visibleServers);
+                  if (preferredServer?.id) {
+                    navigate(buildArchivistSectionPath(preferredServer.id, "commands"));
+                  }
+                }}
               >
-                Open First Workspace
+                Open Preferred Workspace
               </Button>
             ) : null}
           </CardContent>
@@ -867,55 +917,7 @@ function renderPageContent({
 
   if (item.id === "commands-overview") {
     return (
-      <div className="space-y-4">
-        <MetricGrid
-          items={[
-            { label: "Commands", value: String(commands.length) },
-            { label: "Runs", value: String(overview?.metrics.recentCommands || 0) },
-            { label: "Failures", value: String(overview?.metrics.recentFailures || 0) },
-          ]}
-        />
-        <Card className="archivist-panel">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            <QuickActionRow
-              icon={Braces}
-              title="Commands"
-              description="Open the command library and focused builder lanes."
-              href={buildArchivistItemPath(serverId, "commands", "commands")}
-            />
-            <QuickActionRow
-              icon={ScrollText}
-              title="Variables"
-              description="Keep reusable command inputs and variable language visible."
-              href={buildArchivistItemPath(serverId, "commands", "variables")}
-            />
-            <QuickActionRow
-              icon={ShieldCheck}
-              title="Testing"
-              description="Review cooldowns and readiness before you tune live behavior."
-              href={buildArchivistItemPath(serverId, "commands", "testing")}
-            />
-            <QuickActionRow
-              icon={Logs}
-              title="Logs"
-              description="Inspect recent runs, failures, and command pressure."
-              href={buildArchivistItemPath(serverId, "commands", "logs")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Analytics"
-              description="See which commands are doing real work in this server."
-              href={buildArchivistItemPath(serverId, "commands", "analytics")}
-            />
-            <QuickActionRow
-              icon={CopyPlus}
-              title="Imports / Exports"
-              description="Move logic safely between builder flows and saved command sets."
-              href={buildArchivistItemPath(serverId, "commands", "imports")}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <CommandsOverview serverId={serverId} commands={commands} overview={overview} navigate={navigate} />
     );
   }
 
@@ -936,11 +938,11 @@ function renderPageContent({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-sm font-semibold text-white">{command.name}</p>
-                  <CommandBadge>{command.triggerType}</CommandBadge>
+                  <CommandBadge>{getWorkflowCommandTriggerLabel(command)}</CommandBadge>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-white/46">
-                  <span>Cooldown {command.cooldown || 0}s</span>
-                  <span>{command.enabled ? "Live" : "Disabled"}</span>
+                  <span>Cooldown {getWorkflowCommandCooldown(command)}s</span>
+                  <span>{getWorkflowCommandStatusLabel(command)}</span>
                 </div>
               </div>
               <ChevronRight className="h-4 w-4 text-white/30" />
@@ -958,8 +960,9 @@ function renderPageContent({
 
   if (item.id === "commands-slash" || item.id === "commands-message" || item.id === "commands-auto") {
     const subset = commands.filter((command: any) => {
-      if (item.id === "commands-auto") return !["slash", "message"].includes(command.triggerType || "");
-      return command.triggerType === (item.id === "commands-slash" ? "slash" : "message");
+      const family = getWorkflowCommandFamily(command);
+      if (item.id === "commands-auto") return family === "auto";
+      return family === (item.id === "commands-slash" ? "slash" : "message");
     });
     const title = item.id === "commands-slash" ? "Slash command lanes" : item.id === "commands-message" ? "Message command lanes" : "Automated responses";
     const body = item.id === "commands-auto"
@@ -982,7 +985,7 @@ function renderPageContent({
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-white">{command.name}</p>
-                <p className="mt-1 text-xs text-white/42">Cooldown {command.cooldown || 0}s · {command.enabled ? "Live" : "Disabled"}</p>
+                <p className="mt-1 text-xs text-white/42">Cooldown {getWorkflowCommandCooldown(command)}s · {getWorkflowCommandStatusLabel(command)}</p>
               </div>
               <ChevronRight className="h-4 w-4 text-white/30" />
             </button>
@@ -1022,7 +1025,7 @@ function renderPageContent({
   }
 
   if (item.id === "commands-cooldowns") {
-    const sorted = [...commands].sort((a: any, b: any) => (b.cooldown || 0) - (a.cooldown || 0));
+    const sorted = [...commands].sort((a: any, b: any) => getWorkflowCommandCooldown(b) - getWorkflowCommandCooldown(a));
     return (
       <Card className="archivist-panel">
         <CardHeader>
@@ -1034,9 +1037,9 @@ function renderPageContent({
             <div key={command.id} className="flex items-center justify-between gap-3 rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-white">{command.name}</p>
-                <p className="mt-1 text-xs text-white/42">{command.triggerType || "command"} · {command.enabled ? "Live" : "Disabled"}</p>
+                <p className="mt-1 text-xs text-white/42">{getWorkflowCommandTriggerLabel(command)} · {getWorkflowCommandStatusLabel(command)}</p>
               </div>
-              <CommandBadge>{command.cooldown || 0}s</CommandBadge>
+              <CommandBadge>{getWorkflowCommandCooldown(command)}s</CommandBadge>
             </div>
           ))}
           {!sorted.length ? <EmptyState label="No commands with cooldowns yet." /> : null}
@@ -1080,55 +1083,14 @@ function renderPageContent({
 
   if (item.id === "studio-overview") {
     return (
-      <div className="space-y-4">
-        <MetricGrid
-          items={[
-            { label: "Drafts", value: String(drafts.length) },
-            { label: "Templates", value: String(templates.length) },
-            { label: "Published", value: String(publications.length) },
-          ]}
-        />
-        <Card className="archivist-panel">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            <QuickActionRow
-              icon={LayoutTemplate}
-              title="Embeds"
-              description="Build embed-driven message systems and announcement surfaces."
-              href={buildArchivistItemPath(serverId, "studio", "embeds")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Components V2"
-              description="Create button, select, and interaction-driven Discord UI."
-              href={buildArchivistItemPath(serverId, "studio", "components-v2")}
-            />
-            <QuickActionRow
-              icon={FileStack}
-              title="UI Projects"
-              description="Resume active visual systems, drafts, and in-progress surfaces."
-              href={buildArchivistItemPath(serverId, "studio", "ui-projects")}
-            />
-            <QuickActionRow
-              icon={CopyPlus}
-              title="Templates"
-              description="Reuse deployment-ready layouts and saved message patterns."
-              href={buildArchivistItemPath(serverId, "studio", "templates")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Brand Kit"
-              description="Keep visual direction, copy tone, and reusable identity aligned."
-              href={buildArchivistItemPath(serverId, "studio", "brand-kit")}
-            />
-            <QuickActionRow
-              icon={FileStack}
-              title="Assets"
-              description="See which documents already carry media and deployment assets."
-              href={buildArchivistItemPath(serverId, "studio", "assets")}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <StudioOverview
+        serverId={serverId}
+        drafts={drafts}
+        templates={templates}
+        publications={publications}
+        publishedDocumentIds={publishedDocumentIds}
+        navigate={navigate}
+      />
     );
   }
 
@@ -1398,55 +1360,13 @@ function renderPageContent({
 
   if (item.id === "creative-overview") {
     return (
-      <div className="space-y-4">
-        <MetricGrid
-          items={[
-            { label: "Games", value: String(MODULE_CARDS.length) },
-            { label: "Tracked", value: String(enabledModuleCards.length) },
-            { label: "Members", value: String(context?.memberCount || overview?.server.memberCount || 0) },
-          ]}
-        />
-        <Card className="archivist-panel">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            <QuickActionRow
-              icon={Gamepad2}
-              title="Games"
-              description="Turn on and tune the active game systems and engagement modules."
-              href={buildArchivistItemPath(serverId, "fun", "games")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Creative Tools"
-              description="Open event-style tools and live engagement surfaces."
-              href={buildArchivistItemPath(serverId, "fun", "creative-tools")}
-            />
-            <QuickActionRow
-              icon={CopyPlus}
-              title="Shop"
-              description="Shape economy, rewards, redemption, and earning loops."
-              href={buildArchivistItemPath(serverId, "fun", "shop")}
-            />
-            <QuickActionRow
-              icon={Users}
-              title="Profile"
-              description="Control visible member identity, leveling, and progression posture."
-              href={buildArchivistItemPath(serverId, "fun", "profile")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Achievements"
-              description="Handle streaks, daily loops, and repeatable milestones."
-              href={buildArchivistItemPath(serverId, "fun", "achievements")}
-            />
-            <QuickActionRow
-              icon={ScrollText}
-              title="Leaderboards"
-              description="Review rankings, winners, and competitive output."
-              href={buildArchivistItemPath(serverId, "fun", "leaderboards")}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <FunOverview
+        serverId={serverId}
+        server={server}
+        moduleEnabled={moduleEnabled}
+        overview={overview}
+        navigate={navigate}
+      />
     );
   }
 
@@ -1763,55 +1683,14 @@ function renderPageContent({
 
   if (item.id === "settings-overview") {
     return (
-      <div className="space-y-4">
-        <MetricGrid
-          items={[
-            { label: "Roles", value: String(context?.roles.length || 0) },
-            { label: "Channels", value: String(context?.channels.length || 0) },
-            { label: "Gateway", value: typeof botStatus?.gatewayPingMs === "number" ? `${Math.round(botStatus.gatewayPingMs)}ms` : "Pending" },
-          ]}
-        />
-        <Card className="archivist-panel">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            <QuickActionRow
-              icon={Users}
-              title="Roles"
-              description="Manage authority, role groups, rewards, and protected access."
-              href={buildArchivistItemPath(serverId, "server", "roles")}
-            />
-            <QuickActionRow
-              icon={MessageSquareText}
-              title="Channels"
-              description="Control destinations, channel posture, and operational routing."
-              href={buildArchivistItemPath(serverId, "server", "channels")}
-            />
-            <QuickActionRow
-              icon={ShieldCheck}
-              title="Permissions"
-              description="Set access rules, moderation posture, and protected behavior."
-              href={buildArchivistItemPath(serverId, "server", "permissions")}
-            />
-            <QuickActionRow
-              icon={Sparkles}
-              title="Onboarding"
-              description="Handle welcome, verification, and member entry flow."
-              href={buildArchivistItemPath(serverId, "server", "onboarding")}
-            />
-            <QuickActionRow
-              icon={Logs}
-              title="Logging"
-              description="Review operational signals, failures, and alert routing."
-              href={buildArchivistItemPath(serverId, "server", "logging")}
-            />
-            <QuickActionRow
-              icon={CopyPlus}
-              title="Backups / Sync"
-              description="Protect exports, sync posture, and server recovery paths."
-              href={buildArchivistItemPath(serverId, "server", "backups-sync")}
-            />
-          </CardContent>
-        </Card>
-      </div>
+      <SystemOverview
+        serverId={serverId}
+        botStatus={botStatus}
+        context={context}
+        documents={documents}
+        logs={logs}
+        navigate={navigate}
+      />
     );
   }
 

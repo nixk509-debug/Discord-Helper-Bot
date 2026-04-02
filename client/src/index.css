@@ -11,56 +11,60 @@
     --font-mono: 'Fira Code', monospace;
 
     /* Archivist Premium Palette */
-    --bg-app: #0A0D14;
-    --bg-shell: #0D1220;
-    --bg-panel: #111624;
-    --bg-panel-raised: #171E30;
-    --bg-panel-focus: #1B2340;
-    --bg-panel-inset: #0C111D;
-    --bg-panel-overlay: rgba(10, 13, 20, 0.9);
-    
-    --border-subtle: rgba(156, 167, 189, 0.1);
-    --border-default: #252E45;
-    --border-strong: rgba(110, 123, 255, 0.24);
-    --border-brand: rgba(110, 123, 255, 0.32);
+    --bg-app: #050506;
+    --bg-shell: #0a0a0b;
+    --bg-panel: #0f1012;
+    --bg-panel-raised: #15161a;
+    --bg-panel-focus: #181217;
+    --bg-panel-inset: #08090b;
+    --bg-panel-overlay: rgba(5, 5, 6, 0.92);
 
-    --text-primary: #F3F6FF;
-    --text-secondary: #9CA7BD;
-    --text-muted: rgba(156, 167, 189, 0.6);
-    --text-faint: rgba(156, 167, 189, 0.4);
+    --border-subtle: rgba(255, 255, 255, 0.07);
+    --border-default: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(168, 41, 63, 0.26);
+    --border-brand: rgba(196, 55, 81, 0.42);
+    --border-cold: rgba(255, 255, 255, 0.09);
 
-    --accent-primary: #6E7BFF;
-    --accent-secondary: #9D8CFF;
+    --text-primary: #f7f3f4;
+    --text-secondary: #b9adb1;
+    --text-muted: rgba(210, 198, 201, 0.62);
+    --text-faint: rgba(210, 198, 201, 0.38);
+
+    --accent-primary: #a32139;
+    --accent-secondary: #f16a80;
+    --brand-primary-strong: #ff8c9e;
+    --category-accent: #ff8c9e;
     --success: #1FA971;
     --warning: #C9952E;
     --danger: #D95763;
+    --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 
     /* Shadcn/UI Compatibility */
-    --background: 225 25% 7%;
-    --foreground: 220 25% 97%;
-    --card: 220 22% 9%;
-    --card-foreground: 220 25% 97%;
+    --background: 240 6% 2%;
+    --foreground: 345 23% 96%;
+    --card: 240 5% 6%;
+    --card-foreground: 345 23% 96%;
     --card-border: 215 21% 85% / 0.1;
-    --popover: 220 22% 8%;
-    --popover-foreground: 220 25% 97%;
+    --popover: 240 5% 6%;
+    --popover-foreground: 345 23% 96%;
     --popover-border: 215 21% 85% / 0.1;
-    --primary: 232 100% 72%;
+    --primary: 347 66% 44%;
     --primary-foreground: 0 0% 99%;
-    --secondary: 219 20% 14%;
-    --secondary-foreground: 220 23% 92%;
-    --muted: 219 18% 13%;
-    --muted-foreground: 216 17% 69%;
-    --accent: 255 84% 77%;
-    --accent-foreground: 220 23% 9%;
+    --secondary: 240 4% 11%;
+    --secondary-foreground: 345 17% 92%;
+    --muted: 240 4% 10%;
+    --muted-foreground: 343 10% 70%;
+    --accent: 348 80% 71%;
+    --accent-foreground: 0 0% 99%;
     --destructive: 353 65% 60%;
     --destructive-foreground: 0 0% 99%;
-    --border: 217 17% 24%;
-    --input: 220 18% 14%;
-    --ring: 232 100% 72%;
+    --border: 240 4% 15%;
+    --input: 240 4% 10%;
+    --ring: 347 66% 44%;
     --radius: 0.75rem;
 
-    --shadow-app: 0 28px 90px rgba(0, 0, 0, 0.5);
-    --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.3);
+    --shadow-app: 0 28px 90px rgba(0, 0, 0, 0.62);
+    --shadow-panel: 0 14px 40px rgba(0, 0, 0, 0.34);
   }
 
   * {
@@ -76,8 +80,9 @@
     @apply font-sans antialiased bg-background text-foreground;
     background-color: var(--bg-app);
     background-image: 
-      radial-gradient(circle at 50% 0%, rgba(110, 123, 255, 0.05), transparent 40%),
-      linear-gradient(180deg, #0A0D14 0%, #0D1220 100%);
+      radial-gradient(circle at 50% 0%, rgba(163, 33, 57, 0.1), transparent 28%),
+      radial-gradient(circle at 82% 18%, rgba(82, 14, 25, 0.18), transparent 18%),
+      linear-gradient(180deg, #050506 0%, #09090b 52%, #040405 100%);
     background-attachment: fixed;
     min-height: 100vh;
   }
@@ -98,8 +103,20 @@
     @apply bg-[var(--bg-panel-raised)] border-[var(--border-strong)];
   }
 
+  .archivist-panel-featured {
+    @apply border-[var(--border-brand)] bg-[linear-gradient(180deg,rgba(27,11,14,0.98),rgba(11,8,9,1))];
+  }
+
+  .archivist-panel-focus {
+    @apply border-[rgba(255,132,152,0.2)] bg-[linear-gradient(180deg,rgba(20,10,13,0.98),rgba(10,8,9,1))];
+  }
+
   .archivist-kicker {
     @apply text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-faint)];
+  }
+
+  .archivist-eyebrow {
+    @apply text-[10px] font-bold uppercase tracking-[0.32em] text-[var(--text-faint)];
   }
 
   .archivist-field {
