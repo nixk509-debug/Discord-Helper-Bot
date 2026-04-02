@@ -49,7 +49,7 @@ function OverviewMetric({
       className={cn(
         "rounded-[22px] border px-4 py-4",
         tone === "brand"
-          ? "border-[rgba(163,33,57,0.32)] bg-[linear-gradient(180deg,rgba(43,14,20,0.96),rgba(15,8,10,0.98))]"
+          ? "border-[rgba(224,0,26,0.32)] bg-[linear-gradient(180deg,rgba(22,6,9,0.96),rgba(15,8,10,0.98))]"
           : "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(16,16,18,0.96),rgba(9,9,10,0.98))]",
       )}
     >
@@ -79,11 +79,11 @@ function LaneButton({
       className={cn(
         "flex min-h-[108px] flex-col items-start justify-between rounded-[24px] border px-4 py-4 text-left transition",
         tone === "brand"
-          ? "border-[rgba(163,33,57,0.32)] bg-[linear-gradient(180deg,rgba(44,14,20,0.98),rgba(18,9,11,1))] hover:border-[rgba(255,121,145,0.44)]"
+          ? "border-[rgba(224,0,26,0.32)] bg-[linear-gradient(180deg,rgba(22,7,10,0.98),rgba(18,9,11,1))] hover:border-[rgba(224,0,26,0.4)]"
           : "border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(16,16,18,0.96),rgba(8,8,9,0.99))] hover:border-[var(--border-brand)]",
       )}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/10 bg-white/[0.03] text-[#ff8b9d]">
+      <div className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/10 bg-white/[0.03] text-[#ff6070]">
         <Icon className="h-4 w-4" />
       </div>
       <div>
@@ -139,7 +139,7 @@ export function CommandsOverview({
 
   return (
     <div className="space-y-4">
-      <Card className="archivist-panel overflow-hidden border-[rgba(163,33,57,0.22)] bg-[linear-gradient(180deg,rgba(22,10,13,0.96),rgba(9,7,8,0.99))]">
+      <Card className="archivist-panel overflow-hidden border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(16,7,9,0.96),rgba(9,7,8,0.99))]">
         <CardContent className="space-y-5 p-5">
           <div className="space-y-3">
             <p className="archivist-kicker">Command Automation</p>
@@ -238,7 +238,7 @@ export function StudioOverview({
 
   return (
     <div className="space-y-4">
-      <Card className="archivist-panel overflow-hidden border-[rgba(163,33,57,0.26)] bg-[linear-gradient(180deg,rgba(24,10,13,0.98),rgba(8,7,8,1))]">
+      <Card className="archivist-panel overflow-hidden border-[rgba(224,0,26,0.26)] bg-[linear-gradient(180deg,rgba(16,7,9,0.98),rgba(8,7,8,1))]">
         <CardContent className="space-y-5 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl space-y-3">

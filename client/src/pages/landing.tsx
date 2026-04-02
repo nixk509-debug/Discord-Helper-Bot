@@ -1,10 +1,9 @@
 import { Link } from "wouter";
 import { SiDiscord, SiGithub } from "react-icons/si";
-import { ArrowRight, Zap, Palette, Shield, Users } from "lucide-react";
+import { ArrowRight, Braces, Gamepad2, ShieldCheck, Sparkles, Zap, Palette, Shield, Users } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_1772114960531.png";
-import dashboardArt from "@assets/dashboard-art.png";
 
 const RED = "#e0001a";
 const RED_GLOW = "rgba(224, 0, 26, 0.22)";
@@ -283,7 +282,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Dashboard screenshot */}
+        {/* Product visualization */}
         <section className="mt-20">
           <div
             className="mx-auto max-w-5xl rounded-[22px] p-[1px]"
@@ -292,16 +291,85 @@ export default function Landing() {
               boxShadow: `0 0 90px rgba(224,0,26,0.09), 0 40px 80px rgba(0,0,0,0.5)`,
             }}
           >
-            <div className="overflow-hidden rounded-[21px] relative" style={{ background: "#09090b" }}>
-              <div className="flex items-center gap-1.5 px-4"
-                style={{ height: 38, borderBottom: "1px solid rgba(255,255,255,0.05)", background: "#0d0d10" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: RED, boxShadow: `0 0 6px ${RED}` }} />
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.1)" }} />
+            <div className="overflow-hidden rounded-[21px]" style={{ background: "#09090b" }}>
+
+              {/* Chrome bar */}
+              <div className="flex items-center justify-between px-4"
+                style={{ height: 42, borderBottom: "1px solid rgba(255,255,255,0.055)", background: "#0c0c0f" }}>
+                <div className="flex items-center gap-1.5">
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: RED, boxShadow: `0 0 6px ${RED}` }} />
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.09)" }} />
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.09)" }} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <img src={archivistLogo} alt="" style={{ width: 18, height: 18, borderRadius: 4, opacity: 0.7 }} />
+                  <span style={{ fontSize: 11, color: "rgba(240,236,238,0.35)", fontWeight: 600 }}>Archivist Workspace</span>
+                </div>
+                <div style={{ width: 56 }} />
               </div>
-              <img src={dashboardArt} alt="Archivist Dashboard" className="w-full h-auto block" style={{ opacity: 0.92 }} />
-              <div className="absolute inset-0 pointer-events-none"
-                style={{ background: "linear-gradient(to top, rgba(5,5,7,0.9) 0%, rgba(5,5,7,0.1) 35%, transparent 55%)" }} />
+
+              {/* Mock workspace body */}
+              <div className="p-5 md:p-7">
+
+                {/* Server header row */}
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg, rgba(224,0,26,0.2), rgba(224,0,26,0.05))", border: "1px solid rgba(224,0,26,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#ff6070" }}>AC</span>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(240,236,238,0.28)", textTransform: "uppercase", letterSpacing: "0.18em" }}>Archivist Workspace</p>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: "#f0ecee", marginTop: 1 }}>Archivist Control</p>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ padding: "5px 12px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 11, fontWeight: 600, color: "rgba(240,236,238,0.45)" }}>Tools</div>
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }} />
+                  </div>
+                </div>
+
+                {/* 4 pillar cards */}
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {[
+                    { icon: <Braces size={16} />, label: "Commands", sub: "12 active", metric: "12", tone: true },
+                    { icon: <Sparkles size={16} />, label: "Studio", sub: "4 drafts", metric: "4", tone: false },
+                    { icon: <Gamepad2 size={16} />, label: "Fun", sub: "Leveling on", metric: "3", tone: false },
+                    { icon: <ShieldCheck size={16} />, label: "Server", sub: "Stable", metric: "OK", tone: false },
+                  ].map(({ icon, label, sub, metric, tone }) => (
+                    <div key={label} className="rounded-[16px] p-4"
+                      style={{
+                        background: tone ? "linear-gradient(180deg,rgba(22,7,10,0.98),rgba(10,7,8,1))" : "linear-gradient(180deg,rgba(14,14,17,0.96),rgba(8,8,10,0.99))",
+                        border: `1px solid ${tone ? "rgba(224,0,26,0.22)" : "rgba(255,255,255,0.07)"}`,
+                      }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span style={{ color: tone ? "#ff6070" : "rgba(240,236,238,0.4)" }}>{icon}</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: tone ? "#ff6070" : "#f0ecee" }}>{metric}</span>
+                      </div>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#f0ecee" }}>{label}</p>
+                      <p style={{ fontSize: 11, color: "rgba(240,236,238,0.35)", marginTop: 2 }}>{sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Mock recent items */}
+                <div className="mt-4 grid gap-2">
+                  {[
+                    { name: "!welcome command", detail: "slash trigger · live", dot: "#1FA971" },
+                    { name: "Server Announcement", detail: "Studio draft · unpublished", dot: "#ff6070" },
+                    { name: "Verification flow", detail: "server module · configured", dot: "rgba(240,236,238,0.3)" },
+                  ].map(({ name, detail, dot }) => (
+                    <div key={name} className="flex items-center justify-between rounded-[12px] px-4 py-3"
+                      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.055)" }}>
+                      <div className="flex items-center gap-3">
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot, display: "inline-block", flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#f0ecee" }}>{name}</span>
+                      </div>
+                      <span style={{ fontSize: 11, color: "rgba(240,236,238,0.3)" }}>{detail}</span>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
             </div>
           </div>
         </section>

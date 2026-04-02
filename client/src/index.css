@@ -11,29 +11,29 @@
     --font-mono: 'Fira Code', monospace;
 
     /* Archivist Premium Palette */
-    --bg-app: #050506;
-    --bg-shell: #0a0a0b;
-    --bg-panel: #0f1012;
-    --bg-panel-raised: #15161a;
-    --bg-panel-focus: #181217;
-    --bg-panel-inset: #08090b;
-    --bg-panel-overlay: rgba(5, 5, 6, 0.92);
+    --bg-app: #050507;
+    --bg-shell: #0a0a0c;
+    --bg-panel: #0f0f12;
+    --bg-panel-raised: #151518;
+    --bg-panel-focus: #171014;
+    --bg-panel-inset: #08080b;
+    --bg-panel-overlay: rgba(5, 5, 7, 0.92);
 
     --border-subtle: rgba(255, 255, 255, 0.07);
     --border-default: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(168, 41, 63, 0.2);
-    --border-brand: rgba(196, 55, 81, 0.32);
+    --border-strong: rgba(224, 0, 26, 0.18);
+    --border-brand: rgba(224, 0, 26, 0.28);
     --border-cold: rgba(255, 255, 255, 0.09);
 
-    --text-primary: #f7f3f4;
-    --text-secondary: #b9adb1;
-    --text-muted: rgba(210, 198, 201, 0.62);
-    --text-faint: rgba(210, 198, 201, 0.38);
+    --text-primary: #f5f0f2;
+    --text-secondary: #b8adb0;
+    --text-muted: rgba(210, 198, 201, 0.6);
+    --text-faint: rgba(210, 198, 201, 0.36);
 
-    --accent-primary: #a32139;
-    --accent-secondary: #f16a80;
-    --brand-primary-strong: #ff8c9e;
-    --category-accent: #ff8c9e;
+    --accent-primary: #e0001a;
+    --accent-secondary: #ff4d60;
+    --brand-primary-strong: #ff6070;
+    --category-accent: #ff6070;
     --success: #1FA971;
     --warning: #C9952E;
     --danger: #D95763;
@@ -48,19 +48,19 @@
     --popover: 240 5% 6%;
     --popover-foreground: 345 23% 96%;
     --popover-border: 215 21% 85% / 0.1;
-    --primary: 347 66% 44%;
+    --primary: 353 100% 44%;
     --primary-foreground: 0 0% 99%;
     --secondary: 240 4% 11%;
     --secondary-foreground: 345 17% 92%;
     --muted: 240 4% 10%;
-    --muted-foreground: 343 10% 70%;
-    --accent: 348 80% 71%;
+    --muted-foreground: 343 10% 68%;
+    --accent: 353 100% 66%;
     --accent-foreground: 0 0% 99%;
-    --destructive: 353 65% 60%;
+    --destructive: 353 75% 58%;
     --destructive-foreground: 0 0% 99%;
     --border: 240 4% 15%;
     --input: 240 4% 10%;
-    --ring: 347 66% 44%;
+    --ring: 353 100% 44%;
     --radius: 0.75rem;
 
     --shadow-app: 0 28px 90px rgba(0, 0, 0, 0.62);
@@ -79,10 +79,10 @@
   body {
     @apply font-sans antialiased bg-background text-foreground;
     background-color: var(--bg-app);
-    background-image: 
-      radial-gradient(circle at 50% 0%, rgba(163, 33, 57, 0.06), transparent 28%),
-      radial-gradient(circle at 82% 18%, rgba(82, 14, 25, 0.1), transparent 18%),
-      linear-gradient(180deg, #050506 0%, #09090b 52%, #040405 100%);
+    background-image:
+      radial-gradient(circle at 50% 0%, rgba(224, 0, 26, 0.07), transparent 28%),
+      radial-gradient(circle at 82% 18%, rgba(140, 0, 16, 0.1), transparent 18%),
+      linear-gradient(180deg, #050507 0%, #09090c 52%, #040406 100%);
     background-attachment: fixed;
     min-height: 100vh;
   }
@@ -104,11 +104,11 @@
   }
 
   .archivist-panel-featured {
-    @apply border-[var(--border-brand)] bg-[linear-gradient(180deg,rgba(27,11,14,0.98),rgba(11,8,9,1))];
+    @apply border-[var(--border-brand)] bg-[linear-gradient(180deg,rgba(22,8,11,0.98),rgba(10,8,9,1))];
   }
 
   .archivist-panel-focus {
-    @apply border-[rgba(255,132,152,0.2)] bg-[linear-gradient(180deg,rgba(20,10,13,0.98),rgba(10,8,9,1))];
+    @apply border-[rgba(224,0,26,0.2)] bg-[linear-gradient(180deg,rgba(20,8,11,0.98),rgba(10,8,9,1))];
   }
 
   .archivist-kicker {

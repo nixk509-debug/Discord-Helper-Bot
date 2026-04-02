@@ -156,11 +156,11 @@ function WorkspaceBottomNav({
               className={cn(
                 "flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 rounded-[22px] px-2 py-2 text-center transition",
                 isActive
-                  ? "border border-[rgba(118,42,55,0.18)] bg-[linear-gradient(180deg,rgba(15,12,13,0.98),rgba(9,9,10,1))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_12px_28px_rgba(0,0,0,0.22)]"
+                  ? "border border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(18,8,10,0.98),rgba(9,8,9,1))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_0_18px_rgba(224,0,26,0.1),0_12px_28px_rgba(0,0,0,0.22)]"
                   : "text-[var(--text-muted)] hover:bg-white/[0.04] hover:text-[var(--text-primary)]",
               )}
             >
-              <Icon className={cn("h-4 w-4", isActive ? "text-[#eba1ae]" : "text-[var(--text-faint)]")} />
+              <Icon className={cn("h-4 w-4", isActive ? "text-[#ff6070]" : "text-[var(--text-faint)]")} />
               <span className={cn("text-[11px] font-semibold tracking-[0.02em]", isActive ? "text-white" : "text-[var(--text-secondary)]")}>
                 {section.label}
               </span>
@@ -209,9 +209,9 @@ function WorkspaceToolDrawer({
                 key={tool.id}
                 type="button"
                 onClick={() => handleSelectTool(tool)}
-                className="flex items-center gap-4 rounded-[24px] border border-[rgba(118,42,55,0.16)] bg-[linear-gradient(180deg,rgba(15,12,13,0.98),rgba(9,9,10,1))] px-4 py-4 text-left transition hover:border-[rgba(136,50,66,0.22)] hover:bg-[linear-gradient(180deg,rgba(18,14,15,0.99),rgba(10,9,10,1))]"
+                className="flex items-center gap-4 rounded-[24px] border border-[rgba(224,0,26,0.16)] bg-[linear-gradient(180deg,rgba(16,10,11,0.98),rgba(9,8,9,1))] px-4 py-4 text-left transition hover:border-[rgba(224,0,26,0.28)] hover:bg-[linear-gradient(180deg,rgba(20,10,12,0.99),rgba(10,8,9,1))]"
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-[rgba(136,50,66,0.16)] bg-[rgba(255,255,255,0.03)] text-[#eba1ae]">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-[rgba(224,0,26,0.16)] bg-[rgba(224,0,26,0.05)] text-[#ff6070]">
                   <ArchivistItemIcon icon={tool.icon} className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -276,7 +276,7 @@ function SimpleHeader({ mode }: { mode: DashboardLayoutMode }) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44 border-white/10 bg-[#0d0d0f] text-white">
-              <DropdownMenuItem onClick={() => logout.mutate()} className="text-[#ff91a2] focus:text-[#ff91a2]">
+              <DropdownMenuItem onClick={() => logout.mutate()} className="text-[#ff6070] focus:text-[#ff6070]">
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign out
               </DropdownMenuItem>
@@ -341,12 +341,12 @@ export function DashboardLayout({
             <button
               type="button"
               onClick={() => navigate("/dashboard")}
-              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(35,14,18,0.98),rgba(11,9,10,0.98))] shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition hover:border-[rgba(244,99,121,0.26)]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[18px] border border-white/10 bg-[linear-gradient(180deg,rgba(28,10,12,0.98),rgba(11,9,10,0.98))] shadow-[0_10px_32px_rgba(0,0,0,0.32)] transition hover:border-[rgba(224,0,26,0.32)]"
             >
               {activeServer?.iconUrl ? (
                 <img src={activeServer.iconUrl} alt={activeServer.name} className="h-full w-full object-cover" />
               ) : (
-                <Home className="h-4 w-4 text-[#ff8296]" />
+                <Home className="h-4 w-4 text-[#ff6070]" />
               )}
             </button>
 
@@ -359,7 +359,7 @@ export function DashboardLayout({
                 <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">
                   {activeSectionConfig.label}
                 </span>
-                <span className="rounded-full border border-[rgba(163,33,57,0.28)] bg-[rgba(163,33,57,0.12)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ff9aaa]">
+                <span className="rounded-full border border-[rgba(224,0,26,0.28)] bg-[rgba(224,0,26,0.1)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ff6070]">
                   {activeItem?.label || "Overview"}
                 </span>
               </div>
@@ -389,7 +389,7 @@ export function DashboardLayout({
                     <Home className="mr-2 h-4 w-4" />
                     Servers
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => logout.mutate()} className="text-[#ff91a2] focus:text-[#ff91a2]">
+                  <DropdownMenuItem onClick={() => logout.mutate()} className="text-[#ff6070] focus:text-[#ff6070]">
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
                   </DropdownMenuItem>
