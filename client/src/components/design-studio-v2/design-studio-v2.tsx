@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearch } from "wouter";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -40,7 +41,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DiscordChannelPicker } from "@/components/discord/channel-picker";
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import { createStudioPrimaryDocument } from "@/components/design-studio/studio-defaults";
-import { StudioV2EmptyState } from "@/components/design-studio-v2/studio-v2-empty-state";
+import { StudioV2EmptyState, type StudioEntryIntent } from "@/components/design-studio-v2/studio-v2-empty-state";
 import {
   appendBundleToDocument,
   cloneDocument,
@@ -81,6 +82,7 @@ type StudioSelectNodeKind = Extract<StudioNode["type"], "string_select" | "role_
 interface DesignStudioTabProps {
   serverId: number;
   onOpenServerSettings?: () => void;
+  entryIntent?: StudioEntryIntent;
 }
 
 type StudioInsertKind =
@@ -1888,8 +1890,9 @@ function MobileEditorSection({
   );
 }
 
-export function DesignStudioTab({ serverId, onOpenServerSettings }: DesignStudioTabProps) {
+export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }: DesignStudioTabProps) {
   const isMobile = useIsMobile();
+  const search = useSearch();
   const { toast } = useToast();
   const documentsQuery = useStudioDocuments(serverId);
   const publicationsQuery = useStudioPublications(serverId);
@@ -2035,16 +2038,33 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: DesignStudio
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const requestedId = Number(new URLSearchParams(window.location.search).get("documentId") || 0);
-    if (!requestedId || currentDocumentId || documents.length === 0) return;
+    const requestedId = Number(new URLSearchParams(search).get("documentId") || 0);
+    if (!requestedId || documents.length === 0 || requestedId === currentDocumentId) return;
     const requested = documents.find((record) => record.id === requestedId);
     if (!requested) return;
+    if (dirty && currentDocumentId && !window.confirm("Discard unsaved changes and open another Studio draft?")) {
+      const url = new URL(window.location.href);
+      if (currentDocumentId) {
+        url.searchParams.set("documentId", String(currentDocumentId));
+      } else {
+        url.searchParams.delete("documentId");
+      }
+      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+      return;
+    }
+    const entryView = getView(requested.document, requested.document.meta.entryViewId);
+    const nextSelection: StudioSelection =
+      entryView.embeds.length > 0 && !String(entryView.messageContent || "").trim() && entryView.rootNodeIds.length === 0
+        ? { kind: "embed", embedIndex: 0 }
+        : { kind: "message", region: "body" };
     setCurrentDocumentId(requested.id);
     setDraft(cloneDocument(requested.document));
+    setDirty(false);
     setSelectedViewId(requested.document.meta.entryViewId);
-    setSelection({ kind: "message", region: "body" });
+    setSelection(nextSelection);
+    setActiveTab("build");
     setMobileStudioScreen("editor");
-  }, [documents, currentDocumentId]);
+  }, [currentDocumentId, dirty, documents, search]);
 
   useEffect(() => {
     if (!draft) {
@@ -2667,6 +2687,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings }: DesignStudio
         onCreateEmbed={() => createDraft("embed")}
         onCreateComponents={() => createDraft("components")}
         onOpenDraft={loadDraft}
+        entryIntent={entryIntent}
       />
     );
   }

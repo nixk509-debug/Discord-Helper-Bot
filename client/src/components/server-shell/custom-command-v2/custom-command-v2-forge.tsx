@@ -79,6 +79,14 @@ type PreviewMode = "build" | "preview";
 type StarterMode = "root" | "template" | "duplicate";
 type ForgeActionOption = CustomCommandV2WorkflowStep["type"] | "studio_asset";
 
+export interface CommandForgeEntryIntent {
+  triggerType?: CustomCommandV2TriggerType;
+  draftName?: string;
+  draftDescription?: string;
+  showStarterOnNewDraft?: boolean;
+  routeSlug?: string;
+}
+
 const ACTION_GROUPS: Array<{
   title: string;
   actions: Array<{ id: ForgeActionOption; label: string; description: string }>;
@@ -304,15 +312,17 @@ export function CustomCommandV2Forge({
   serverId,
   screen,
   initialSelection = "new",
+  entryIntent,
 }: {
   serverId: number;
   screen: ForgeScreen;
   initialSelection?: SelectionState;
+  entryIntent?: CommandForgeEntryIntent;
 }) {
   if (screen === "hub" || screen === "import" || screen === "activity") {
     return <CustomCommandV2Home serverId={serverId} screen={screen} />;
   }
-  return <CustomCommandV2ForgeBuilder serverId={serverId} initialSelection={initialSelection} />;
+  return <CustomCommandV2ForgeBuilder serverId={serverId} initialSelection={initialSelection} entryIntent={entryIntent} />;
 }
 
 function PreviewPanel({
@@ -377,9 +387,11 @@ function PreviewPanel({
 function CustomCommandV2ForgeBuilder({
   serverId,
   initialSelection,
+  entryIntent,
 }: {
   serverId: number;
   initialSelection: SelectionState;
+  entryIntent?: CommandForgeEntryIntent;
 }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -404,7 +416,7 @@ function CustomCommandV2ForgeBuilder({
   const [lastCompiled, setLastCompiled] = useState<CustomCommandV2Compiled | null>(null);
   const [lastIssues, setLastIssues] = useState<CustomCommandV2Issue[]>([]);
   const [previewMode, setPreviewMode] = useState<PreviewMode>("build");
-  const [starterOpen, setStarterOpen] = useState(initialSelection === "new");
+  const [starterOpen, setStarterOpen] = useState(initialSelection === "new" && (entryIntent?.showStarterOnNewDraft ?? true));
   const [starterMode, setStarterMode] = useState<StarterMode>("root");
   const [duplicateSourceId, setDuplicateSourceId] = useState<string>("");
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -418,27 +430,54 @@ function CustomCommandV2ForgeBuilder({
     [commands, selection],
   );
 
+  const routeSlug = entryIntent?.routeSlug || "create-command";
+  const showStarterOnNewDraft = entryIntent?.showStarterOnNewDraft ?? true;
+  const createEntryDraft = useMemo(() => {
+    return () => {
+      const blank = createBlankWorkflowDraft();
+      const draftName = entryIntent?.draftName?.trim() || "";
+      const draftDescription = entryIntent?.draftDescription?.trim() || "";
+
+      if (draftName) {
+        blank.meta.name = draftName;
+      }
+      if (draftDescription) {
+        blank.meta.description = draftDescription;
+      }
+      if (entryIntent?.triggerType) {
+        blank.trigger = createWorkflowTriggerTemplate(entryIntent.triggerType, {
+          name: draftName || "Archivist Command",
+          description: draftDescription || "Run this Archivist command",
+        });
+      }
+
+      return blank;
+    };
+  }, [entryIntent?.draftDescription, entryIntent?.draftName, entryIntent?.triggerType]);
+
   useEffect(() => {
     setSelection(initialSelection);
   }, [initialSelection]);
 
   useEffect(() => {
-    if (loadedSelection === selection) return;
     if (selection === "new") {
-      const blank = createBlankWorkflowDraft();
+      const blank = createEntryDraft();
+      const blankFingerprint = JSON.stringify(blank);
+      if (loadedSelection === "new" && loadedFingerprint === blankFingerprint) return;
       setDraft(blank);
-      setLoadedFingerprint(JSON.stringify(blank));
+      setLoadedFingerprint(blankFingerprint);
       setLastValidatedFingerprint(null);
       setLastCompiled(null);
       setLastIssues([]);
       setEditingActionId(null);
       setLoadedSelection("new");
       if (initialSelection === "new") {
-        setStarterOpen(true);
+        setStarterOpen(showStarterOnNewDraft);
       }
       return;
     }
 
+    if (loadedSelection === selection) return;
     const command = commands.find((entry) => entry.id === selection);
     if (!command) return;
     const nextDraft = cloneWorkflowDefinition(command.definition);
@@ -450,7 +489,7 @@ function CustomCommandV2ForgeBuilder({
     setEditingActionId(null);
     setLoadedSelection(command.id);
     setStarterOpen(false);
-  }, [commands, initialSelection, loadedSelection, selection]);
+  }, [commands, createEntryDraft, initialSelection, loadedFingerprint, loadedSelection, selection, showStarterOnNewDraft]);
 
   const draftFingerprint = JSON.stringify(draft);
   const draftDirty = loadedFingerprint !== null && loadedFingerprint !== draftFingerprint;
@@ -469,10 +508,10 @@ function CustomCommandV2ForgeBuilder({
   const openSelection = (nextSelection: SelectionState) => {
     setSelection(nextSelection);
     if (nextSelection === "new") {
-      navigate(buildArchivistItemPath(serverId, "commands", "create-command"));
+      navigate(buildArchivistItemPath(serverId, "commands", routeSlug));
       return;
     }
-    navigate(buildArchivistItemPath(serverId, "commands", "create-command", { search: { commandId: nextSelection } }));
+    navigate(buildArchivistItemPath(serverId, "commands", routeSlug, { search: { commandId: nextSelection } }));
   };
 
   const resetForNewDraft = (nextDraft: CustomCommandV2Definition) => {
@@ -483,11 +522,11 @@ function CustomCommandV2ForgeBuilder({
     setLastCompiled(null);
     setLastIssues([]);
     setEditingActionId(null);
-    navigate(buildArchivistItemPath(serverId, "commands", "create-command"));
+    navigate(buildArchivistItemPath(serverId, "commands", routeSlug));
   };
 
   const beginBlankDraft = () => {
-    resetForNewDraft(createBlankWorkflowDraft());
+    resetForNewDraft(createEntryDraft());
     setStarterOpen(false);
     setStarterMode("root");
   };
@@ -518,6 +557,10 @@ function CustomCommandV2ForgeBuilder({
 
   const handleOpenNewDraft = () => {
     if (draftDirty && !window.confirm("Discard this draft and start a new command?")) return;
+    if (!showStarterOnNewDraft) {
+      beginBlankDraft();
+      return;
+    }
     setStarterOpen(true);
     setStarterMode("root");
   };

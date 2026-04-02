@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { inferStudioPrimarySurfaceType } from "@/components/design-studio/studio-defaults";
-import { DesignStudioTab } from "@/components/design-studio/design-studio-tab";
 import { CustomCommandV2Forge } from "@/components/server-shell/custom-command-v2/custom-command-v2-forge";
 import {
   CommandsOverview,
@@ -33,6 +32,11 @@ import {
   FunOverview,
   SystemOverview,
 } from "@/components/workspace/archivist-pillar-overviews";
+import {
+  CommandAutomationEntry,
+  CommandEditorEntry,
+  StudioEditorEntry,
+} from "@/components/workspace/archivist-editor-entry-hosts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -562,9 +566,13 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     if (!serverId) return;
-    const isCanonical = location.startsWith(`/dashboard/servers/${serverId}/${section}/${item.slug}`);
-    if (!isCanonical) {
-      navigate(buildArchivistItemPath(serverId, section, item.slug), { replace: true });
+    const canonicalSearch = typeof window === "undefined"
+      ? {}
+      : Object.fromEntries(new URLSearchParams(window.location.search).entries());
+    const canonicalPath = buildArchivistItemPath(serverId, section, item.slug, { search: canonicalSearch });
+    const currentLocation = typeof window === "undefined" ? location : `${window.location.pathname}${window.location.search}`;
+    if (currentLocation !== canonicalPath) {
+      navigate(canonicalPath, { replace: true });
     }
   }, [item.slug, location, navigate, section, serverId]);
 
@@ -803,29 +811,14 @@ export default function WorkspacePage() {
   if (item.id === "studio-create") {
     return (
       <DashboardLayout>
-        <div className="space-y-4">
-          <PageHeader
-            item={item}
-            title="Design Studio Editor"
-            description="Use the focused builder when you are actively creating or revising assets."
-            secondaryAction={
-              <Button
-                variant="outline"
-                className="min-h-11 rounded-[18px] border-white/10 bg-white/[0.03]"
-                onClick={() => navigate(buildArchivistItemPath(serverId, "studio", "overview"))}
-              >
-                Back to Studio Overview
-              </Button>
-            }
-          />
-          <Card className="archivist-panel overflow-hidden">
-            <div className="border-b border-white/6 px-4 py-4">
-              <p className="text-sm font-semibold text-white">Focused editor</p>
-              <p className="mt-1 text-sm text-white/46">Drafts, preview, and publishing stay inside the editor page.</p>
-            </div>
-            <DesignStudioTab serverId={serverId} />
-          </Card>
-        </div>
+        <StudioEditorEntry
+          serverId={serverId}
+          itemId="studio-create"
+          documents={documents}
+          drafts={drafts}
+          publishedDocumentIds={publishedDocumentIds}
+          navigate={navigate}
+        />
       </DashboardLayout>
     );
   }
@@ -958,7 +951,26 @@ function renderPageContent({
     return <CustomCommandV2Forge serverId={serverId} screen="activity" />;
   }
 
-  if (item.id === "commands-slash" || item.id === "commands-message" || item.id === "commands-auto") {
+  if (item.id === "commands-auto") {
+    return <CommandAutomationEntry serverId={serverId} commands={commands} navigate={navigate} />;
+  }
+
+  if ([
+    "commands-slash",
+    "commands-message",
+    "commands-buttons",
+    "commands-selects",
+    "commands-modals",
+    "commands-scheduled",
+    "commands-member-join",
+    "commands-role-change",
+    "commands-reaction",
+    "commands-internal",
+  ].includes(item.id)) {
+    return <CommandEditorEntry serverId={serverId} itemId={item.id as any} commands={commands} navigate={navigate} />;
+  }
+
+  if (false && (item.id === "commands-slash" || item.id === "commands-message" || item.id === "commands-auto")) {
     const subset = commands.filter((command: any) => {
       const family = getWorkflowCommandFamily(command);
       if (item.id === "commands-auto") return family === "auto";
@@ -1298,7 +1310,27 @@ function renderPageContent({
     );
   }
 
-  if (["studio-embeds", "studio-components", "studio-welcome", "studio-verify", "studio-tickets"].includes(item.id)) {
+  if ([
+    "studio-embeds",
+    "studio-components",
+    "studio-welcome",
+    "studio-verify",
+    "studio-tickets",
+    "studio-announcements",
+  ].includes(item.id)) {
+    return (
+      <StudioEditorEntry
+        serverId={serverId}
+        itemId={item.id as any}
+        documents={documents}
+        drafts={drafts}
+        publishedDocumentIds={publishedDocumentIds}
+        navigate={navigate}
+      />
+    );
+  }
+
+  if (false && ["studio-embeds", "studio-components", "studio-welcome", "studio-verify", "studio-tickets"].includes(item.id)) {
     const subset = documents.filter((document: any) => {
       if (item.id === "studio-embeds") return inferStudioPrimarySurfaceType(document.document) === "embed";
       if (item.id === "studio-components") return inferStudioPrimarySurfaceType(document.document) === "components";

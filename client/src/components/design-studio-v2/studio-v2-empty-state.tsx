@@ -23,23 +23,37 @@ interface StudioV2EmptyStateProps {
   onCreateEmbed: () => void;
   onCreateComponents: () => void;
   onOpenDraft: (documentId: number) => void;
+  entryIntent?: StudioEntryIntent;
+}
+
+export type StudioCreateKind = "message" | "embed" | "components";
+
+export interface StudioEntryIntent {
+  eyebrow?: string;
+  title?: string;
+  description?: string;
+  badges?: string[];
+  recommendedFlowLabel?: string;
+  recommendedFlowTitle?: string;
+  recommendedFlowDescription?: string;
+  preferredKinds?: StudioCreateKind[];
 }
 
 const CREATE_ROWS = [
   {
-    id: "message",
+    id: "message" as const,
     title: "Message draft",
     description: "Start with body text and rows that publish cleanly.",
     icon: FileText,
   },
   {
-    id: "embed",
+    id: "embed" as const,
     title: "Embed draft",
     description: "Build a richer message with image, color, and structure.",
     icon: Sparkles,
   },
   {
-    id: "components",
+    id: "components" as const,
     title: "Interactive layout",
     description: "Start with structure when the message needs blocks, rows, and richer interaction.",
     icon: Layers3,
@@ -57,7 +71,23 @@ export function StudioV2EmptyState({
   onCreateEmbed,
   onCreateComponents,
   onOpenDraft,
+  entryIntent,
 }: StudioV2EmptyStateProps) {
+  const preferredKinds = entryIntent?.preferredKinds?.length ? entryIntent.preferredKinds : CREATE_ROWS.map((row) => row.id);
+  const orderedRows = [
+    ...preferredKinds
+      .map((kind) => CREATE_ROWS.find((row) => row.id === kind))
+      .filter((row): row is (typeof CREATE_ROWS)[number] => Boolean(row)),
+    ...CREATE_ROWS.filter((row) => !preferredKinds.includes(row.id)),
+  ];
+  const heroEyebrow = entryIntent?.eyebrow || "Design Studio";
+  const heroTitle = entryIntent?.title || "Build Discord designs live.";
+  const heroDescription = entryIntent?.description || "Draft the message, see the real preview, catch publish issues, and keep every design reusable inside Custom Commands.";
+  const heroBadges = entryIntent?.badges?.length ? entryIntent.badges : ["Build", "Preview", "Issues", "Publish"];
+  const recommendedFlowLabel = entryIntent?.recommendedFlowLabel || "Recommended flow";
+  const recommendedFlowTitle = entryIntent?.recommendedFlowTitle || "Start the draft. Tap the part. Edit it live.";
+  const recommendedFlowDescription = entryIntent?.recommendedFlowDescription || "Keep the live Discord message at the center so editing and publishing stay aligned.";
+
   return (
     <div className="space-y-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">
       <SurfacePanel className="overflow-hidden">
@@ -70,20 +100,19 @@ export function StudioV2EmptyState({
                   <img src={archivistLogo} alt="Archivist" className="h-8 w-8 object-contain" />
                 </div>
                 <div className="min-w-0">
-                  <p className="archivist-eyebrow">Design Studio</p>
-                  <h1 className="truncate text-2xl font-bold tracking-tight text-white md:text-[2rem]">Build Discord designs live.</h1>
+                  <p className="archivist-eyebrow">{heroEyebrow}</p>
+                  <h1 className="truncate text-2xl font-bold tracking-tight text-white md:text-[2rem]">{heroTitle}</h1>
                 </div>
               </div>
 
               <div className="max-w-2xl space-y-2">
-                <p className="text-sm leading-7 text-white/62 md:text-[15px]">
-                  Draft the message, see the real preview, catch publish issues, and keep every design reusable inside Custom Commands.
-                </p>
+                <p className="text-sm leading-7 text-white/62 md:text-[15px]">{heroDescription}</p>
                 <div className="flex flex-wrap gap-2">
-                  <StatusPill tone="accent">Build</StatusPill>
-                  <StatusPill>Preview</StatusPill>
-                  <StatusPill>Issues</StatusPill>
-                  <StatusPill>Publish</StatusPill>
+                  {heroBadges.map((badge, index) => (
+                    <StatusPill key={badge} tone={index === 0 ? "accent" : "neutral"}>
+                      {badge}
+                    </StatusPill>
+                  ))}
                 </div>
               </div>
 
@@ -94,7 +123,7 @@ export function StudioV2EmptyState({
               </div>
 
               <div className="grid gap-2">
-                {CREATE_ROWS.map((row) => {
+                {orderedRows.map((row, index) => {
                   const Icon = row.icon;
                   const onCreate =
                     row.id === "message"
@@ -109,10 +138,18 @@ export function StudioV2EmptyState({
                       type="button"
                       onClick={onCreate}
                       disabled={isWorking}
-                      className="group flex w-full items-center justify-between rounded-[18px] border border-white/8 bg-[#0b0d10]/92 px-4 py-3 text-left transition hover:border-[#8a2735] hover:bg-[#120d11]"
+                      className={cn(
+                        "group flex w-full items-center justify-between rounded-[18px] border px-4 py-3 text-left transition",
+                        index === 0
+                          ? "border-[#8a2735] bg-[#120d11] hover:border-[#b33647]"
+                          : "border-white/8 bg-[#0b0d10]/92 hover:border-[#8a2735] hover:bg-[#120d11]",
+                      )}
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#6e202c] bg-[#130d10] text-[#ff6277]">
+                        <div className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-[12px] border text-[#ff6277]",
+                          index === 0 ? "border-[#8a2735] bg-[#1a0f13]" : "border-[#6e202c] bg-[#130d10]",
+                        )}>
                           <Icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
@@ -150,9 +187,9 @@ export function StudioV2EmptyState({
                 <img src={dashboardArt} alt="Studio preview" className="w-full rounded-[14px] border border-white/10 object-cover" />
               </div>
               <div className="rounded-[18px] border border-white/10 bg-[#090b0e]/88 px-4 py-4 backdrop-blur-sm">
-                <p className="text-xs uppercase tracking-[0.22em] text-white/38">Recommended flow</p>
-                <p className="mt-2 text-sm font-semibold text-white">Start the draft. Tap the part. Edit it live.</p>
-                <p className="mt-1 text-sm leading-6 text-white/50">Keep the live Discord message at the center so editing and publishing stay aligned.</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/38">{recommendedFlowLabel}</p>
+                <p className="mt-2 text-sm font-semibold text-white">{recommendedFlowTitle}</p>
+                <p className="mt-1 text-sm leading-6 text-white/50">{recommendedFlowDescription}</p>
               </div>
             </div>
           </div>
