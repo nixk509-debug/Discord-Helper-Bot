@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearch } from "wouter";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   ChevronLeft,
   Copy,
   ImageIcon,
@@ -61,6 +63,7 @@ import {
   getSelectionLabel,
   getView,
   makeId,
+  moveNodeInDocument,
   normalizeStudioDocument,
   parseDate,
   removeNodeBranch,
@@ -364,6 +367,14 @@ function getNodeOutlineIcon(node: StudioNode): "text" | "divider" | "notice" | "
   }
 }
 
+function needsDedicatedMobileNodeScreen(nodeType: StudioNode["type"] | null | undefined) {
+  return Boolean(nodeType && (nodeType === "action_row" || nodeType === "button" || isStudioSelectNodeType(nodeType)));
+}
+
+function isInsertTargetNode(nodeType: StudioNode["type"] | null | undefined) {
+  return nodeType === "section" || nodeType === "container" || nodeType === "action_row";
+}
+
 function StudioTabButton({
   tab,
   activeTab,
@@ -385,7 +396,7 @@ function StudioTabButton({
       className={cn(
         "flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border px-2 py-2.5 text-[11px] uppercase tracking-[0.2em] transition sm:flex-row sm:gap-2 sm:px-3 sm:text-sm sm:normal-case sm:tracking-normal",
         active
-          ? "border-[#8b2835] bg-[linear-gradient(180deg,rgba(177,18,38,0.28),rgba(23,12,15,0.96))] text-white shadow-[0_14px_34px_rgba(177,18,38,0.22)]"
+          ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(22,14,16,0.98),rgba(11,10,11,1))] text-white shadow-[0_14px_34px_rgba(0,0,0,0.2)]"
           : "border-white/10 bg-[#0b0d10]/95 text-white/62 hover:border-white/20 hover:text-white/82",
       )}
     >
@@ -405,9 +416,7 @@ function BuildSelectionEditor({
   onChangeDraft,
   onDeleteEmbed,
   onDeleteNode,
-  onAddPart,
-  onAddButtonToRow,
-  onAddSelectToRow,
+  onMoveNode,
 }: {
   draft: StudioDocument;
   selectedViewId: string;
@@ -418,9 +427,7 @@ function BuildSelectionEditor({
   onChangeDraft: (updater: (document: StudioDocument) => void) => void;
   onDeleteEmbed: (embedIndex: number) => void;
   onDeleteNode: (nodeId: string) => void;
-  onAddPart: (kind: StudioInsertKind, parentId?: string | null) => void;
-  onAddButtonToRow: (rowId: string) => void;
-  onAddSelectToRow: (rowId: string, kind?: StudioSelectNodeKind) => void;
+  onMoveNode: (nodeId: string, direction: -1 | 1) => void;
 }) {
   const view = getView(draft, selectedViewId);
   const wrapForMobile = (
@@ -439,26 +446,6 @@ function BuildSelectionEditor({
     <Button variant="ghost" className="justify-start rounded-[18px] px-0 text-red-300 hover:bg-transparent hover:text-red-200" onClick={onRemove}>
       {label}
     </Button>
-  );
-  const quickAddButton = (
-    label: string,
-    onClick: () => void,
-    options?: { disabled?: boolean; helper?: string },
-  ) => (
-    <div className="space-y-2">
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="w-full justify-start rounded-[14px] border-white/10 bg-white/[0.03] text-white/86"
-        onClick={onClick}
-        disabled={options?.disabled}
-      >
-        <Plus className="mr-2 h-3.5 w-3.5" />
-        {label}
-      </Button>
-      {options?.helper ? <p className="text-[11px] leading-5 text-white/42">{options.helper}</p> : null}
-    </div>
   );
   const viewOptions = Object.values(draft.views);
   const modalOptions = Object.values(draft.modals);
@@ -603,7 +590,7 @@ function BuildSelectionEditor({
                   className={cn(
                     "h-auto min-h-12 justify-start rounded-[14px] border px-3 py-3 text-left",
                     active
-                      ? "border-[#8b2835] bg-[linear-gradient(180deg,rgba(177,18,38,0.18),rgba(23,12,15,0.92))] text-white"
+                      ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(22,14,16,0.98),rgba(11,10,11,1))] text-white"
                       : "border-white/10 bg-white/[0.03] text-white/80",
                   )}
                   onClick={() => onChangeDraft((document) => {
@@ -1457,21 +1444,20 @@ function BuildSelectionEditor({
         <div className="rounded-[18px] border border-dashed border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-white">Add inside this {node.type === "section" ? "section" : "container"}</p>
-              <p className="mt-1 text-xs text-white/46">Pick what you want to add. Archivist will create the needed row under the hood.</p>
+              <p className="text-sm font-semibold text-white">Insertion stays in one flow</p>
+              <p className="mt-1 text-xs text-white/46">Use the insert action above to add text, layout, or interaction inside this {node.type === "section" ? "section" : "container"} without switching to a different add model.</p>
             </div>
             <Badge variant="outline">{node.childIds.length} child{node.childIds.length === 1 ? "" : "ren"}</Badge>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {quickAddButton("Text Block", () => onAddPart("text", node.id))}
-            {quickAddButton("Divider", () => onAddPart("divider", node.id))}
-            {quickAddButton("Notice", () => onAddPart("notice", node.id))}
-            {quickAddButton("Button", () => onAddPart("button", node.id))}
-            {quickAddButton("Menu", () => onAddPart("select", node.id))}
-            {quickAddButton("Gallery", () => onAddPart("gallery", node.id))}
-            {quickAddButton("File", () => onAddPart("file", node.id))}
-            {quickAddButton("Button Group", () => onAddPart("button_row", node.id))}
-            {node.type === "container" ? quickAddButton("Nested Section", () => onAddPart("section", node.id)) : null}
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+              <p className="text-sm font-semibold text-white">Current target</p>
+              <p className="mt-1 text-xs leading-5 text-white/46">{node.type === "container" ? "Containers can hold nested sections plus content blocks." : "Sections work best for grouped copy, notices, and interaction beats."}</p>
+            </div>
+            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+              <p className="text-sm font-semibold text-white">Why this changed</p>
+              <p className="mt-1 text-xs leading-5 text-white/46">Studio now keeps the grouped insert catalog as the primary way to add the next block, so the builder reads consistently on mobile.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1609,26 +1595,64 @@ function BuildSelectionEditor({
           <p className="mt-1 text-xs text-white/42">Discord rows can hold up to 5 buttons or 1 select menu. Mixing both is technically possible in the draft but warned against before publish.</p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          {quickAddButton("Add Button", () => onAddButtonToRow(node.id), {
-            disabled: node.childIds.length >= 5 || rowHasSelect,
-            helper: rowHasSelect ? "This row already has a menu. Keep select menus in their own row." : node.childIds.length >= 5 ? "Action rows max out at 5 buttons." : "Add another clickable button into this row.",
-          })}
-          {quickAddButton("Add Menu", () => onAddSelectToRow(node.id, "string_select"), {
-            disabled: rowHasButtons || rowHasSelect,
-            helper: rowHasButtons ? "Rows with buttons should keep menus in a separate row." : rowHasSelect ? "This row already has a select menu." : "Create a dropdown menu. Role, user, and channel selectors are in the Add tray too.",
-          })}
+          <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+            <p className="text-sm font-semibold text-white">Add through the grouped flow</p>
+            <p className="mt-1 text-xs leading-5 text-white/42">
+              {rowHasSelect
+                ? "This row already has a menu. Keep button groups and menu rows separate when you add the next interaction."
+                : rowHasButtons
+                  ? "Use the grouped add flow to keep stacking buttons into this row without opening a second insertion pattern."
+                  : "Open the grouped add flow above to insert either a button set or a single menu into this row."}
+            </p>
+          </div>
+          <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+            <p className="text-sm font-semibold text-white">Discord row limits</p>
+            <p className="mt-1 text-xs leading-5 text-white/42">
+              {rowHasSelect
+                ? "A menu owns the whole row. Add another row if you need more actions."
+                : node.childIds.length >= 5
+                  ? "This row is full. Reorder, trim, or create another row for additional actions."
+                  : "Rows hold up to 5 buttons or 1 menu. Studio keeps that publish reality visible while you work."}
+            </p>
+          </div>
         </div>
         <div className="space-y-2">
           {node.childIds.map((childId, index) => {
             const child = draft.nodes[childId];
             if (!child) return null;
+            const canMoveUp = index > 0;
+            const canMoveDown = index < node.childIds.length - 1;
             return (
-              <div key={childId} className="flex items-center justify-between rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+              <div key={childId} className="flex items-center justify-between gap-3 rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold text-white">{String(child.props.label || (isStudioSelectNodeType(child.type) ? `${getStudioSelectKindLabel(child.type)} ${index + 1}` : `Button ${index + 1}`))}</p>
                   <p className="mt-1 text-xs text-white/42">{isStudioSelectNodeType(child.type) ? "Tap the selector in preview to edit its behavior." : "Tap the button in preview to edit its behavior."}</p>
                 </div>
-                <Badge variant="outline">{index + 1}</Badge>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 rounded-full border-white/10 bg-white/[0.03]"
+                      onClick={() => onMoveNode(childId, -1)}
+                      disabled={!canMoveUp}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 rounded-full border-white/10 bg-white/[0.03]"
+                      onClick={() => onMoveNode(childId, 1)}
+                      disabled={!canMoveDown}
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <Badge variant="outline">{index + 1}</Badge>
+                </div>
               </div>
             );
           })}
@@ -2265,10 +2289,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     return draft.assets.filter((asset) => asset.name.toLowerCase().includes(query) || asset.url.toLowerCase().includes(query) || asset.type.toLowerCase().includes(query));
   }, [assetQuery, draft]);
   const selectedNode = draft && selection.kind === "node" ? draft.nodes[selection.nodeId] || null : null;
-  const contextualInsertLabel = selectedNode?.type === "section"
+  const activeInsertTargetId = selectedNode && isInsertTargetNode(selectedNode.type) ? selectedNode.id : null;
+  const activeInsertTargetType = activeInsertTargetId ? selectedNode?.type || null : null;
+  const contextualInsertLabel = activeInsertTargetType === "section"
     ? "Adding into selected section"
-    : selectedNode?.type === "container"
+    : activeInsertTargetType === "container"
       ? "Adding into selected container"
+      : activeInsertTargetType === "action_row"
+        ? "Adding into selected action row"
       : "Add parts";
   const assetSelectionHint =
     selection.kind === "embed"
@@ -2287,11 +2315,22 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     window.history.replaceState({}, "", `${url.pathname}${url.search}`);
   };
 
-  const select = (nextSelection: StudioSelection) => {
+  const select = (
+    nextSelection: StudioSelection,
+    options?: { nodeType?: StudioNode["type"] | null },
+  ) => {
     setSelection(nextSelection);
     if (isMobile) {
-      setMobileStudioScreen(nextSelection.kind === "node" ? "component" : "editor");
-      setMobileInspectorOpen(false);
+      if (nextSelection.kind !== "node") {
+        setMobileStudioScreen("editor");
+        setMobileInspectorOpen(false);
+        return;
+      }
+
+      const nextNodeType = options?.nodeType || draft?.nodes[nextSelection.nodeId]?.type || null;
+      const dedicatedScreen = needsDedicatedMobileNodeScreen(nextNodeType);
+      setMobileStudioScreen(dedicatedScreen ? "component" : "editor");
+      setMobileInspectorOpen(!dedicatedScreen);
     }
   };
 
@@ -2303,6 +2342,42 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       return next;
     });
     setDirty(true);
+  };
+
+  const openInsertFlow = (parentId?: string | null) => {
+    if (parentId && draft?.nodes[parentId]) {
+      if (selection.kind !== "node" || selection.nodeId !== parentId) {
+        select({ kind: "node", nodeId: parentId }, { nodeType: draft.nodes[parentId].type });
+      }
+    } else if (selection.kind !== "message") {
+      select({ kind: "message", region: "body" });
+    }
+
+    if (isMobile) {
+      setMobileInspectorOpen(false);
+    }
+    setMobileInsertOpen(true);
+  };
+
+  const moveNode = (nodeId: string, direction: -1 | 1) => {
+    if (!draft) return;
+    const currentNode = draft.nodes[nodeId];
+    if (!currentNode) return;
+    const currentSiblings =
+      currentNode.parentId && draft.nodes[currentNode.parentId]
+        ? draft.nodes[currentNode.parentId].childIds
+        : draft.views[currentNode.viewId]?.rootNodeIds || [];
+    const currentIndex = currentSiblings.indexOf(nodeId);
+    if (currentIndex === -1) return;
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= currentSiblings.length) return;
+
+    let moved = false;
+    touchDraft((document) => {
+      moved = moveNodeInDocument(document, nodeId, direction);
+    });
+    if (!moved) return;
+    select({ kind: "node", nodeId }, { nodeType: draft.nodes[nodeId]?.type || null });
   };
 
   const beginRename = (record: StudioDocumentRecord) => {
@@ -2635,15 +2710,17 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     parentIdOverride?: string | null,
   ) => {
     let nextSelection: StudioSelection = { kind: "message", region: "body" };
+    let nextNodeType: StudioNode["type"] | null = null;
     touchDraft((document) => {
       const parentId = typeof parentIdOverride !== "undefined"
         ? parentIdOverride
-        : selection.kind === "node" && ["section", "container", "action_row"].includes(document.nodes[selection.nodeId]?.type || "")
+        : selection.kind === "node" && isInsertTargetNode(document.nodes[selection.nodeId]?.type || null)
           ? selection.nodeId
           : null;
       if (kind === "button" || kind === "select" || isStudioSelectNodeType(kind)) {
         const interactiveNodeId = addInteractivePart(document, kind === "select" ? "string_select" : kind, parentId);
         nextSelection = interactiveNodeId ? { kind: "node", nodeId: interactiveNodeId } : { kind: "message", region: "body" };
+        nextNodeType = interactiveNodeId ? document.nodes[interactiveNodeId]?.type || null : null;
         return;
       }
       const bundle = createNodeBundle(kind, selectedViewId);
@@ -2652,30 +2729,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       if ((kind === "button_row" || kind === "select_menu") && firstId) {
         const interactiveNode = bundle.nodes.find((entry: StudioNode) => entry.type === "button" || isStudioSelectNodeType(entry.type));
         nextSelection = interactiveNode ? { kind: "node", nodeId: interactiveNode.id } : { kind: "node", nodeId: firstId };
+        nextNodeType = interactiveNode?.type || document.nodes[firstId]?.type || null;
       } else if (firstId) {
         nextSelection = { kind: "node", nodeId: firstId };
+        nextNodeType = document.nodes[firstId]?.type || null;
       }
     });
     setMobileInsertOpen(false);
-    select(nextSelection);
-  };
-
-  const addButtonToActionRow = (rowId: string) => {
-    let nextSelection: StudioSelection = { kind: "node", nodeId: rowId };
-    touchDraft((document) => {
-      const buttonId = appendButtonToRow(document, rowId);
-      if (buttonId) nextSelection = { kind: "node", nodeId: buttonId };
-    });
-    select(nextSelection);
-  };
-
-  const addSelectToActionRow = (rowId: string, kind: StudioSelectNodeKind = "string_select") => {
-    let nextSelection: StudioSelection = { kind: "node", nodeId: rowId };
-    touchDraft((document) => {
-      const selectId = appendSelectToRow(document, rowId, kind);
-      if (selectId) nextSelection = { kind: "node", nodeId: selectId };
-    });
-    select(nextSelection);
+    select(nextSelection, { nodeType: nextNodeType });
   };
 
   const deleteNode = (nodeId: string) => {
@@ -2862,39 +2923,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         })
       }
       onChangeEmbed={changeEmbed}
-      onAddEmbed={addEmbed}
       onDeleteEmbed={deleteEmbed}
       onEditNode={(nodeId) => select({ kind: "node", nodeId })}
-      onQuickAddRoot={(kind) => {
-        addPart(kind);
-      }}
-      onQuickAddNode={(parentId, kind) => {
-        if (selection.kind !== "node" || selection.nodeId !== parentId) {
-          select({ kind: "node", nodeId: parentId });
-        }
-        if (kind === "button") {
-          addPart("button", parentId);
-          return;
-        }
-        if (kind === "select") {
-          addPart("select", parentId);
-          return;
-        }
-        if (kind === "select_menu") {
-          const parentNode = draft?.nodes[parentId];
-          if (parentNode?.type === "action_row") {
-            addPart("select", parentId);
-            return;
-          }
-          addPart("select_menu", parentId);
-          return;
-        }
-        if (kind === "button_row") {
-          addPart("button_row", parentId);
-          return;
-        }
-        addPart(kind, parentId);
-      }}
+      onOpenInsertRoot={() => openInsertFlow(null)}
+      onOpenInsertNode={(parentId) => openInsertFlow(parentId)}
       selectedMessage={selection.kind === "message"}
       selectedMessageRegion={selection.kind === "message" ? selection.region ?? "body" : null}
       selectedEmbedIndex={selection.kind === "embed" ? selection.embedIndex : null}
@@ -2909,6 +2941,25 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const selectionPanelDescription = selection.kind === "node"
     ? "Only the controls for the selected block stay visible here."
     : "The live message is the editor. Use this panel only when you need deeper settings.";
+  const selectedNodeSiblings = selectedNode
+    ? selectedNode.parentId && draft.nodes[selectedNode.parentId]
+      ? draft.nodes[selectedNode.parentId].childIds
+      : currentView?.rootNodeIds || []
+    : [];
+  const selectedNodeIndex = selectedNode ? selectedNodeSiblings.indexOf(selectedNode.id) : -1;
+  const canMoveSelectedNodeUp = selectedNodeIndex > 0;
+  const canMoveSelectedNodeDown = selectedNodeIndex > -1 && selectedNodeIndex < selectedNodeSiblings.length - 1;
+  const selectedNodeSupportsInlineInspector = Boolean(selectedNode && !needsDedicatedMobileNodeScreen(selectedNode.type));
+  const openSelectedNodeEditor = () => {
+    if (!selectedNode) return;
+    if (needsDedicatedMobileNodeScreen(selectedNode.type)) {
+      setMobileStudioScreen("component");
+      setMobileInspectorOpen(false);
+      return;
+    }
+    setMobileStudioScreen("editor");
+    setMobileInspectorOpen(true);
+  };
   const closeMobileInspector = () => {
     setMobileInspectorOpen(false);
     if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
@@ -2922,6 +2973,73 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     }
   };
 
+  const selectionFocusPanel = selectedNode ? (
+    <div className="rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,14,17,0.98),rgba(7,8,9,1))] px-4 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/34">{getNodeOutlineEyebrow(selectedNode)}</p>
+          <p className="mt-2 text-base font-semibold text-white">{getNodeOutlineTitle(selectedNode)}</p>
+          <p className="mt-1 text-sm leading-6 text-white/52">{getNodeOutlineDescription(selectedNode)}</p>
+        </div>
+        <Badge variant="outline">{selectedLabel}</Badge>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full border-white/10 bg-white/[0.03]"
+          onClick={() => moveNode(selectedNode.id, -1)}
+          disabled={!canMoveSelectedNodeUp}
+        >
+          <ArrowUp className="h-4 w-4" />
+          Move up
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full border-white/10 bg-white/[0.03]"
+          onClick={() => moveNode(selectedNode.id, 1)}
+          disabled={!canMoveSelectedNodeDown}
+        >
+          <ArrowDown className="h-4 w-4" />
+          Move down
+        </Button>
+          {isInsertTargetNode(selectedNode.type) ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-full border-white/10 bg-white/[0.03]"
+            onClick={() => openInsertFlow(selectedNode.id)}
+          >
+            <Plus className="h-4 w-4" />
+            Insert inside
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
+  const selectionPanelContent = (
+    <div className="space-y-4">
+      {selectionFocusPanel}
+      <BuildSelectionEditor
+        draft={draft}
+        selectedViewId={selectedViewId}
+        selection={selection}
+        isMobile={isMobile}
+        roleOptions={(discordContextQuery.data?.roles || []).map((role: any) => ({ id: String(role.id), name: String(role.name || role.id) }))}
+        channelOptions={(discordContextQuery.data?.channels || []).map((channel: any) => ({ id: String(channel.id), name: String(channel.name || channel.id) }))}
+        onChangeDraft={touchDraft}
+        onDeleteEmbed={deleteEmbed}
+        onDeleteNode={deleteNode}
+        onMoveNode={moveNode}
+      />
+    </div>
+  );
+
   const selectionPanel = (
     <Card className="archivist-panel archivist-panel-muted">
       <CardHeader className="pb-3">
@@ -2933,22 +3051,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           <Badge variant="outline">{selectedLabel}</Badge>
         </div>
       </CardHeader>
-      <CardContent>
-        <BuildSelectionEditor
-          draft={draft}
-          selectedViewId={selectedViewId}
-          selection={selection}
-          isMobile={isMobile}
-          roleOptions={(discordContextQuery.data?.roles || []).map((role: any) => ({ id: String(role.id), name: String(role.name || role.id) }))}
-          channelOptions={(discordContextQuery.data?.channels || []).map((channel: any) => ({ id: String(channel.id), name: String(channel.name || channel.id) }))}
-          onChangeDraft={touchDraft}
-          onDeleteEmbed={deleteEmbed}
-          onDeleteNode={deleteNode}
-          onAddPart={addPart}
-          onAddButtonToRow={addButtonToActionRow}
-          onAddSelectToRow={addSelectToActionRow}
-        />
-      </CardContent>
+      <CardContent>{selectionPanelContent}</CardContent>
     </Card>
   );
 
@@ -2980,7 +3083,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           </div>
         </CardContent>
       </Card>
-      {selectionPanel}
+      <div className="space-y-4">{selectionPanelContent}</div>
     </div>
   ) : null;
 
@@ -3224,9 +3327,9 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       groups={compositionGroups}
       actions={
         <>
-          {selectedNode?.type === "section" || selectedNode?.type === "container" ? <Badge variant="outline">Child target active</Badge> : null}
+          {activeInsertTargetId ? <Badge variant="outline">Child target active</Badge> : null}
           {isMobile ? (
-            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={() => setMobileInsertOpen(true)}>
+            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={() => openInsertFlow(activeInsertTargetId)}>
               <Plus className="h-4 w-4" />
               Add block
             </Button>
@@ -3256,7 +3359,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           title={currentMode === "layout_v2" ? contextualInsertLabel : "Add the next part"}
           description={
             currentMode === "layout_v2"
-              ? selectedNode?.type === "section" || selectedNode?.type === "container"
+              ? activeInsertTargetId
                 ? "The selected layout block is the current insertion target, so new parts will land inside it."
                 : "Choose the next block by what it does: visible copy, richer surface, interaction, or structural layout."
               : "Choose the next visible part of the message. Studio keeps the preview and the publish reality attached while you build."
@@ -3315,7 +3418,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                     const published = activePublicationDocumentIds.has(record.id);
 
                     return (
-                      <div key={record.id} className={cn("rounded-[18px] border px-4 py-4", isActive ? "border-[#8b2835] bg-[#150f13]" : "border-white/10 bg-white/[0.03]")}>
+                      <div key={record.id} className={cn("rounded-[18px] border px-4 py-4", isActive ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(18,13,15,0.98),rgba(11,10,11,1))]" : "border-white/10 bg-white/[0.03]")}>
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <button
                             type="button"
@@ -3445,115 +3548,135 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         isMobile && mobileStudioScreen === "component" ? (
           mobileComponentScreen
         ) : (
-        <div className="space-y-4">
-          {builderStatusStrip}
+          <div className="space-y-4">
+            {builderStatusStrip}
 
-          <div
-            className={cn(
-              "grid gap-4",
-              !isMobile
-                ? selection.kind === "node"
-                  ? "xl:grid-cols-[320px_minmax(0,1fr)_360px]"
-                  : "xl:grid-cols-[320px_minmax(0,1fr)]"
-                : "",
-            )}
-          >
-            <div className="space-y-4">
-              {compositionPanel}
-              {!isMobile ? addPartPanel : null}
-            </div>
-
-            <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
-                    <CardDescription>
-                      {selection.kind === "node"
-                        ? "The canvas stays visual. Select the block you want, then refine only that block."
-                        : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
-                    </CardDescription>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
-                    <Badge variant="outline">
-                      {selectedLabel}
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isMobile ? (
-                  <div className="space-y-3">
-                    {mobileEditTargets.length > 0 ? (
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {mobileEditTargets.map((target) => (
-                          <button
-                            key={target.id}
-                            type="button"
-                            onClick={target.action}
-                            className={cn(
-                              "shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition",
-                              target.active
-                                ? "border-[#8a2735] bg-[#160f13] text-white"
-                                : "border-white/10 bg-[#0b0d10] text-white/62 hover:border-white/20 hover:text-white",
-                            )}
-                          >
-                            {target.label}
-                          </button>
-                        ))}
+            {isMobile ? (
+              <>
+                <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
+                        <CardDescription>
+                          {selection.kind === "node"
+                            ? "The canvas stays visual. Select the block you want, then refine only that block."
+                            : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
+                        </CardDescription>
                       </div>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3">
-                      <Badge variant="outline">{selectedLabel}</Badge>
-                      <span className="text-xs text-white/56">
-                        {selection.kind === "node" ? "Open the focused component screen for deeper interaction editing." : "Build directly on the live message surface."}
-                      </span>
-                      <div className="ml-auto flex gap-2">
-                        <Button variant="outline" size="sm" className="rounded-full" onClick={() => setMobileInsertOpen(true)}>
-                          <Plus className="h-4 w-4" />
-                          Add
-                        </Button>
-                        {selection.kind === "node" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-full"
-                            onClick={() => {
-                              setMobileStudioScreen("component");
-                              setMobileInspectorOpen(false);
-                            }}
-                          >
-                            <PencilLine className="h-4 w-4" />
-                            Edit
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
+                        <Badge variant="outline">
+                          {selectedLabel}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      {mobileEditTargets.length > 0 ? (
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {mobileEditTargets.map((target) => (
+                            <button
+                              key={target.id}
+                              type="button"
+                              onClick={target.action}
+                              className={cn(
+                                "shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition",
+                                target.active
+                                  ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(21,14,16,0.98),rgba(11,10,11,1))] text-white"
+                                  : "border-white/10 bg-[#0b0d10] text-white/62 hover:border-white/20 hover:text-white",
+                              )}
+                            >
+                              {target.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3">
+                        <Badge variant="outline">{selectedLabel}</Badge>
+                        <span className="text-xs text-white/56">
+                          {selection.kind === "node"
+                            ? selectedNodeSupportsInlineInspector
+                              ? "The block stays on-canvas while its focused editor opens as a lighter mobile inspector."
+                              : "Interaction-heavy blocks still open in a dedicated screen so the canvas never gets cramped."
+                            : "Build directly on the live message surface."}
+                        </span>
+                        <div className="ml-auto flex gap-2">
+                          <Button variant="outline" size="sm" className="rounded-full" onClick={() => openInsertFlow(activeInsertTargetId)}>
+                            <Plus className="h-4 w-4" />
+                            Add
                           </Button>
-                        ) : null}
+                          {selection.kind === "node" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full"
+                              onClick={openSelectedNodeEditor}
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              {selectedNodeSupportsInlineInspector ? "Inspect" : "Deep edit"}
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-                    <Badge variant="outline">{selectedLabel}</Badge>
-                    <span className="text-sm text-white/58">
-                      {selection.kind === "node"
-                        ? "The right panel stays focused on the selected block while the canvas stays visible."
-                        : "Use the composition map for structure, then edit the live message directly."}
-                    </span>
-                    <div className="ml-auto flex gap-2">
-                      <Button variant="outline" size="sm" className="rounded-[14px]" onClick={addEmbed}>
-                        <Plus className="h-4 w-4" />
-                        Add Embed
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                {buildPreview}
-              </CardContent>
-            </Card>
+                    {buildPreview}
+                  </CardContent>
+                </Card>
 
-            {!isMobile && selection.kind === "node" ? selectionPanel : null}
+                {compositionPanel}
+              </>
+            ) : (
+              <div
+                className={cn(
+                  "grid gap-4",
+                  selection.kind === "node"
+                    ? "xl:grid-cols-[320px_minmax(0,1fr)_360px]"
+                    : "xl:grid-cols-[320px_minmax(0,1fr)]",
+                )}
+              >
+                <div className="space-y-4">
+                  {compositionPanel}
+                  {addPartPanel}
+                </div>
+
+                <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
+                        <CardDescription>
+                          {selection.kind === "node"
+                            ? "The canvas stays visual. Select the block you want, then refine only that block."
+                            : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
+                        <Badge variant="outline">
+                          {selectedLabel}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-4 py-3">
+                      <Badge variant="outline">{selectedLabel}</Badge>
+                      <span className="text-sm text-white/58">
+                        {selection.kind === "node"
+                          ? "The right panel stays focused on the selected block while the canvas stays visible."
+                          : "Use the composition map for structure, then add the next surface from the catalog instead of jumping between insertion patterns."}
+                      </span>
+                    </div>
+                    {buildPreview}
+                  </CardContent>
+                </Card>
+
+                {selection.kind === "node" ? selectionPanel : null}
+              </div>
+            )}
           </div>
-        </div>
         )
       ) : null}
 
@@ -3919,7 +4042,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 Back to canvas
               </Button>
             </div>
-            <div className="pb-2">{selectionPanel}</div>
+            <div className="space-y-4 pb-2">{selectionPanelContent}</div>
           </DrawerContent>
         </Drawer>
       ) : null}

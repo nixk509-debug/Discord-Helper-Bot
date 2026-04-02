@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   Archive,
@@ -45,6 +45,7 @@ import {
   getServerIdFromLocation,
   type ArchivistCanonicalSection,
   type ArchivistNavItem,
+  type ArchivistToolEntry,
 } from "@/lib/archivist-workspace";
 import { cn } from "@/lib/utils";
 import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_1772114960531.png";
@@ -57,6 +58,34 @@ const SECTION_ICON_MAP: Record<ArchivistCanonicalSection, typeof Braces> = {
   fun: Gamepad2,
   server: ShieldCheck,
 };
+
+function useDismissDrawerOnLocationChange({
+  enabled,
+  location,
+  open,
+  onOpenChange,
+}: {
+  enabled: boolean;
+  location: string;
+  open: boolean;
+  onOpenChange: (nextOpen: boolean) => void;
+}) {
+  const previousLocationRef = useRef(location);
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      previousLocationRef.current = location;
+      return;
+    }
+
+    const previousLocation = previousLocationRef.current;
+    previousLocationRef.current = location;
+
+    if (open && previousLocation !== location) {
+      onOpenChange(false);
+    }
+  }, [enabled, location, onOpenChange, open]);
+}
 
 function ArchivistItemIcon({ icon, className }: { icon: ArchivistNavItem["icon"]; className?: string }) {
   const Icon =
@@ -102,7 +131,7 @@ function WorkspaceBottomNav({
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-40 flex justify-center px-3">
-      <div className="pointer-events-auto flex w-full max-w-xl items-center gap-1 rounded-[28px] border border-[var(--border-strong)] bg-[rgba(8,8,10,0.92)] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-2xl">
+      <div className="pointer-events-auto flex w-full max-w-xl items-center gap-1 rounded-[28px] border border-white/10 bg-[rgba(8,8,10,0.92)] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-2xl">
         {ARCHIVIST_NAVIGATION.map((section) => {
           const Icon = SECTION_ICON_MAP[section.id];
           const isActive = section.id === activeSection;
@@ -127,11 +156,11 @@ function WorkspaceBottomNav({
               className={cn(
                 "flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 rounded-[22px] px-2 py-2 text-center transition",
                 isActive
-                  ? "bg-[linear-gradient(180deg,rgba(165,32,57,0.26),rgba(64,14,24,0.95))] text-white shadow-[inset_0_1px_0_rgba(255,176,188,0.22)]"
+                  ? "border border-[rgba(118,42,55,0.18)] bg-[linear-gradient(180deg,rgba(15,12,13,0.98),rgba(9,9,10,1))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_12px_28px_rgba(0,0,0,0.22)]"
                   : "text-[var(--text-muted)] hover:bg-white/[0.04] hover:text-[var(--text-primary)]",
               )}
             >
-              <Icon className={cn("h-4 w-4", isActive ? "text-[#ff8c9e]" : "text-[var(--text-faint)]")} />
+              <Icon className={cn("h-4 w-4", isActive ? "text-[#eba1ae]" : "text-[var(--text-faint)]")} />
               <span className={cn("text-[11px] font-semibold tracking-[0.02em]", isActive ? "text-white" : "text-[var(--text-secondary)]")}>
                 {section.label}
               </span>
@@ -157,6 +186,11 @@ function WorkspaceToolDrawer({
   const [, navigate] = useLocation();
   const section = getArchivistSection(activeSection);
   const tools = getArchivistToolEntries(activeSection);
+  const handleSelectTool = (tool: ArchivistToolEntry) => {
+    if (!activeServerId) return;
+    onOpenChange(false);
+    navigate(buildArchivistToolPath(activeServerId, tool));
+  };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -174,14 +208,10 @@ function WorkspaceToolDrawer({
               <button
                 key={tool.id}
                 type="button"
-                onClick={() => {
-                  if (!activeServerId) return;
-                  onOpenChange(false);
-                  navigate(buildArchivistToolPath(activeServerId, tool));
-                }}
-                className="flex items-center gap-4 rounded-[24px] border border-[rgba(163,33,57,0.28)] bg-[linear-gradient(180deg,rgba(36,14,18,0.96),rgba(17,10,12,0.98))] px-4 py-4 text-left transition hover:border-[rgba(244,99,121,0.42)] hover:bg-[linear-gradient(180deg,rgba(46,17,23,0.98),rgba(20,10,13,1))]"
+                onClick={() => handleSelectTool(tool)}
+                className="flex items-center gap-4 rounded-[24px] border border-[rgba(118,42,55,0.16)] bg-[linear-gradient(180deg,rgba(15,12,13,0.98),rgba(9,9,10,1))] px-4 py-4 text-left transition hover:border-[rgba(136,50,66,0.22)] hover:bg-[linear-gradient(180deg,rgba(18,14,15,0.99),rgba(10,9,10,1))]"
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-[rgba(244,99,121,0.24)] bg-[rgba(175,28,55,0.18)] text-[#ff8a9d]">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-[rgba(136,50,66,0.16)] bg-[rgba(255,255,255,0.03)] text-[#eba1ae]">
                   <ArchivistItemIcon icon={tool.icon} className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -200,14 +230,10 @@ function WorkspaceToolDrawer({
                 <button
                   key={`${tool.id}-all`}
                   type="button"
-                  onClick={() => {
-                    if (!activeServerId) return;
-                    onOpenChange(false);
-                    navigate(buildArchivistToolPath(activeServerId, tool));
-                  }}
-                  className="flex min-h-[112px] flex-col items-start justify-between rounded-[24px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(17,17,20,0.96),rgba(9,9,10,0.99))] px-4 py-4 text-left transition hover:border-[var(--border-brand)] hover:bg-[linear-gradient(180deg,rgba(23,18,21,0.98),rgba(11,9,10,1))]"
+                  onClick={() => handleSelectTool(tool)}
+                  className="flex min-h-[112px] flex-col items-start justify-between rounded-[24px] border border-[var(--border-subtle)] bg-[linear-gradient(180deg,rgba(16,16,18,0.96),rgba(8,9,10,0.99))] px-4 py-4 text-left transition hover:border-[rgba(92,40,50,0.18)] hover:bg-[linear-gradient(180deg,rgba(18,15,16,0.98),rgba(10,9,10,1))]"
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/8 bg-white/[0.03] text-[#ff8195]">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/8 bg-white/[0.03] text-white/72">
                     <ArchivistItemIcon icon={tool.icon} className="h-4 w-4" />
                   </div>
                   <div>
@@ -284,6 +310,13 @@ export function DashboardLayout({
   const activeSection = isWorkspaceMode ? getArchivistSectionFromLocation(location) : "commands";
   const activeItem = isWorkspaceMode ? getArchivistItemFromLocation(location) : null;
   const activeSectionConfig = getArchivistSection(activeSection);
+
+  useDismissDrawerOnLocationChange({
+    enabled: isWorkspaceMode,
+    location,
+    open: toolDrawerOpen,
+    onOpenChange: setToolDrawerOpen,
+  });
 
   if (!isWorkspaceMode) {
     return (

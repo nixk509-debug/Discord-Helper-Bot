@@ -44,11 +44,10 @@ interface StudioPreviewProps {
   onChangeMessage?: (value: string) => void;
   onEditEmbed?: (embedIndex: number, region?: StudioEmbedEditRegion, fieldIndex?: number) => void;
   onChangeEmbed?: (embedIndex: number, updater: (embed: StudioEmbedDraft) => void) => void;
-  onAddEmbed?: () => void;
   onDeleteEmbed?: (embedIndex: number) => void;
   onEditNode?: (nodeId: string) => void;
-  onQuickAddRoot?: (kind: "text" | "button" | "select") => void;
-  onQuickAddNode?: (parentId: string, kind: "text" | "button_row" | "select_menu" | "button" | "select") => void;
+  onOpenInsertRoot?: () => void;
+  onOpenInsertNode?: (parentId: string) => void;
   selectedMessage?: boolean;
   selectedMessageRegion?: "body" | null;
   selectedEmbedIndex?: number | null;
@@ -115,7 +114,7 @@ function PreviewRegion({
   const classes = cn(
     "rounded-lg transition",
     onClick ? "cursor-pointer touch-manipulation hover:bg-white/[0.05]" : "",
-    selected ? "ring-1 ring-[rgba(157,62,79,0.72)] bg-[rgba(74,22,31,0.2)] shadow-[0_0_0_1px_rgba(110,33,46,0.2)]" : "",
+    selected ? "ring-1 ring-[rgba(157,62,79,0.52)] bg-[rgba(48,18,24,0.18)] shadow-[0_0_0_1px_rgba(110,33,46,0.12)]" : "",
     className,
   );
 
@@ -949,7 +948,7 @@ function NodePreview({
   nodeId,
   editable = false,
   onEditNode,
-  onQuickAddNode,
+  onOpenInsertNode,
   selectedNodeId,
   depth = 0,
 }: {
@@ -957,7 +956,7 @@ function NodePreview({
   nodeId: string;
   editable?: boolean;
   onEditNode?: (nodeId: string) => void;
-  onQuickAddNode?: (parentId: string, kind: "text" | "button_row" | "select_menu" | "button" | "select") => void;
+  onOpenInsertNode?: (parentId: string) => void;
   selectedNodeId?: string | null;
   depth?: number;
 }) {
@@ -969,39 +968,19 @@ function NodePreview({
 
   if (node.type === "container" || node.type === "section") {
     return (
-      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.62)] bg-[rgba(74,22,31,0.18)]" : "")}>
+      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.46)] bg-[rgba(48,18,24,0.16)]" : "")}>
         <PreviewRegion label={`Edit ${node.type}`} onClick={edit} selected={selected} className="p-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#b5bac1]"><DiscordRichText text={String(node.props.heading || (node.type === "section" ? "Add section heading" : "Add layout heading"))} emojiSize={15} /></p>
           {node.props.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-[#dbdee1]"><DiscordRichText text={String(node.props.description)} emojiSize={16} /></p> : editable ? <p className="mt-2 text-xs text-[#949ba4]">Tap to add section copy.</p> : null}
         </PreviewRegion>
-        {editable && onQuickAddNode ? (
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => onQuickAddNode(node.id, "text")}
-              className="rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[11px] text-[#c9ced6] transition hover:border-white/24 hover:text-white"
-            >
-              + Add text
-            </button>
-            <button
-              type="button"
-              onClick={() => onQuickAddNode(node.id, "button")}
-              className="rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[11px] text-[#c9ced6] transition hover:border-white/24 hover:text-white"
-            >
-              + Add button
-            </button>
-            <button
-              type="button"
-              onClick={() => onQuickAddNode(node.id, "select")}
-              className="rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[11px] text-[#c9ced6] transition hover:border-white/24 hover:text-white"
-            >
-              + Add menu
-            </button>
+        {editable && selected && onOpenInsertNode ? (
+          <div className="flex justify-end">
+            <InlineEmbedButton onClick={() => onOpenInsertNode(node.id)}>Insert inside</InlineEmbedButton>
           </div>
         ) : null}
         <div className="space-y-2">
           {node.childIds.map((childId) => (
-            <NodePreview key={childId} document={document} nodeId={childId} editable={editable} onEditNode={onEditNode} onQuickAddNode={onQuickAddNode} selectedNodeId={selectedNodeId} depth={depth + 1} />
+            <NodePreview key={childId} document={document} nodeId={childId} editable={editable} onEditNode={onEditNode} onOpenInsertNode={onOpenInsertNode} selectedNodeId={selectedNodeId} depth={depth + 1} />
           ))}
         </div>
       </div>
@@ -1028,36 +1007,19 @@ function NodePreview({
   }
   if (node.type === "action_row") {
     return (
-      <div className={cn("space-y-2", edge, selected ? "rounded-lg ring-1 ring-[rgba(157,62,79,0.62)]" : "")}>
+      <div className={cn("space-y-2", edge, selected ? "rounded-lg ring-1 ring-[rgba(157,62,79,0.46)]" : "")}>
         {editable ? (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={edit || undefined} className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#949ba4]">
               Edit action row
             </button>
-            {onQuickAddNode ? (
-              <button
-                type="button"
-                onClick={() => onQuickAddNode(node.id, "button")}
-                className="rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[11px] text-[#c9ced6] transition hover:border-white/24 hover:text-white"
-              >
-                + Add button
-              </button>
-            ) : null}
-            {onQuickAddNode ? (
-              <button
-                type="button"
-                onClick={() => onQuickAddNode(node.id, "select")}
-                className="rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[11px] text-[#c9ced6] transition hover:border-white/24 hover:text-white"
-              >
-                + Add menu
-              </button>
-            ) : null}
+            {selected && onOpenInsertNode ? <InlineEmbedButton onClick={() => onOpenInsertNode(node.id)}>Open add flow</InlineEmbedButton> : null}
           </div>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          {node.childIds.length === 0 && editable ? <div className="rounded-md border border-dashed border-white/10 px-3 py-2 text-xs text-[#949ba4]">Action row is empty. Add a button or menu to start wiring interactions.</div> : null}
+          {node.childIds.length === 0 && editable ? <div className="rounded-md border border-dashed border-white/10 px-3 py-2 text-xs text-[#949ba4]">Action row is empty. Use the add flow to insert a button or menu.</div> : null}
           {node.childIds.map((childId) => (
-            <NodePreview key={childId} document={document} nodeId={childId} editable={editable} onEditNode={onEditNode} onQuickAddNode={onQuickAddNode} selectedNodeId={selectedNodeId} depth={depth + 1} />
+            <NodePreview key={childId} document={document} nodeId={childId} editable={editable} onEditNode={onEditNode} onOpenInsertNode={onOpenInsertNode} selectedNodeId={selectedNodeId} depth={depth + 1} />
           ))}
         </div>
       </div>
@@ -1067,10 +1029,10 @@ function NodePreview({
     const style = Number(node.props.style || 1);
     const parsedEmoji = node.props.emoji ? parseDiscordEmojiToken(String(node.props.emoji)) : null;
     const styleClass = style === 1 ? "bg-[#5865F2] text-white" : style === 2 ? "bg-[#4e5058] text-white" : style === 3 ? "bg-[#248046] text-white" : style === 4 ? "bg-[#da373c] text-white" : "bg-[#00a8fc] text-[#101114]";
-    return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/40" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || (editable ? "Add button label" : "Button"))} emojiSize={15} /></button>;
+    return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/28" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || (editable ? "Add button label" : "Button"))} emojiSize={15} /></button>;
   }
 
-  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-[rgba(120,42,53,0.34)]", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.62)]" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || (editable ? `Add ${getSelectorPreviewLabel(node).toLowerCase()}` : getSelectorPreviewLabel(node)))} emojiSize={15} /></button>;
+  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-[rgba(120,42,53,0.28)]", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.46)]" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || (editable ? `Add ${getSelectorPreviewLabel(node).toLowerCase()}` : getSelectorPreviewLabel(node)))} emojiSize={15} /></button>;
 }
 
 function PlannedComponentPreview({ component, depth = 0 }: { component: EmbedComponentType; depth?: number }) {
@@ -1097,11 +1059,10 @@ export function StudioPreview({
   onChangeMessage,
   onEditEmbed,
   onChangeEmbed,
-  onAddEmbed,
   onDeleteEmbed,
   onEditNode,
-  onQuickAddRoot,
-  onQuickAddNode,
+  onOpenInsertRoot,
+  onOpenInsertNode,
   selectedMessage = false,
   selectedMessageRegion = null,
   selectedEmbedIndex = null,
@@ -1238,27 +1199,18 @@ export function StudioPreview({
                         discordEmojis={discordEmojis}
                       />
                     ))}
-                    {surface === "editor" && onAddEmbed ? (
-                      <div className="flex flex-wrap gap-2">
-                        <InlineEmbedButton onClick={onAddEmbed}>{(view?.embeds || []).length ? "+ Add another embed" : "+ Add embed"}</InlineEmbedButton>
-                        {onQuickAddRoot ? <InlineEmbedButton onClick={() => onQuickAddRoot("button")}>+ Add button</InlineEmbedButton> : null}
-                        {onQuickAddRoot ? <InlineEmbedButton onClick={() => onQuickAddRoot("select")}>+ Add menu</InlineEmbedButton> : null}
-                      </div>
-                    ) : null}
-                    {surface === "editor" && onQuickAddRoot && (view?.rootNodeIds || []).length === 0 ? (
+                    {surface === "editor" && onOpenInsertRoot && (view?.rootNodeIds || []).length === 0 ? (
                       <div className="rounded-xl border border-dashed border-white/10 bg-black/10 p-3">
-                        <p className="text-xs text-[#949ba4]">Start with content or add interactions right away. Archivist will handle the row setup.</p>
+                        <p className="text-xs text-[#949ba4]">Use the grouped add flow to insert text, embeds, interactions, or layout without switching insertion models.</p>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <InlineEmbedButton onClick={() => onQuickAddRoot("text")}>+ Add text</InlineEmbedButton>
-                          <InlineEmbedButton onClick={() => onQuickAddRoot("button")}>+ Add button</InlineEmbedButton>
-                          <InlineEmbedButton onClick={() => onQuickAddRoot("select")}>+ Add menu</InlineEmbedButton>
+                          <InlineEmbedButton onClick={onOpenInsertRoot}>Open add flow</InlineEmbedButton>
                         </div>
                       </div>
                     ) : null}
                     {(view?.rootNodeIds || []).length > 0 ? (
                       <div className="space-y-2 rounded-xl border border-white/10 bg-[#2b2d31]/80 p-3">
                         {(view?.rootNodeIds || []).map((nodeId) => (
-                          <NodePreview key={nodeId} document={document} nodeId={nodeId} editable={surface === "editor"} onEditNode={onEditNode} onQuickAddNode={onQuickAddNode} selectedNodeId={selectedNodeId} />
+                          <NodePreview key={nodeId} document={document} nodeId={nodeId} editable={surface === "editor"} onEditNode={onEditNode} onOpenInsertNode={onOpenInsertNode} selectedNodeId={selectedNodeId} />
                         ))}
                       </div>
                     ) : null}

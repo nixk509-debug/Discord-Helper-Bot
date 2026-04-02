@@ -12,7 +12,7 @@ export function SurfacePanel({
     <section
       className={cn(
         "archivist-panel relative overflow-hidden",
-        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(214,227,238,0.16),transparent)]",
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent)]",
         className,
       )}
     >
@@ -94,8 +94,8 @@ export function StatusPill({
     tone === "danger"
       ? "border-[rgba(220,84,103,0.24)] bg-[rgba(220,84,103,0.12)] text-[rgba(255,221,227,0.95)]"
       : tone === "accent"
-        ? "border-[var(--border-brand)] bg-[rgba(110,123,255,0.14)] text-[var(--text-primary)]"
-        : "border-[var(--border-subtle)] bg-[rgba(155,180,201,0.08)] text-[rgba(222,231,240,0.92)]";
+        ? "border-[var(--border-brand)] bg-[rgba(84,20,33,0.2)] text-[var(--text-primary)]"
+        : "border-[var(--border-subtle)] bg-white/[0.03] text-[rgba(232,226,228,0.9)]";
 
   return <span className={cn("rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]", toneClasses)}>{children}</span>;
 }
@@ -113,8 +113,8 @@ export function MetricStrip({
     tone === "danger"
       ? "border-[rgba(220,84,103,0.24)] bg-[linear-gradient(180deg,rgba(63,19,28,0.96),rgba(24,11,15,0.98))]"
       : tone === "accent"
-        ? "border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(28,35,54,0.98),rgba(17,22,35,1))]"
-        : "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(19,24,37,0.96),rgba(13,17,27,0.98))]";
+        ? "border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(24,15,18,0.98),rgba(11,10,12,1))]"
+        : "border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(18,19,22,0.96),rgba(10,11,13,0.98))]";
 
   return (
     <div className={cn("rounded-[18px] border px-3 py-3.5", toneClasses)}>

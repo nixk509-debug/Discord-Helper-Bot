@@ -328,6 +328,28 @@ export function removeNodeBranch(document: StudioDocument, nodeId: string) {
   delete document.nodes[nodeId];
 }
 
+export function moveNodeInDocument(document: StudioDocument, nodeId: string, direction: -1 | 1) {
+  const node = document.nodes[nodeId];
+  if (!node) return false;
+
+  const siblings =
+    node.parentId && document.nodes[node.parentId]
+      ? document.nodes[node.parentId].childIds
+      : document.views[node.viewId]?.rootNodeIds;
+
+  if (!siblings) return false;
+
+  const currentIndex = siblings.indexOf(nodeId);
+  if (currentIndex === -1) return false;
+
+  const nextIndex = currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= siblings.length) return false;
+
+  const [movedNodeId] = siblings.splice(currentIndex, 1);
+  siblings.splice(nextIndex, 0, movedNodeId);
+  return true;
+}
+
 export function collectInteractionRows(document: StudioDocument, viewId: string) {
   const rows: Array<{ label: string; action: string }> = [];
   const visit = (nodeId: string) => {

@@ -21,8 +21,8 @@
 
     --border-subtle: rgba(255, 255, 255, 0.07);
     --border-default: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(168, 41, 63, 0.26);
-    --border-brand: rgba(196, 55, 81, 0.42);
+    --border-strong: rgba(168, 41, 63, 0.2);
+    --border-brand: rgba(196, 55, 81, 0.32);
     --border-cold: rgba(255, 255, 255, 0.09);
 
     --text-primary: #f7f3f4;
@@ -80,8 +80,8 @@
     @apply font-sans antialiased bg-background text-foreground;
     background-color: var(--bg-app);
     background-image: 
-      radial-gradient(circle at 50% 0%, rgba(163, 33, 57, 0.1), transparent 28%),
-      radial-gradient(circle at 82% 18%, rgba(82, 14, 25, 0.18), transparent 18%),
+      radial-gradient(circle at 50% 0%, rgba(163, 33, 57, 0.06), transparent 28%),
+      radial-gradient(circle at 82% 18%, rgba(82, 14, 25, 0.1), transparent 18%),
       linear-gradient(180deg, #050506 0%, #09090b 52%, #040405 100%);
     background-attachment: fixed;
     min-height: 100vh;

@@ -533,30 +533,30 @@ export function StudioEditorEntry({
   return (
     <div className="space-y-4">
       <Card className="archivist-panel overflow-hidden border-[rgba(163,33,57,0.24)] bg-[linear-gradient(180deg,rgba(25,10,14,0.98),rgba(8,7,8,1))]">
-        <CardContent className="space-y-5 p-5">
-          <div className="space-y-3">
+        <CardContent className="space-y-4 p-4 md:p-5">
+          <div className="space-y-2.5">
             <p className="archivist-kicker">{config.eyebrow}</p>
-            <h1 className="max-w-4xl text-[1.9rem] font-bold leading-tight text-white sm:text-[2.5rem]">{config.title}</h1>
-            <p className="max-w-3xl text-sm leading-7 text-white/62">{config.description}</p>
+            <h1 className="max-w-4xl text-[1.65rem] font-bold leading-tight text-white sm:text-[2.3rem]">{config.title}</h1>
+            <p className="max-w-3xl text-sm leading-6 text-white/58">{config.description}</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-3">
             <MetricTile label="Matching drafts" value={String(matchingDrafts.length)} tone="accent" />
             <MetricTile label="Published" value={String(matchingPublished)} />
             <MetricTile label="Current" value={currentDraft ? currentDraft.name : "Fresh entry"} />
           </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="rounded-[24px] border border-white/8 bg-[#090b0e] p-4">
+            <div className="rounded-[22px] border border-white/8 bg-[#090b0e] p-4">
               <div className="flex items-start gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] border border-[#7a2330] bg-[#130d10] text-[#ff7d91]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-[#7a2330] bg-[#130d10] text-[#ff7d91]">
                   <LayoutTemplate className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white">{config.helperTitle}</p>
-                  <p className="mt-2 text-sm leading-6 text-white/52">{config.helperDescription}</p>
+                  <p className="mt-1.5 text-sm leading-6 text-white/50">{config.helperDescription}</p>
                 </div>
               </div>
             </div>
-            <div className="grid gap-3">
+            <div className="grid gap-2.5">
               <Button className="min-h-12 rounded-[18px] px-5" onClick={() => navigate(secondaryRoute)}>
                 <BadgePlus className="h-4 w-4" />
                 {matchingDrafts[0] ? "Resume Matching Draft" : "Open Builder Lane"}
@@ -568,6 +568,16 @@ export function StudioEditorEntry({
             </div>
           </div>
         </CardContent>
+      </Card>
+
+      <Card className="archivist-panel overflow-hidden">
+        <div className="border-b border-white/6 px-4 py-4">
+          <p className="text-sm font-semibold text-white">Focused editor</p>
+          <p className="mt-1 text-sm text-white/46">The builder opens first so this route feels like a creation lane, not a preamble before Studio.</p>
+        </div>
+        <div className="p-3 sm:p-4">
+          <DesignStudioTab serverId={serverId} entryIntent={config.entryIntent} />
+        </div>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
@@ -608,16 +618,6 @@ export function StudioEditorEntry({
           </CardContent>
         </Card>
       </div>
-
-      <Card className="archivist-panel overflow-hidden">
-        <div className="border-b border-white/6 px-4 py-4">
-          <p className="text-sm font-semibold text-white">Focused editor</p>
-          <p className="mt-1 text-sm text-white/46">The Design Studio builder is still the same deep editor, but this route now gives it a cleaner launch context and recent-work handoff.</p>
-        </div>
-        <div className="p-4">
-          <DesignStudioTab serverId={serverId} entryIntent={config.entryIntent} />
-        </div>
-      </Card>
     </div>
   );
 }

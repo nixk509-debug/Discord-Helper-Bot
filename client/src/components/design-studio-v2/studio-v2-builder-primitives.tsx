@@ -123,19 +123,19 @@ function StudioPrimitiveIconGlyph({ icon }: { icon: StudioPrimitiveIcon }) {
 function publishToneClasses(publishPath?: string | null) {
   if (publishPath === "blocked") {
     return {
-      pill: "border-[rgba(191,63,85,0.34)] bg-[rgba(90,18,31,0.48)] text-[rgba(255,225,231,0.96)]",
-      glow: "shadow-[0_0_0_1px_rgba(138,34,49,0.26),0_24px_48px_rgba(0,0,0,0.34)]",
+      pill: "border-[rgba(191,63,85,0.26)] bg-[rgba(70,17,28,0.34)] text-[rgba(255,225,231,0.96)]",
+      glow: "shadow-[0_0_0_1px_rgba(96,24,36,0.16),0_24px_48px_rgba(0,0,0,0.34)]",
     };
   }
   if (publishPath === "downgraded") {
     return {
-      pill: "border-[rgba(166,120,44,0.3)] bg-[rgba(79,53,19,0.44)] text-[rgba(255,236,200,0.94)]",
-      glow: "shadow-[0_0_0_1px_rgba(92,60,19,0.18),0_24px_48px_rgba(0,0,0,0.32)]",
+      pill: "border-[rgba(166,120,44,0.22)] bg-[rgba(79,53,19,0.28)] text-[rgba(255,236,200,0.94)]",
+      glow: "shadow-[0_0_0_1px_rgba(92,60,19,0.12),0_24px_48px_rgba(0,0,0,0.32)]",
     };
   }
   return {
-    pill: "border-[rgba(118,49,62,0.28)] bg-[rgba(34,12,16,0.42)] text-[rgba(255,232,236,0.92)]",
-    glow: "shadow-[0_0_0_1px_rgba(76,26,35,0.18),0_24px_48px_rgba(0,0,0,0.32)]",
+    pill: "border-[rgba(118,49,62,0.18)] bg-[rgba(26,11,14,0.24)] text-[rgba(255,232,236,0.92)]",
+    glow: "shadow-[0_0_0_1px_rgba(76,26,35,0.1),0_24px_48px_rgba(0,0,0,0.32)]",
   };
 }
 
@@ -174,10 +174,18 @@ export function StudioBuilderStatusStrip({
               {modeLabel} active. Editing <span className="text-white/86">{selectedLabel}</span>. Publish truth stays live while you work.
             </p>
           </div>
+          <div className="flex flex-wrap gap-2 sm:hidden">
+            <div className="rounded-full border border-white/8 bg-[#0b0c0f] px-3 py-1.5 text-[11px] font-medium text-white/74">
+              Blocked <span className="ml-1 text-white">{errorCount}</span>
+            </div>
+            <div className="rounded-full border border-white/8 bg-[#0b0c0f] px-3 py-1.5 text-[11px] font-medium text-white/74">
+              Review <span className="ml-1 text-white">{warningCount}</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 sm:min-w-[290px]">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="hidden grid-cols-2 gap-2 sm:grid">
             <div className="rounded-[18px] border border-white/8 bg-[#0c0d10] px-3 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/34">Blocked</p>
               <p className="mt-2 text-lg font-semibold text-white">{errorCount}</p>
@@ -188,10 +196,10 @@ export function StudioBuilderStatusStrip({
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="min-h-11 flex-1 rounded-[18px] border-white/10 bg-white/[0.03]" onClick={onOpenIssues}>
+            <Button variant="outline" className="min-h-10 flex-1 rounded-[18px] border-white/10 bg-white/[0.03] text-white/82" onClick={onOpenIssues}>
               Review Issues
             </Button>
-            <Button className="min-h-11 flex-1 rounded-[18px] bg-[linear-gradient(180deg,rgba(155,40,58,0.92),rgba(86,20,32,0.98))] text-white shadow-[0_18px_34px_rgba(61,12,22,0.28)] hover:bg-[linear-gradient(180deg,rgba(172,44,64,0.96),rgba(95,24,36,1))]" onClick={onOpenPublish}>
+            <Button className="min-h-10 flex-1 rounded-[18px] border border-[rgba(118,42,55,0.18)] bg-[linear-gradient(180deg,rgba(24,14,17,0.98),rgba(12,10,11,1))] text-white shadow-[0_16px_30px_rgba(0,0,0,0.22)] hover:bg-[linear-gradient(180deg,rgba(29,16,19,1),rgba(14,11,12,1))]" onClick={onOpenPublish}>
               Open Publish
             </Button>
           </div>
@@ -238,8 +246,8 @@ export function StudioCompositionOutline({
                     className={cn(
                       "flex w-full items-start justify-between gap-3 rounded-[20px] border px-3 py-3 text-left transition",
                       item.selected
-                        ? "border-[rgba(146,43,59,0.42)] bg-[linear-gradient(180deg,rgba(31,14,18,0.96),rgba(13,10,11,1))] shadow-[0_0_0_1px_rgba(103,28,39,0.18),0_16px_30px_rgba(0,0,0,0.24)]"
-                        : "border-white/8 bg-[linear-gradient(180deg,rgba(16,17,20,0.96),rgba(10,11,13,1))] hover:border-[rgba(118,49,62,0.28)] hover:bg-[linear-gradient(180deg,rgba(20,16,18,0.98),rgba(11,9,10,1))]",
+                        ? "border-[rgba(146,43,59,0.28)] bg-[linear-gradient(180deg,rgba(20,13,15,0.98),rgba(10,9,10,1))] shadow-[0_0_0_1px_rgba(103,28,39,0.12),0_16px_30px_rgba(0,0,0,0.24)]"
+                        : "border-white/8 bg-[linear-gradient(180deg,rgba(16,17,20,0.96),rgba(10,11,13,1))] hover:border-[rgba(92,40,50,0.18)] hover:bg-[linear-gradient(180deg,rgba(18,15,16,0.98),rgba(11,9,10,1))]",
                     )}
                   >
                     <div className="flex min-w-0 items-start gap-3">
@@ -247,7 +255,7 @@ export function StudioCompositionOutline({
                         className={cn(
                           "flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border",
                           item.selected
-                            ? "border-[rgba(148,45,61,0.34)] bg-[rgba(53,16,22,0.76)] text-[#ff9aaa]"
+                            ? "border-[rgba(148,45,61,0.22)] bg-[rgba(41,14,19,0.64)] text-[#f4a0ad]"
                             : "border-white/8 bg-white/[0.03] text-white/70",
                         )}
                       >
@@ -262,7 +270,7 @@ export function StudioCompositionOutline({
                         <p className="mt-1 text-sm leading-6 text-white/46">{item.description}</p>
                       </div>
                     </div>
-                    <ArrowUpRight className={cn("mt-1 h-4 w-4 shrink-0", item.selected ? "text-[#ff9aaa]" : "text-white/26")} />
+                    <ArrowUpRight className={cn("mt-1 h-4 w-4 shrink-0", item.selected ? "text-[#f0a0ae]" : "text-white/26")} />
                   </button>
                 ))}
               </div>
@@ -309,7 +317,7 @@ export function StudioInsertCatalog({
                     "flex min-h-[114px] flex-col items-start justify-between rounded-[22px] border px-4 py-4 text-left transition",
                     option.disabled
                       ? "cursor-not-allowed border-white/8 bg-white/[0.02] text-white/24"
-                      : "border-white/8 bg-[linear-gradient(180deg,rgba(14,15,18,0.96),rgba(8,9,10,1))] hover:border-[rgba(118,49,62,0.3)] hover:bg-[linear-gradient(180deg,rgba(19,15,17,0.98),rgba(9,8,9,1))]",
+                      : "border-white/8 bg-[linear-gradient(180deg,rgba(14,15,18,0.96),rgba(8,9,10,1))] hover:border-[rgba(92,40,50,0.18)] hover:bg-[linear-gradient(180deg,rgba(17,14,15,0.98),rgba(9,8,9,1))]",
                   )}
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/8 bg-white/[0.03] text-white/72">
