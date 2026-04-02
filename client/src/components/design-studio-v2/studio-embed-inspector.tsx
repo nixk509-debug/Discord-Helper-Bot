@@ -24,6 +24,7 @@ import {
   MessageSquare,
   CheckCheck,
   X,
+  Smile,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +79,73 @@ const VARIABLE_GROUPS = [
     vars: ["{timestamp}", "{date}", "{time}"],
   },
 ];
+
+// ─── Discord emoji groups ─────────────────────────────────────────────────────
+
+const DISCORD_EMOJI_GROUPS = [
+  { label: "Common", emojis: ["✅", "❌", "⚠️", "📢", "🔔", "🎉", "🏆", "⭐", "🔥", "💎", "🛡️", "⚔️", "📋", "📌", "🔗", "💬", "👋", "🎮", "🎯", "💡", "🔧", "📊", "🚀", "❓", "💰"] },
+  { label: "Arrows", emojis: ["→", "←", "↑", "↓", "➡️", "⬅️", "⬆️", "⬇️", "↩️", "↪️", "🔄", "▶️", "◀️", "⏩", "⏪", "🔀"] },
+  { label: "Symbols", emojis: ["•", "▪", "▸", "◆", "○", "●", "◉", "★", "☆", "♦", "♠", "♥", "♣", "✦", "✧", "⦿"] },
+];
+
+// ─── Emoji picker popover ─────────────────────────────────────────────────────
+
+interface EmojiPickerProps {
+  onClose: () => void;
+}
+
+function EmojiPicker({ onClose }: EmojiPickerProps) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const handleEmoji = (emoji: string) => {
+    navigator.clipboard.writeText(emoji).then(() => {
+      setCopied(emoji);
+      setTimeout(() => {
+        setCopied(null);
+        onClose();
+      }, 900);
+    });
+  };
+
+  return (
+    <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-[16px] border border-white/12 bg-[#0d0e11] p-3 shadow-2xl">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-widest text-white/40">Emoji</span>
+        <button type="button" onClick={onClose} className="text-white/40 hover:text-white/70">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {copied && (
+        <div className="mb-2 rounded-[10px] bg-[rgba(87,242,135,0.1)] px-3 py-1.5 text-xs text-[#57F287]">
+          Copied — paste anywhere
+        </div>
+      )}
+      {DISCORD_EMOJI_GROUPS.map((group) => (
+        <div key={group.label} className="mb-3">
+          <p className="mb-1.5 text-[10px] uppercase tracking-widest text-white/30">{group.label}</p>
+          <div className="flex flex-wrap gap-1">
+            {group.emojis.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => handleEmoji(emoji)}
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-[8px] border text-base transition hover:scale-110",
+                  copied === emoji
+                    ? "border-[rgba(87,242,135,0.4)] bg-[rgba(87,242,135,0.08)]"
+                    : "border-white/10 bg-white/[0.04] hover:border-white/24",
+                )}
+                title={emoji}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ─── Char limit helpers ───────────────────────────────────────────────────────
 
@@ -510,6 +578,7 @@ export function EmbedInspector({
 }: EmbedInspectorProps) {
   const { toast } = useToast();
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const embed = embeds[embedIndex] || ({} as StudioEmbedDraft);
   const fields: EmbedFieldType[] = Array.isArray(embed.fields) ? embed.fields : [];
   const fieldCount = fields.length;
@@ -606,7 +675,7 @@ export function EmbedInspector({
   return (
     <div className="flex flex-col gap-0">
       {/* ── Toolbar row ─────────────────────────────────────────────────── */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className="relative mb-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => setShowTemplates(true)}
@@ -624,6 +693,18 @@ export function EmbedInspector({
           <Code2 className="h-3 w-3" />
           Copy JSON
         </button>
+        <button
+          type="button"
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/62 transition hover:border-[rgba(224,0,26,0.24)] hover:text-white"
+          title="Insert emoji"
+        >
+          <Smile className="h-3 w-3" />
+          Emoji
+        </button>
+        {showEmojiPicker && (
+          <EmojiPicker onClose={() => setShowEmojiPicker(false)} />
+        )}
       </div>
 
       {/* ── Multi-embed switcher ─────────────────────────────────────────── */}
