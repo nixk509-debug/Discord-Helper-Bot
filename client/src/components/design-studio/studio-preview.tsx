@@ -115,7 +115,7 @@ function PreviewRegion({
   const classes = cn(
     "rounded-lg transition",
     onClick ? "cursor-pointer touch-manipulation hover:bg-white/[0.05]" : "",
-    selected ? "ring-2 ring-[#ff6277]/70 bg-[#b11226]/12 shadow-[0_0_0_1px_rgba(177,18,38,0.28)]" : "",
+    selected ? "ring-1 ring-[rgba(157,62,79,0.72)] bg-[rgba(74,22,31,0.2)] shadow-[0_0_0_1px_rgba(110,33,46,0.2)]" : "",
     className,
   );
 
@@ -266,7 +266,7 @@ function InlineEmbedButton({
       className={cn(
         "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-medium transition",
         tone === "danger"
-          ? "border-[#8b2835] bg-[#35141a] text-[#ffb5c0] hover:border-[#a53443] hover:text-white"
+          ? "border-[rgba(132,48,62,0.42)] bg-[rgba(40,17,22,0.94)] text-[rgba(255,198,208,0.96)] hover:border-[rgba(160,61,78,0.52)] hover:text-white"
           : "border-white/10 bg-white/[0.04] text-[#d0d5db] hover:border-white/20 hover:bg-white/[0.08] hover:text-white",
         className,
       )}
@@ -452,7 +452,7 @@ function EmbedPreviewCard({
     <div
       className={cn(
         "overflow-hidden rounded-2xl border border-white/10 bg-[#2b2d31] shadow-[0_18px_48px_rgba(0,0,0,0.2)]",
-        selected ? "ring-1 ring-primary/65 shadow-[0_22px_58px_rgba(177,18,38,0.18)]" : "",
+        selected ? "ring-1 ring-[rgba(156,63,79,0.58)] shadow-[0_22px_58px_rgba(88,22,33,0.2)]" : "",
       )}
       style={{ borderLeft: `4px solid ${embedColor}` }}
     >
@@ -657,7 +657,7 @@ function EmbedPreviewCard({
                     className={cn(
                       "space-y-2 rounded-xl border border-white/8 bg-black/10 p-2.5",
                       field.inline ? "" : "sm:col-span-2 lg:col-span-3",
-                      fieldSelected ? "ring-1 ring-primary/55" : "",
+                      fieldSelected ? "ring-1 ring-[rgba(157,62,79,0.62)]" : "",
                     )}
                   >
                     {blankSpacer ? (
@@ -969,7 +969,7 @@ function NodePreview({
 
   if (node.type === "container" || node.type === "section") {
     return (
-      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge, selected ? "ring-1 ring-primary/60 bg-primary/10" : "")}>
+      <div className={cn("space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.62)] bg-[rgba(74,22,31,0.18)]" : "")}>
         <PreviewRegion label={`Edit ${node.type}`} onClick={edit} selected={selected} className="p-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#b5bac1]"><DiscordRichText text={String(node.props.heading || (node.type === "section" ? "Add section heading" : "Add layout heading"))} emojiSize={15} /></p>
           {node.props.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-[#dbdee1]"><DiscordRichText text={String(node.props.description)} emojiSize={16} /></p> : editable ? <p className="mt-2 text-xs text-[#949ba4]">Tap to add section copy.</p> : null}
@@ -1028,7 +1028,7 @@ function NodePreview({
   }
   if (node.type === "action_row") {
     return (
-      <div className={cn("space-y-2", edge, selected ? "rounded-lg ring-1 ring-primary/60" : "")}>
+      <div className={cn("space-y-2", edge, selected ? "rounded-lg ring-1 ring-[rgba(157,62,79,0.62)]" : "")}>
         {editable ? (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={edit || undefined} className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#949ba4]">
@@ -1070,7 +1070,7 @@ function NodePreview({
     return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/40" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || (editable ? "Add button label" : "Button"))} emojiSize={15} /></button>;
   }
 
-  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-primary/35", edge, selected ? "ring-2 ring-primary/45" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || (editable ? `Add ${getSelectorPreviewLabel(node).toLowerCase()}` : getSelectorPreviewLabel(node)))} emojiSize={15} /></button>;
+  return <button type="button" onClick={edit || undefined} className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-left text-xs text-[#dbdee1] transition hover:border-[rgba(120,42,53,0.34)]", edge, selected ? "ring-1 ring-[rgba(157,62,79,0.62)]" : "")}><DiscordRichText text={String(node.props.placeholder || node.props.label || (editable ? `Add ${getSelectorPreviewLabel(node).toLowerCase()}` : getSelectorPreviewLabel(node)))} emojiSize={15} /></button>;
 }
 
 function PlannedComponentPreview({ component, depth = 0 }: { component: EmbedComponentType; depth?: number }) {

@@ -41,6 +41,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { DiscordChannelPicker } from "@/components/discord/channel-picker";
 import { StudioPreview } from "@/components/design-studio/studio-preview";
 import { createStudioPrimaryDocument } from "@/components/design-studio/studio-defaults";
+import {
+  StudioBuilderStatusStrip,
+  StudioCompositionOutline,
+  StudioInsertCatalog,
+  type StudioCompositionGroup,
+  type StudioInsertGroup,
+} from "@/components/design-studio-v2/studio-v2-builder-primitives";
 import { StudioV2EmptyState, type StudioEntryIntent } from "@/components/design-studio-v2/studio-v2-empty-state";
 import {
   appendBundleToDocument,
@@ -212,6 +219,149 @@ function countAssetReferences(document: StudioDocument, assetUrl: string) {
   });
 
   return total;
+}
+
+function summarizeStudioCopyLegacy(value: string, fallback: string, maxLength = 72) {
+  const trimmed = String(value || "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return fallback;
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 1)}…` : trimmed;
+}
+
+function summarizeStudioCopy(value: string, fallback: string, maxLength = 72) {
+  const trimmed = String(value || "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return fallback;
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength - 3)}...` : trimmed;
+}
+
+function nodeContainsSelection(document: StudioDocument, nodeId: string, selectionNodeId: string | null): boolean {
+  if (!selectionNodeId) return false;
+  if (nodeId === selectionNodeId) return true;
+  const node = document.nodes[nodeId];
+  if (!node) return false;
+  return node.childIds.some((childId) => nodeContainsSelection(document, childId, selectionNodeId));
+}
+
+function getNodeOutlineEyebrow(node: StudioNode) {
+  switch (node.type) {
+    case "text_display":
+      return "Text block";
+    case "divider":
+      return "Divider";
+    case "style_block":
+      return "Notice";
+    case "section":
+      return "Section";
+    case "action_row":
+      return "Action row";
+    case "button":
+      return "Button";
+    case "string_select":
+      return "String menu";
+    case "role_select":
+      return "Role selector";
+    case "user_select":
+      return "User selector";
+    case "channel_select":
+      return "Channel selector";
+    case "mentionable_select":
+      return "Mention selector";
+    case "file":
+      return "File";
+    case "media_gallery":
+      return "Gallery";
+    default:
+      return "Block";
+  }
+}
+
+function getNodeOutlineTitle(node: StudioNode) {
+  switch (node.type) {
+    case "text_display":
+      return summarizeStudioCopy(String(node.props.text || ""), "Untitled text");
+    case "divider":
+      return summarizeStudioCopy(String(node.props.text || node.props.symbol || ""), "Divider");
+    case "style_block":
+      return summarizeStudioCopy(String(node.props.title || ""), "Notice block");
+    case "section":
+      return summarizeStudioCopy(String(node.props.heading || ""), "Untitled section");
+    case "action_row":
+      return summarizeStudioCopy(
+        Array.isArray(node.childIds) && node.childIds.length > 0
+          ? `${node.childIds.length} interaction${node.childIds.length === 1 ? "" : "s"}`
+          : "Empty interaction row",
+        "Action row",
+      );
+    case "button":
+      return summarizeStudioCopy(String(node.props.label || ""), "Button");
+    case "string_select":
+    case "role_select":
+    case "user_select":
+    case "channel_select":
+    case "mentionable_select":
+      return summarizeStudioCopy(String(node.props.label || node.props.placeholder || ""), getStudioSelectKindLabel(node.type));
+    case "file":
+      return summarizeStudioCopy(String(node.props.label || ""), "File block");
+    case "media_gallery":
+      return summarizeStudioCopy(String(node.props.title || ""), "Media gallery");
+    default:
+      return "Block";
+  }
+}
+
+function getNodeOutlineDescription(node: StudioNode) {
+  switch (node.type) {
+    case "text_display":
+      return "Visible copy that reads like part of the message body.";
+    case "divider":
+      return "A visual break that separates one beat of the message from the next.";
+    case "style_block":
+      return "A framed notice with title, description, and accent color.";
+    case "section":
+      return "A layout section for grouping related content and child blocks.";
+    case "action_row":
+      return node.childIds.length > 0 ? "Interactive controls grouped into one Discord row." : "Add buttons or selectors into this row.";
+    case "button":
+      return "A primary interaction that runs a Studio action or command follow-up.";
+    case "string_select":
+    case "role_select":
+    case "user_select":
+    case "channel_select":
+    case "mentionable_select":
+      return "A selector block that lets members choose before the next action.";
+    case "file":
+      return "A downloadable or linked attachment surface inside the message.";
+    case "media_gallery":
+      return "A group of visual assets that publish together as one gallery.";
+    default:
+      return "A reusable part of the message structure.";
+  }
+}
+
+function getNodeOutlineIcon(node: StudioNode): "text" | "divider" | "notice" | "layout" | "button" | "menu" | "file" | "asset" | "role" | "channel" | "mention" {
+  switch (node.type) {
+    case "text_display":
+      return "text";
+    case "divider":
+      return "divider";
+    case "style_block":
+      return "notice";
+    case "button":
+      return "button";
+    case "string_select":
+      return "menu";
+    case "role_select":
+      return "role";
+    case "channel_select":
+      return "channel";
+    case "mentionable_select":
+      return "mention";
+    case "file":
+      return "file";
+    case "media_gallery":
+      return "asset";
+    default:
+      return "layout";
+  }
 }
 
 function StudioTabButton({
@@ -2861,44 +3011,258 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       ]
     : [];
 
-  const addPartButtons = (
-    <>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("text")}>Text Block</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("divider")}>Divider</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("notice")}>Notice</Button>
-      {currentMode === "layout_v2" ? <Button variant="outline" className="justify-start" onClick={() => addPart("section")}>Section</Button> : null}
-      <Button variant="outline" className="justify-start" onClick={() => addPart("button")}>Button</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("select")}>Menu</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("role_select")}>Role Selector</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("user_select")}>User Selector</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("channel_select")}>Channel Selector</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("mentionable_select")}>Mentionable Selector</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("button_row")}>Button Group</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("gallery")}>Gallery</Button>
-      <Button variant="outline" className="justify-start" onClick={() => addPart("file")}>File</Button>
-      <Button variant="outline" className="justify-start" onClick={addEmbed}>Embed</Button>
-    </>
+  const insertGroups: StudioInsertGroup[] = [
+    {
+      id: "surface",
+      title: "Surface layers",
+      description: "Start with the visible message surface before you add richer interaction.",
+      options: [
+        {
+          id: "insert-text",
+          label: "Text block",
+          description: "Add a clean copy block for the core message or a supporting paragraph.",
+          eyebrow: "Copy",
+          icon: "text",
+          onSelect: () => addPart("text"),
+        },
+        {
+          id: "insert-embed",
+          label: "Embed surface",
+          description: "Add a richer visual layer with title, description, image, fields, and footer.",
+          eyebrow: "Rich",
+          icon: "embed",
+          onSelect: addEmbed,
+        },
+        {
+          id: "insert-divider",
+          label: "Divider",
+          description: "Break the message into calmer beats without adding heavy chrome.",
+          eyebrow: "Spacing",
+          icon: "divider",
+          onSelect: () => addPart("divider"),
+        },
+        {
+          id: "insert-notice",
+          label: "Notice block",
+          description: "Drop in an emphasized callout for warnings, reminders, or key guidance.",
+          eyebrow: "Callout",
+          icon: "notice",
+          onSelect: () => addPart("notice"),
+        },
+      ],
+    },
+    {
+      id: "interactive",
+      title: "Interactive blocks",
+      description: "Actions live as blocks too, so the message and interaction model stay in one flow.",
+      options: [
+        {
+          id: "insert-button",
+          label: "Button",
+          description: "Add a primary action without manually wiring a separate desktop-shaped row first.",
+          eyebrow: "Action",
+          icon: "button",
+          onSelect: () => addPart("button"),
+        },
+        {
+          id: "insert-menu",
+          label: "Select menu",
+          description: "Let members choose a path, option, or next action directly in the message.",
+          eyebrow: "Choice",
+          icon: "menu",
+          onSelect: () => addPart("select"),
+        },
+        {
+          id: "insert-role",
+          label: "Role selector",
+          description: "Build role-aware pickers when Discord roles are the real interaction surface.",
+          eyebrow: "Role-aware",
+          icon: "role",
+          onSelect: () => addPart("role_select"),
+        },
+        {
+          id: "insert-channel",
+          label: "Channel selector",
+          description: "Route members into the right destination when the next step depends on a channel choice.",
+          eyebrow: "Routing",
+          icon: "channel",
+          onSelect: () => addPart("channel_select"),
+        },
+        {
+          id: "insert-user",
+          label: "User selector",
+          description: "Use a member picker when the action needs a person before it can continue.",
+          eyebrow: "People",
+          icon: "role",
+          onSelect: () => addPart("user_select"),
+        },
+        {
+          id: "insert-mention",
+          label: "Mention selector",
+          description: "Pick the next mentionable target without leaving the Studio flow.",
+          eyebrow: "Flexible",
+          icon: "mention",
+          onSelect: () => addPart("mentionable_select"),
+        },
+      ],
+    },
+    {
+      id: "structure",
+      title: "Layout and assets",
+      description: "Use structure only where it improves clarity, not as default chrome.",
+      options: [
+        {
+          id: "insert-section",
+          label: "Section",
+          description: "Create a grouped layout area for content that needs a clear parent container.",
+          eyebrow: "Layout",
+          icon: "layout",
+          onSelect: () => addPart("section"),
+          disabled: currentMode !== "layout_v2",
+        },
+        {
+          id: "insert-button-row",
+          label: "Button group",
+          description: "Start a dedicated interaction row when the message needs more than one action.",
+          eyebrow: "Layout",
+          icon: "layout",
+          onSelect: () => addPart("button_row"),
+        },
+        {
+          id: "insert-gallery",
+          label: "Gallery",
+          description: "Place multiple visuals together when the message needs a stronger media surface.",
+          eyebrow: "Media",
+          icon: "asset",
+          onSelect: () => addPart("gallery"),
+        },
+        {
+          id: "insert-file",
+          label: "File block",
+          description: "Attach a file or download surface directly inside the message structure.",
+          eyebrow: "Asset",
+          icon: "file",
+          onSelect: () => addPart("file"),
+        },
+      ],
+    },
+  ];
+
+  const compositionGroups: StudioCompositionGroup[] = currentView
+    ? [
+        {
+          id: "message",
+          title: "Message",
+          description: "The top-level message body anchors the whole surface.",
+          items: [
+            {
+              id: "composition-message",
+              eyebrow: "Message",
+              title: summarizeStudioCopy(String(currentView.messageContent || ""), "Message body"),
+              description: String(currentView.messageContent || "").trim()
+                ? "Core message copy that members read before embeds or interactions."
+                : "No body text yet. Leave it empty only if the embed or interaction surface carries the whole message.",
+              meta: String(currentView.messageContent || "").trim() ? `${String(currentView.messageContent || "").length} chars` : "Empty",
+              icon: "message",
+              selected: selection.kind === "message",
+              onSelect: () => select({ kind: "message", region: "body" }),
+            },
+          ],
+        },
+        {
+          id: "embeds",
+          title: "Embeds",
+          description: "Embeds add richer hierarchy, images, and structured detail.",
+          emptyLabel: "No embeds yet. Add one when the message needs stronger visual structure.",
+          items: currentView.embeds.map((embed, index) => {
+            const fieldCount = Array.isArray(embed.fields) ? embed.fields.length : 0;
+            const mediaCount = [embed.imageUrl, embed.thumbnailUrl].filter(Boolean).length;
+            return {
+              id: `composition-embed-${index}`,
+              eyebrow: `Embed ${index + 1}`,
+              title: summarizeStudioCopy(String(embed.title || embed.description || ""), `Embed ${index + 1}`),
+              description: fieldCount > 0 || mediaCount > 0
+                ? `${fieldCount > 0 ? `${fieldCount} field${fieldCount === 1 ? "" : "s"}` : "No fields yet"}${mediaCount > 0 ? ` / ${mediaCount} media slot${mediaCount === 1 ? "" : "s"}` : ""}`
+                : "No structured details yet. Start with headline, description, or media.",
+              meta: embed.color || "#B11226",
+              icon: "embed",
+              selected: selection.kind === "embed" && selection.embedIndex === index,
+              onSelect: () => select({ kind: "embed", embedIndex: index, region: "embed" }),
+            };
+          }),
+        },
+        {
+          id: "blocks",
+          title: "Blocks",
+          description: "Everything interactive or structural lives here as clear message blocks.",
+          emptyLabel: "No blocks yet. Add text, structure, or interaction when the message needs more than copy and embeds.",
+          items: currentView.rootNodeIds
+            .map((nodeId) => draft.nodes[nodeId])
+            .filter((node): node is StudioNode => Boolean(node))
+            .map((node) => ({
+              id: `composition-node-${node.id}`,
+              eyebrow: getNodeOutlineEyebrow(node),
+              title: getNodeOutlineTitle(node),
+              description: getNodeOutlineDescription(node),
+              meta: node.childIds.length > 0 ? `${node.childIds.length} child${node.childIds.length === 1 ? "" : "ren"}` : undefined,
+              icon: getNodeOutlineIcon(node),
+              selected: selection.kind === "node" ? nodeContainsSelection(draft, node.id, selection.nodeId) : false,
+              onSelect: () => select({ kind: "node", nodeId: node.id }),
+            })),
+        },
+      ]
+    : [];
+
+  const compositionPanel = (
+    <StudioCompositionOutline
+      title={currentMode === "layout_v2" ? "Message + blocks" : "Message structure"}
+      description={
+        currentMode === "layout_v2"
+          ? "The message body, embeds, and interaction blocks all live in one composition map so it is obvious what you are building."
+          : "Start with the message, add richer surfaces only when needed, and keep the whole composition legible on mobile."
+      }
+      groups={compositionGroups}
+      actions={
+        <>
+          {selectedNode?.type === "section" || selectedNode?.type === "container" ? <Badge variant="outline">Child target active</Badge> : null}
+          {isMobile ? (
+            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={() => setMobileInsertOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Add block
+            </Button>
+          ) : null}
+        </>
+      }
+    />
+  );
+
+  const builderStatusStrip = (
+    <StudioBuilderStatusStrip
+      modeLabel={draftModeLabel(currentMode)}
+      selectedLabel={selectedLabel}
+      publishLabel={publishPlan?.label || "Publish ready"}
+      publishPath={publishPlan?.publishPath || null}
+      errorCount={errorCount}
+      warningCount={warningCount}
+      onOpenIssues={() => setActiveTab("issues")}
+      onOpenPublish={() => setActiveTab("publish")}
+    />
   );
 
   const addPartPanel = (
-    <Card className="archivist-panel archivist-panel-muted">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? contextualInsertLabel : "Add message part"}</CardTitle>
-            <CardDescription>
-              {currentMode === "layout_v2"
-                ? selectedNode?.type === "section" || selectedNode?.type === "container"
-                  ? "These inserts will land inside the selected layout block."
-                  : "Add message blocks, buttons, and menus without dealing with row setup."
-                : "Add only the pieces you still need. The message preview stays central."}
-            </CardDescription>
-          </div>
-          {selectedNode?.type === "section" || selectedNode?.type === "container" ? <Badge variant="outline">Child target active</Badge> : null}
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {addPartButtons}
+    <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
+      <CardContent className="p-4">
+        <StudioInsertCatalog
+          title={currentMode === "layout_v2" ? contextualInsertLabel : "Add the next part"}
+          description={
+            currentMode === "layout_v2"
+              ? selectedNode?.type === "section" || selectedNode?.type === "container"
+                ? "The selected layout block is the current insertion target, so new parts will land inside it."
+                : "Choose the next block by what it does: visible copy, richer surface, interaction, or structural layout."
+              : "Choose the next visible part of the message. Studio keeps the preview and the publish reality attached while you build."
+          }
+          groups={insertGroups}
+        />
       </CardContent>
     </Card>
   );
@@ -3081,23 +3445,39 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         isMobile && mobileStudioScreen === "component" ? (
           mobileComponentScreen
         ) : (
-        <div className={cn("grid gap-4", !isMobile && selection.kind === "node" ? "xl:grid-cols-[minmax(0,1.18fr)_minmax(340px,0.82fr)]" : "xl:grid-cols-1")}>
-          <div className="space-y-4">
-            <Card className="archivist-panel archivist-panel-muted">
+        <div className="space-y-4">
+          {builderStatusStrip}
+
+          <div
+            className={cn(
+              "grid gap-4",
+              !isMobile
+                ? selection.kind === "node"
+                  ? "xl:grid-cols-[320px_minmax(0,1fr)_360px]"
+                  : "xl:grid-cols-[320px_minmax(0,1fr)]"
+                : "",
+            )}
+          >
+            <div className="space-y-4">
+              {compositionPanel}
+              {!isMobile ? addPartPanel : null}
+            </div>
+
+            <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Interactive message" : "Live message editor"}</CardTitle>
+                    <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
                     <CardDescription>
                       {selection.kind === "node"
-                        ? "Tap a block in the preview, then adjust only that block's controls."
-                        : "Tap the exact part of the Discord message you want to change and edit it directly."}
+                        ? "The canvas stays visual. Select the block you want, then refine only that block."
+                        : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{draftModeLabel(currentMode)}</Badge>
-                    <Badge variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}>
-                      {errorCount > 0 ? `${errorCount} blocked` : warningCount > 0 ? `${warningCount} review` : "Ready"}
+                    <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
+                    <Badge variant="outline">
+                      {selectedLabel}
                     </Badge>
                   </div>
                 </div>
@@ -3127,7 +3507,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                     <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3">
                       <Badge variant="outline">{selectedLabel}</Badge>
                       <span className="text-xs text-white/56">
-                        {selection.kind === "node" ? "Open a dedicated component screen for buttons, menus, and selectors." : "The preview is your editor."}
+                        {selection.kind === "node" ? "Open the focused component screen for deeper interaction editing." : "Build directly on the live message surface."}
                       </span>
                       <div className="ml-auto flex gap-2">
                         <Button variant="outline" size="sm" className="rounded-full" onClick={() => setMobileInsertOpen(true)}>
@@ -3156,8 +3536,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                     <Badge variant="outline">{selectedLabel}</Badge>
                     <span className="text-sm text-white/58">
                       {selection.kind === "node"
-                        ? "The right panel is focused on the block you selected."
-                        : "Click the live message itself to edit text, embeds, or media in place."}
+                        ? "The right panel stays focused on the selected block while the canvas stays visible."
+                        : "Use the composition map for structure, then edit the live message directly."}
                     </span>
                     <div className="ml-auto flex gap-2">
                       <Button variant="outline" size="sm" className="rounded-[14px]" onClick={addEmbed}>
@@ -3171,10 +3551,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               </CardContent>
             </Card>
 
-            {!isMobile ? addPartPanel : null}
+            {!isMobile && selection.kind === "node" ? selectionPanel : null}
           </div>
-
-          {!isMobile && selection.kind === "node" ? selectionPanel : null}
         </div>
         )
       ) : null}
@@ -3492,7 +3870,17 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 </DrawerClose>
               </div>
             </DrawerHeader>
-            <div className="grid gap-2 pb-2">{addPartButtons}</div>
+            <div className="pb-2">
+              <StudioInsertCatalog
+                title={currentMode === "layout_v2" ? contextualInsertLabel : "Add the next part"}
+                description={
+                  currentMode === "layout_v2"
+                    ? "Pick the next visible or interactive block. Studio will insert it into the current lane and move focus naturally."
+                    : "Pick the next visible part of the message. Studio keeps the canvas and publish truth attached while you add."
+                }
+                groups={insertGroups}
+              />
+            </div>
           </DrawerContent>
         </Drawer>
       ) : null}
