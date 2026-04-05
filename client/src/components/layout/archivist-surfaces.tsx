@@ -12,7 +12,8 @@ export function SurfacePanel({
     <section
       className={cn(
         "archivist-panel relative overflow-hidden",
-        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent)]",
+        // Top edge: left side red fade → center white shimmer → right fade
+        "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(224,0,26,0.35),rgba(255,255,255,0.08)_40%,rgba(255,255,255,0.04)_60%,transparent)]",
         className,
       )}
     >

@@ -328,6 +328,75 @@ export function removeNodeBranch(document: StudioDocument, nodeId: string) {
   delete document.nodes[nodeId];
 }
 
+export function cloneNodeBranch(document: StudioDocument, nodeId: string): string | null {
+  const node = document.nodes[nodeId];
+  if (!node) return null;
+
+  // Map old IDs → new IDs for the whole subtree
+  const idMap = new Map<string, string>();
+  const collectIds = (id: string) => {
+    const n = document.nodes[id];
+    if (!n) return;
+    idMap.set(id, makeId("node"));
+    n.childIds.forEach(collectIds);
+  };
+  collectIds(nodeId);
+
+  // Deep-clone each node with remapped IDs
+  idMap.forEach((newId, oldId) => {
+    const original = document.nodes[oldId];
+    if (!original) return;
+    const cloned: StudioNode = {
+      ...JSON.parse(JSON.stringify(original)),
+      id: newId,
+      parentId: original.parentId ? (idMap.get(original.parentId) ?? original.parentId) : original.parentId,
+      childIds: original.childIds.map((cid) => idMap.get(cid) ?? cid),
+      // Give new action IDs
+      actionId: original.actionId ? makeId("action") : original.actionId,
+      optionActionIds: original.optionActionIds
+        ? Object.fromEntries(Object.entries(original.optionActionIds).map(([k, v]) => [k, makeId("action")]))
+        : original.optionActionIds,
+    };
+    document.nodes[newId] = cloned;
+
+    // Clone actions
+    if (original.actionId && cloned.actionId && document.actions[original.actionId]) {
+      document.actions[cloned.actionId] = {
+        ...JSON.parse(JSON.stringify(document.actions[original.actionId])),
+        id: cloned.actionId,
+      };
+    }
+    if (original.optionActionIds && cloned.optionActionIds) {
+      Object.entries(original.optionActionIds).forEach(([k, oldActionId]) => {
+        const newActionId = cloned.optionActionIds![k];
+        if (document.actions[oldActionId]) {
+          document.actions[newActionId] = {
+            ...JSON.parse(JSON.stringify(document.actions[oldActionId])),
+            id: newActionId,
+          };
+        }
+      });
+    }
+  });
+
+  const newRootId = idMap.get(nodeId)!;
+
+  // Insert after the original in parent or view
+  if (node.parentId && document.nodes[node.parentId]) {
+    const siblings = document.nodes[node.parentId].childIds;
+    const idx = siblings.indexOf(nodeId);
+    siblings.splice(idx + 1, 0, newRootId);
+  } else {
+    const view = document.views[node.viewId];
+    if (view) {
+      const idx = view.rootNodeIds.indexOf(nodeId);
+      view.rootNodeIds.splice(idx + 1, 0, newRootId);
+    }
+  }
+
+  return newRootId;
+}
+
 export function moveNodeInDocument(document: StudioDocument, nodeId: string, direction: -1 | 1) {
   const node = document.nodes[nodeId];
   if (!node) return false;

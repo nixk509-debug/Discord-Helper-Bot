@@ -1,444 +1,133 @@
-/**
- * Embed Inspector — premium redesign
- * Replaces the flat inline editor with collapsible section cards,
- * Discord colour swatches, char-count indicators, a variable picker,
- * embed templates, JSON copy, multi-embed switcher, and premium field cards.
- */
-
-import { useState, useRef } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  Trash2,
-  ArrowUp,
-  ArrowDown,
-  Copy,
-  Code2,
-  Braces,
-  Sparkles,
-  Image,
-  AlignLeft,
-  User,
-  LayoutGrid,
-  MessageSquare,
-  CheckCheck,
-  X,
-  Smile,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { useState, useRef, useCallback } from "react";
+import { Plus, Trash2, ArrowUp, ArrowDown, Code2, Sparkles, Smile, ChevronDown, ChevronRight, Braces } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import type { StudioEmbedDraft, EmbedFieldType } from "@shared/schema";
 import { EMBED_TEMPLATES } from "./studio-embed-templates";
 
-// ─── Discord colour swatches ─────────────────────────────────────────────────
-
 const SWATCHES = [
-  { hex: "#5865F2", label: "Blurple" },
-  { hex: "#EB459E", label: "Fuchsia" },
-  { hex: "#57F287", label: "Green" },
-  { hex: "#FEE75C", label: "Yellow" },
-  { hex: "#ED4245", label: "Red" },
-  { hex: "#E67E22", label: "Orange" },
-  { hex: "#9B59B6", label: "Purple" },
-  { hex: "#1ABC9C", label: "Teal" },
-  { hex: "#3498DB", label: "Blue" },
-  { hex: "#2C2F33", label: "Dark" },
-  { hex: "#E0001A", label: "Archivist" },
-  { hex: "#FF6B6B", label: "Coral" },
-  { hex: "#FFFFFF", label: "White" },
-  { hex: "#99AAB5", label: "Grey" },
-  { hex: "#2ECC71", label: "Emerald" },
-  { hex: "#C0392B", label: "Crimson" },
-  { hex: "#F1C40F", label: "Gold" },
-  { hex: "#27AE60", label: "Forest" },
+  "#5865F2", "#EB459E", "#57F287", "#FEE75C", "#ED4245",
+  "#E67E22", "#9B59B6", "#1ABC9C", "#3498DB", "#E0001A",
+  "#FF6B6B", "#FFFFFF", "#99AAB5", "#2ECC71", "#C0392B", "#F1C40F",
 ];
 
-// ─── Variable groups ──────────────────────────────────────────────────────────
+const EMOJI_GROUPS = [
+  { label: "Common", emojis: ["✅","❌","⚠️","📢","🔔","🎉","🏆","⭐","🔥","💎","🛡️","⚔️","📋","📌","💬","👋","🎮","🎯","💡","🔧","🚀","❓","💰","🎁","🔑"] },
+  { label: "Arrows", emojis: ["→","←","↑","↓","➡️","⬅️","⬆️","⬇️","↩️","↪️","🔄","▶️","◀️","⏩","⏪"] },
+  { label: "Symbols", emojis: ["•","▪","▸","◆","○","●","★","☆","✦","✧","♦","♠","♥","♣","⦿"] },
+];
 
 const VARIABLE_GROUPS = [
   {
     label: "User",
-    vars: ["{user.name}", "{user.mention}", "{user.id}", "{user.tag}"],
+    vars: [
+      { label: "Username",     value: "{user.name}" },
+      { label: "Display Name", value: "{user.displayName}" },
+      { label: "Mention",      value: "{user.mention}" },
+      { label: "User ID",      value: "{user.id}" },
+      { label: "Avatar URL",   value: "{user.avatarUrl}" },
+    ],
   },
   {
     label: "Server",
-    vars: ["{server.name}", "{server.memberCount}", "{server.id}"],
-  },
-  {
-    label: "Channel",
-    vars: ["{channel.name}", "{channel.id}"],
+    vars: [
+      { label: "Server Name",  value: "{server.name}" },
+      { label: "Server ID",    value: "{server.id}" },
+      { label: "Members",      value: "{server.memberCount}" },
+      { label: "Server Icon",  value: "{server.iconUrl}" },
+      { label: "Channel",      value: "{channel.name}" },
+    ],
   },
   {
     label: "Time",
-    vars: ["{timestamp}", "{date}", "{time}"],
+    vars: [
+      { label: "Date",      value: "{time.date}" },
+      { label: "Time",      value: "{time.time}" },
+      { label: "DateTime",  value: "{time.dateTime}" },
+      { label: "Timestamp", value: "{time.timestamp}" },
+    ],
   },
 ];
 
-// ─── Discord emoji groups ─────────────────────────────────────────────────────
-
-const DISCORD_EMOJI_GROUPS = [
-  { label: "Common", emojis: ["✅", "❌", "⚠️", "📢", "🔔", "🎉", "🏆", "⭐", "🔥", "💎", "🛡️", "⚔️", "📋", "📌", "🔗", "💬", "👋", "🎮", "🎯", "💡", "🔧", "📊", "🚀", "❓", "💰"] },
-  { label: "Arrows", emojis: ["→", "←", "↑", "↓", "➡️", "⬅️", "⬆️", "⬇️", "↩️", "↪️", "🔄", "▶️", "◀️", "⏩", "⏪", "🔀"] },
-  { label: "Symbols", emojis: ["•", "▪", "▸", "◆", "○", "●", "◉", "★", "☆", "♦", "♠", "♥", "♣", "✦", "✧", "⦿"] },
-];
-
-// ─── Emoji picker popover ─────────────────────────────────────────────────────
-
-interface EmojiPickerProps {
-  onClose: () => void;
-}
-
-function EmojiPicker({ onClose }: EmojiPickerProps) {
-  const [copied, setCopied] = useState<string | null>(null);
-
-  const handleEmoji = (emoji: string) => {
-    navigator.clipboard.writeText(emoji).then(() => {
-      setCopied(emoji);
-      setTimeout(() => {
-        setCopied(null);
-        onClose();
-      }, 900);
-    });
-  };
-
-  return (
-    <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-[16px] border border-white/12 bg-[#0d0e11] p-3 shadow-2xl">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-widest text-white/40">Emoji</span>
-        <button type="button" onClick={onClose} className="text-white/40 hover:text-white/70">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {copied && (
-        <div className="mb-2 rounded-[10px] bg-[rgba(87,242,135,0.1)] px-3 py-1.5 text-xs text-[#57F287]">
-          Copied — paste anywhere
-        </div>
-      )}
-      {DISCORD_EMOJI_GROUPS.map((group) => (
-        <div key={group.label} className="mb-3">
-          <p className="mb-1.5 text-[10px] uppercase tracking-widest text-white/30">{group.label}</p>
-          <div className="flex flex-wrap gap-1">
-            {group.emojis.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => handleEmoji(emoji)}
-                className={cn(
-                  "flex h-7 w-7 items-center justify-center rounded-[8px] border text-base transition hover:scale-110",
-                  copied === emoji
-                    ? "border-[rgba(87,242,135,0.4)] bg-[rgba(87,242,135,0.08)]"
-                    : "border-white/10 bg-white/[0.04] hover:border-white/24",
-                )}
-                title={emoji}
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Char limit helpers ───────────────────────────────────────────────────────
-
-const LIMITS: Record<string, number> = {
-  title: 256,
-  description: 4096,
-  fieldName: 256,
-  fieldValue: 1024,
-  footer: 2048,
-  authorName: 256,
+type ActiveField = {
+  el: HTMLInputElement | HTMLTextAreaElement;
+  onChange: (v: string) => void;
 };
+let _activeField: ActiveField | null = null;
 
-function CharCount({ value, field }: { value: string; field: keyof typeof LIMITS }) {
-  const limit = LIMITS[field];
+function insertIntoActiveField(text: string) {
+  const f = _activeField;
+  if (!f) return false;
+  const el = f.el;
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? el.value.length;
+  const newVal = el.value.slice(0, start) + text + el.value.slice(end);
+  f.onChange(newVal);
+  requestAnimationFrame(() => {
+    el.focus();
+    el.setSelectionRange(start + text.length, start + text.length);
+  });
+  return true;
+}
+
+function CharCount({ value, max }: { value: string; max: number }) {
   const len = (value || "").length;
-  const pct = len / limit;
+  const pct = len / max;
   return (
-    <span
-      className={cn(
-        "ml-auto text-xs tabular-nums",
-        pct >= 1 ? "text-red-400" : pct >= 0.9 ? "text-amber-400" : "text-white/32",
-      )}
-    >
-      {len}/{limit}
+    <span className={cn("text-[10px] tabular-nums", pct >= 0.9 ? "text-[#E0001A]" : "text-white/20")}>
+      {len}/{max}
     </span>
   );
 }
 
-// ─── Variable picker popover ──────────────────────────────────────────────────
-
-interface VarPickerProps {
-  onInsert: (variable: string) => void;
-  onClose: () => void;
-}
-
-function VarPicker({ onInsert, onClose }: VarPickerProps) {
+function VarsPopover({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const insert = (value: string) => {
+    const inserted = insertIntoActiveField(value);
+    if (!inserted) {
+      navigator.clipboard.writeText(value).catch(() => {});
+      toast({ title: "Copied", description: "No field focused — copied to clipboard" });
+    }
+    onClose();
+  };
   return (
-    <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-[16px] border border-white/12 bg-[#0d0e11] p-3 shadow-2xl">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-widest text-white/40">Variables</span>
-        <button type="button" onClick={onClose} className="text-white/40 hover:text-white/70">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {VARIABLE_GROUPS.map((group) => (
-        <div key={group.label} className="mb-2">
-          <p className="mb-1 text-[10px] uppercase tracking-widest text-white/30">{group.label}</p>
-          <div className="flex flex-wrap gap-1">
-            {group.vars.map((v) => (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-[16px] border border-white/[0.1] bg-[#0a0a0f] p-2 shadow-[0_16px_40px_rgba(0,0,0,0.6)]">
+        {VARIABLE_GROUPS.map(group => (
+          <div key={group.label} className="mb-2 last:mb-0">
+            <p className="mb-1 px-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/25">{group.label}</p>
+            {group.vars.map(v => (
               <button
-                key={v}
+                key={v.value}
                 type="button"
-                onClick={() => { onInsert(v); onClose(); }}
-                className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs text-white/72 hover:border-[rgba(224,0,26,0.3)] hover:text-white transition"
+                onClick={() => insert(v.value)}
+                className="flex w-full items-center justify-between gap-2 rounded-[10px] px-2 py-1.5 text-left transition hover:bg-white/[0.06] active:bg-white/[0.1]"
               >
-                {v}
+                <span className="text-[12px] text-white/65">{v.label}</span>
+                <span className="font-mono text-[10px] text-white/25 truncate">{v.value}</span>
               </button>
             ))}
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 
-// ─── Smart text input with var picker ────────────────────────────────────────
-
-interface SmartInputProps {
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-  field: keyof typeof LIMITS;
-  label: string;
-  multiline?: boolean;
-  minHeight?: string;
-}
-
-function SmartInput({ value, onChange, placeholder, field, label, multiline, minHeight = "min-h-[110px]" }: SmartInputProps) {
-  const [showVars, setShowVars] = useState(false);
-  const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
-
-  const insertVariable = (variable: string) => {
-    const el = ref.current;
-    if (!el) { onChange((value || "") + variable); return; }
-    const start = el.selectionStart ?? (value || "").length;
-    const end = el.selectionEnd ?? start;
-    const next = (value || "").slice(0, start) + variable + (value || "").slice(end);
-    onChange(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + variable.length, start + variable.length);
-    });
-  };
-
+function TemplatesSheet({ onApply, onClose }: { onApply: (p: Partial<StudioEmbedDraft>) => void; onClose: () => void }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1">
-        <Label>{label}</Label>
-        <CharCount value={value} field={field} />
-      </div>
-      <div className="relative">
-        {multiline ? (
-          <Textarea
-            ref={ref as React.RefObject<HTMLTextAreaElement>}
-            value={value || ""}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            className={cn(minHeight, "pr-10")}
-          />
-        ) : (
-          <Input
-            ref={ref as React.RefObject<HTMLInputElement>}
-            value={value || ""}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            className="pr-10"
-          />
-        )}
-        <button
-          type="button"
-          onClick={() => setShowVars((v) => !v)}
-          className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-md border border-white/12 bg-white/[0.04] text-white/38 hover:border-[rgba(224,0,26,0.3)] hover:text-[#ff6070] transition"
-          title="Insert variable"
-        >
-          <Braces className="h-3 w-3" />
-        </button>
-        {showVars && (
-          <VarPicker onInsert={insertVariable} onClose={() => setShowVars(false)} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Collapsible section card ─────────────────────────────────────────────────
-
-interface SectionCardProps {
-  title: string;
-  summary?: string;
-  icon?: React.ReactNode;
-  defaultOpen?: boolean;
-  danger?: boolean;
-  children: React.ReactNode;
-}
-
-function SectionCard({ title, summary, icon, defaultOpen = false, danger = false, children }: SectionCardProps) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div
-      className={cn(
-        "rounded-[18px] border transition-colors",
-        danger
-          ? "border-[rgba(224,0,26,0.2)] bg-[rgba(20,10,12,0.98)]"
-          : "border-white/8 bg-[linear-gradient(180deg,rgba(12,13,16,0.99),rgba(8,9,11,1))]",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
-      >
-        {icon && (
-          <div className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border",
-            danger
-              ? "border-[rgba(224,0,26,0.24)] bg-[rgba(32,13,16,0.9)] text-[#ff6070]"
-              : "border-white/10 bg-white/[0.04] text-white/52",
-          )}>
-            {icon}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className={cn("text-sm font-semibold", danger ? "text-[#ff6070]" : "text-white")}>{title}</p>
-          {summary && !open && (
-            <p className="mt-0.5 truncate text-xs text-white/38">{summary}</p>
-          )}
-        </div>
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-white/38" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-white/28" />
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-white/6 px-4 pb-4 pt-4">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Colour swatch picker ─────────────────────────────────────────────────────
-
-interface ColorPickerProps {
-  value: string;
-  onChange: (hex: string) => void;
-}
-
-function ColorPicker({ value, onChange }: ColorPickerProps) {
-  const current = value || "#E0001A";
-  // Normalise to uppercase for comparison
-  const currentUp = current.toUpperCase();
-
-  return (
-    <div className="space-y-3">
-      {/* Live preview strip */}
-      <div className="flex items-center gap-3 rounded-[14px] border border-white/8 bg-[#0b0d10] px-3 py-2.5">
-        <div
-          className="h-8 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: current }}
-        />
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-white/70">Accent preview</p>
-          <p className="text-xs text-white/38">{current}</p>
-        </div>
-      </div>
-
-      {/* Swatch grid */}
-      <div className="grid grid-cols-9 gap-1.5">
-        {SWATCHES.map((s) => {
-          const selected = s.hex.toUpperCase() === currentUp;
-          return (
-            <button
-              key={s.hex}
-              type="button"
-              title={s.label}
-              onClick={() => onChange(s.hex)}
-              className={cn(
-                "h-6 w-6 rounded-md border transition-transform hover:scale-110",
-                selected
-                  ? "border-[#ff6070] ring-1 ring-[#ff6070] ring-offset-1 ring-offset-[#0a0b0d]"
-                  : "border-white/10 hover:border-white/28",
-              )}
-              style={{ backgroundColor: s.hex }}
-            />
-          );
-        })}
-      </div>
-
-      {/* Hex input */}
-      <div className="flex items-center gap-2">
-        <div
-          className="h-8 w-8 shrink-0 rounded-[8px] border border-white/12"
-          style={{ backgroundColor: current }}
-        />
-        <Input
-          value={current}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="#E0001A"
-          className="font-mono text-sm"
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── Templates overlay ────────────────────────────────────────────────────────
-
-interface TemplatesOverlayProps {
-  onApply: (partial: Partial<StudioEmbedDraft>) => void;
-  onClose: () => void;
-}
-
-function TemplatesOverlay({ onApply, onClose }: TemplatesOverlayProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-[22px] border border-white/10 bg-[#0c0d10] p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-widest text-white/38">Quick-fill</p>
-            <h3 className="mt-1 text-lg font-semibold text-white">Embed Templates</h3>
-          </div>
-          <button type="button" onClick={onClose} className="text-white/38 hover:text-white/70">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {EMBED_TEMPLATES.map((tmpl) => (
-            <button
-              key={tmpl.id}
-              type="button"
-              onClick={() => { onApply(tmpl.apply()); onClose(); }}
-              className="flex items-start gap-3 rounded-[14px] border border-white/8 bg-white/[0.02] p-3 text-left transition hover:border-[rgba(224,0,26,0.24)] hover:bg-[rgba(20,12,14,0.96)]"
-            >
-              <span className="text-2xl leading-none">{tmpl.emoji}</span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-white">{tmpl.label}</p>
-                <p className="mt-0.5 text-xs text-white/44">{tmpl.description}</p>
-              </div>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-t-[24px] border-t border-white/[0.1] bg-[#080810] p-5 pb-10" onClick={e => e.stopPropagation()}>
+        <div className="mx-auto mb-5 h-1 w-8 rounded-full bg-white/[0.15]" />
+        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.25em] text-white/30">Templates</p>
+        <div className="grid grid-cols-2 gap-2">
+          {EMBED_TEMPLATES.map(t => (
+            <button key={t.id} type="button" onClick={() => { onApply(t.apply()); onClose(); }}
+              className="flex items-center gap-3 rounded-[16px] border border-white/[0.07] bg-white/[0.03] px-4 py-3.5 text-left transition hover:border-white/[0.12] hover:bg-white/[0.05] active:bg-white/[0.08]">
+              <span className="text-xl">{t.emoji}</span>
+              <span className="text-[13px] font-medium text-white/75">{t.label}</span>
             </button>
           ))}
         </div>
@@ -447,155 +136,253 @@ function TemplatesOverlay({ onApply, onClose }: TemplatesOverlayProps) {
   );
 }
 
-// ─── Field card ───────────────────────────────────────────────────────────────
+function EmojiSheet({
+  onClose,
+  serverEmojis = [],
+}: {
+  onClose: () => void;
+  serverEmojis?: Array<{ id: string; name: string; animated: boolean }>;
+}) {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+  const [justInserted, setJustInserted] = useState<string | null>(null);
 
-interface FieldCardProps {
-  field: EmbedFieldType;
-  index: number;
-  total: number;
-  onChangeName: (val: string) => void;
-  onChangeValue: (val: string) => void;
-  onChangeInline: (val: boolean) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onDelete: () => void;
-  active?: boolean;
-}
+  const insert = (text: string, key: string) => {
+    const inserted = insertIntoActiveField(text);
+    setJustInserted(key);
+    if (!inserted) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      toast({ title: "Copied" });
+    }
+    setTimeout(onClose, 260);
+  };
 
-function FieldCard({
-  field, index, total,
-  onChangeName, onChangeValue, onChangeInline,
-  onMoveUp, onMoveDown, onDelete,
-  active,
-}: FieldCardProps) {
-  const isSpacer = field.name === "\u200B" && field.value === "\u200B";
+  const filteredServerEmojis = serverEmojis.filter(e =>
+    search.trim() === "" || e.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
 
   return (
-    <div
-      className={cn(
-        "rounded-[18px] border transition-colors",
-        active
-          ? "border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(20,13,15,0.98),rgba(10,10,11,1))]"
-          : "border-white/8 bg-[#0b0d10]",
-      )}
-    >
-      {/* Card header */}
-      <div className="flex items-center gap-2 px-4 py-2.5">
-        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border border-white/10 bg-white/[0.04]">
-          <LayoutGrid className="h-3 w-3 text-white/38" />
-        </div>
-        <p className="flex-1 text-xs font-semibold text-white/60">
-          {isSpacer ? "Spacer" : `Field ${index + 1}`}
-        </p>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onMoveUp}
-            disabled={index === 0}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-white/30 hover:text-white/70 disabled:opacity-30 transition"
-            title="Move up"
-          >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onMoveDown}
-            disabled={index === total - 1}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-white/30 hover:text-white/70 disabled:opacity-30 transition"
-            title="Move down"
-          >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-white/28 hover:text-red-400 transition"
-            title="Remove field"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-lg overflow-y-auto max-h-[80vh] rounded-t-[24px] border-t border-white/[0.1] bg-[#080810] p-5 pb-10"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-5 h-1 w-8 rounded-full bg-white/[0.15]" />
 
-      {!isSpacer && (
-        <div className="space-y-3 border-t border-white/6 px-4 pb-4 pt-3">
-          <SmartInput
-            value={field.name}
-            onChange={onChangeName}
-            placeholder="Field title"
-            field="fieldName"
-            label="Name"
+        {serverEmojis.length > 0 && (
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search server emojis…"
+            style={{ fontSize: 16 }}
+            className="mb-4 w-full rounded-[14px] border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.06] transition"
           />
-          <SmartInput
-            value={field.value}
-            onChange={onChangeValue}
-            placeholder="Field value"
-            field="fieldValue"
-            label="Value"
-            multiline
-          />
-          {/* Inline toggle */}
-          <div className="flex items-center justify-between rounded-[14px] border border-white/8 bg-[#090a0d] px-3 py-2.5">
-            <p className="text-xs font-medium text-white/70">Inline</p>
-            <Switch
-              checked={Boolean(field.inline)}
-              onCheckedChange={onChangeInline}
-            />
+        )}
+
+        {serverEmojis.length > 0 && (
+          <div className="mb-4">
+            <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/25">Server</p>
+            <div className="flex flex-wrap gap-1.5">
+              {filteredServerEmojis.map(e => {
+                const text = e.animated ? `<a:${e.name}:${e.id}>` : `<:${e.name}:${e.id}>`;
+                return (
+                  <button key={e.id} type="button" onClick={() => insert(text, e.id)}
+                    title={`:${e.name}:`}
+                    className={cn("flex h-10 w-10 items-center justify-center rounded-[10px] border transition",
+                      justInserted === e.id ? "border-white/[0.2] bg-white/[0.12]" : "border-white/[0.07] bg-white/[0.03] active:bg-white/[0.1]")}>
+                    <img src={`https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? "gif" : "webp"}?size=48`}
+                      alt={e.name} style={{ width: 26, height: 26 }} className="rounded object-contain" />
+                  </button>
+                );
+              })}
+              {filteredServerEmojis.length === 0 && (
+                <p className="text-[13px] text-white/25">No emojis match</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {EMOJI_GROUPS.map(g => (
+          <div key={g.label} className="mb-4">
+            <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/25">{g.label}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {g.emojis.map(e => (
+                <button key={e} type="button" onClick={() => insert(e, e)}
+                  className={cn("flex h-10 w-10 items-center justify-center rounded-[10px] border text-lg transition",
+                    justInserted === e ? "border-white/[0.2] bg-white/[0.12]" : "border-white/[0.07] bg-white/[0.03] active:bg-white/[0.1]")}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Shared input styling ───────────────────────────────────────────────────────
+
+const inputCls = "w-full rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
+const textareaCls = "w-full resize-none rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
+
+// ── Section label ─────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30">{children}</p>
+  );
+}
+
+// ── Collapsible section ───────────────────────────────────────────────────────
+
+function CollapsibleSection({
+  label,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  label: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex w-full items-center gap-2 py-1"
+      >
+        <div className="h-3 w-[2px] rounded-full shrink-0" style={{ background: "linear-gradient(180deg,#E0001A,rgba(224,0,26,0.3))" }} />
+        <span className="flex-1 text-left text-[10px] font-bold uppercase tracking-[0.22em] text-white/40">
+          {label}
+        </span>
+        {!open && summary && (
+          <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] text-white/35 truncate max-w-[100px]">
+            {summary}
+          </span>
+        )}
+        <span className="text-white/20 transition-colors">
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+      </button>
+      {open && <div className="mt-3 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+// ── Field ─────────────────────────────────────────────────────────────────────
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline,
+  minH,
+  maxLen,
+  showVars,
+}: {
+  label?: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+  minH?: string;
+  maxLen?: number;
+  showVars?: boolean;
+}) {
+  const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+  const [varsOpen, setVarsOpen] = useState(false);
+
+  const handleFocus = () => {
+    if (ref.current) _activeField = { el: ref.current, onChange };
+  };
+
+  const handleChange = useCallback((v: string) => {
+    if (ref.current) _activeField = { el: ref.current, onChange };
+    onChange(v);
+  }, [onChange]);
+
+  const shared = {
+    ref,
+    value: value || "",
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => handleChange(e.target.value),
+    onFocus: handleFocus,
+    placeholder,
+    style: { fontSize: 16 } as React.CSSProperties,
+  };
+
+  return (
+    <div>
+      {(label || maxLen !== undefined || showVars) && (
+        <div className="mb-1.5 flex items-center justify-between">
+          {label ? <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">{label}</p> : <span />}
+          <div className="flex items-center gap-1.5">
+            {showVars && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => { ref.current?.focus(); setVarsOpen(o => !o); }}
+                  className="flex items-center gap-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-white/35 transition hover:bg-white/[0.07] hover:text-white/55"
+                >
+                  <Braces className="h-2.5 w-2.5" />
+                  <span>{"{x}"}</span>
+                </button>
+                {varsOpen && <VarsPopover onClose={() => setVarsOpen(false)} />}
+              </div>
+            )}
+            {maxLen !== undefined && <CharCount value={value} max={maxLen} />}
           </div>
         </div>
+      )}
+      {multiline ? (
+        <textarea {...shared} className={cn(textareaCls, minH ?? "min-h-[96px]")} />
+      ) : (
+        <input type="text" {...shared} className={inputCls} />
       )}
     </div>
   );
 }
 
-// ─── Main EmbedInspector ──────────────────────────────────────────────────────
-
-export interface EmbedInspectorProps {
-  /** All embeds in the current view — for multi-embed switcher */
-  embeds: StudioEmbedDraft[];
-  /** Which embed is currently active */
-  embedIndex: number;
-  /** Called when user switches tabs */
-  onSwitchEmbed: (index: number) => void;
-  /** Called when user adds a new embed */
-  onAddEmbed: () => void;
-  /** Full updater for the active embed */
-  onChange: (updater: (e: StudioEmbedDraft) => void) => void;
-  /** Delete the active embed */
-  onDelete: () => void;
-  /** Which region was clicked in the preview (for auto-open section) */
-  activeRegion?: string | null;
+function Divider() {
+  return <div className="h-px bg-white/[0.05]" />;
 }
 
-export function EmbedInspector({
-  embeds,
-  embedIndex,
-  onSwitchEmbed,
-  onAddEmbed,
-  onChange,
-  onDelete,
-  activeRegion,
-}: EmbedInspectorProps) {
+// ── Main EmbedInspector ───────────────────────────────────────────────────────
+
+export interface EmbedInspectorProps {
+  embeds: StudioEmbedDraft[];
+  embedIndex: number;
+  onSwitchEmbed: (i: number) => void;
+  onAddEmbed: () => void;
+  onChange: (updater: (e: StudioEmbedDraft) => void) => void;
+  onDelete: () => void;
+  activeRegion?: string | null;
+  serverEmojis?: Array<{ id: string; name: string; animated: boolean }>;
+}
+
+export function EmbedInspector({ embeds, embedIndex, onSwitchEmbed, onAddEmbed, onChange, onDelete, serverEmojis = [] }: EmbedInspectorProps) {
   const { toast } = useToast();
   const [showTemplates, setShowTemplates] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
   const embed = embeds[embedIndex] || ({} as StudioEmbedDraft);
   const fields: EmbedFieldType[] = Array.isArray(embed.fields) ? embed.fields : [];
-  const fieldCount = fields.length;
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  const set = <K extends keyof StudioEmbedDraft>(key: K, value: StudioEmbedDraft[K]) =>
-    onChange((e) => { e[key] = value; });
+  const set = <K extends keyof StudioEmbedDraft>(key: K, val: StudioEmbedDraft[K]) =>
+    onChange(e => { e[key] = val; });
 
   const setField = (i: number, patch: Partial<EmbedFieldType>) =>
-    onChange((e) => {
+    onChange(e => {
       e.fields = Array.isArray(e.fields) ? [...e.fields] : [];
       e.fields[i] = { ...(e.fields[i] ?? { inline: false }), ...patch } as EmbedFieldType;
     });
 
   const moveField = (i: number, dir: -1 | 1) =>
-    onChange((e) => {
+    onChange(e => {
       e.fields = Array.isArray(e.fields) ? [...e.fields] : [];
       const j = i + dir;
       if (j < 0 || j >= e.fields.length) return;
@@ -603,347 +390,258 @@ export function EmbedInspector({
     });
 
   const deleteField = (i: number) =>
-    onChange((e) => {
-      e.fields = Array.isArray(e.fields) ? e.fields.filter((_, idx) => idx !== i) : [];
-    });
+    onChange(e => { e.fields = Array.isArray(e.fields) ? e.fields.filter((_, idx) => idx !== i) : []; });
 
   const addField = (spacer = false) =>
-    onChange((e) => {
+    onChange(e => {
       e.fields = Array.isArray(e.fields) ? [...e.fields] : [];
       if (e.fields.length >= 25) return;
-      e.fields.push(spacer
-        ? { name: "\u200B", value: "\u200B", inline: false }
-        : { name: "", value: "", inline: false });
+      e.fields.push(spacer ? { name: "\u200B", value: "\u200B", inline: false } : { name: "", value: "", inline: false });
     });
-
-  const applyTemplate = (partial: Partial<StudioEmbedDraft>) =>
-    onChange((e) => Object.assign(e, partial));
-
-  // ── JSON copy ─────────────────────────────────────────────────────────────
 
   const copyJson = () => {
-    const hexToInt = (hex: string) => {
-      const cleaned = hex.replace(/^#/, "");
-      return parseInt(cleaned, 16) || 0;
-    };
-    const json = JSON.stringify(
-      {
-        title: embed.title || undefined,
-        url: embed.url || undefined,
-        description: embed.description || undefined,
-        color: embed.color ? hexToInt(embed.color) : undefined,
-        author: embed.authorName
-          ? { name: embed.authorName, url: embed.authorUrl || undefined, icon_url: embed.authorIconUrl || undefined }
-          : undefined,
-        image: embed.imageUrl ? { url: embed.imageUrl } : undefined,
-        thumbnail: embed.thumbnailUrl ? { url: embed.thumbnailUrl } : undefined,
-        footer: embed.footerText
-          ? { text: embed.footerText, icon_url: embed.footerIconUrl || undefined }
-          : undefined,
-        timestamp: embed.timestamp ? new Date().toISOString() : undefined,
-        fields: fields.length > 0
-          ? fields.map((f) => ({ name: f.name, value: f.value, inline: f.inline }))
-          : undefined,
-      },
-      null,
-      2,
-    );
-    navigator.clipboard.writeText(json).then(() => {
-      toast({ title: "Copied!", description: "Discord embed JSON is on your clipboard." });
-    });
+    const hexToInt = (hex: string) => parseInt(hex.replace(/^#/, ""), 16) || 0;
+    const json = JSON.stringify({
+      title: embed.title || undefined,
+      url: embed.url || undefined,
+      description: embed.description || undefined,
+      color: embed.color ? hexToInt(embed.color) : undefined,
+      author: embed.authorName ? { name: embed.authorName, url: embed.authorUrl || undefined, icon_url: embed.authorIconUrl || undefined } : undefined,
+      image: embed.imageUrl ? { url: embed.imageUrl } : undefined,
+      thumbnail: embed.thumbnailUrl ? { url: embed.thumbnailUrl } : undefined,
+      footer: embed.footerText ? { text: embed.footerText, icon_url: embed.footerIconUrl || undefined } : undefined,
+      timestamp: embed.timestamp ? new Date().toISOString() : undefined,
+      fields: fields.length > 0 ? fields.map(f => ({ name: f.name, value: f.value, inline: f.inline })) : undefined,
+    }, null, 2);
+    navigator.clipboard.writeText(json).catch(() => {});
+    toast({ title: "Copied", description: "Discord embed JSON on clipboard" });
   };
 
-  // ── Section open defaults based on active region ──────────────────────────
+  const currentColor = embed.color || "#E0001A";
 
-  const isRegion = (...regions: string[]) =>
-    !!activeRegion && regions.includes(activeRegion);
-
-  // ── Summaries ─────────────────────────────────────────────────────────────
-
-  const contentSummary = [
-    embed.title && `"${embed.title.slice(0, 22)}${embed.title.length > 22 ? "…" : ""}"`,
-    embed.description && `${(embed.description || "").split("\n")[0].slice(0, 28)}…`,
-  ].filter(Boolean).join(" · ") || "No content yet";
-
-  const authorSummary = embed.authorName || "No author";
-  const mediaSummary = [embed.imageUrl && "Image", embed.thumbnailUrl && "Thumbnail"].filter(Boolean).join(" + ") || "No media";
-  const fieldsSummary = fieldCount === 0 ? "No fields" : `${fieldCount} field${fieldCount !== 1 ? "s" : ""}`;
-  const footerSummary = embed.footerText || (embed.timestamp ? "Timestamp only" : "No footer");
-
-  // ─────────────────────────────────────────────────────────────────────────
+  const fieldInputProps = (val: string, onChg: (v: string) => void) => ({
+    value: val || "",
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChg(e.target.value),
+    onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      _activeField = { el: e.currentTarget, onChange: onChg };
+    },
+    style: { fontSize: 16 } as React.CSSProperties,
+  });
 
   return (
-    <div className="flex flex-col gap-0">
-      {/* ── Toolbar row ─────────────────────────────────────────────────── */}
-      <div className="relative mb-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setShowTemplates(true)}
-          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/62 transition hover:border-[rgba(224,0,26,0.24)] hover:text-white"
-        >
-          <Sparkles className="h-3 w-3" />
-          Templates
-        </button>
-        <button
-          type="button"
-          onClick={copyJson}
-          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/62 transition hover:border-[rgba(224,0,26,0.24)] hover:text-white"
-          title="Copy as Discord JSON"
-        >
-          <Code2 className="h-3 w-3" />
-          Copy JSON
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowEmojiPicker((v) => !v)}
-          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/62 transition hover:border-[rgba(224,0,26,0.24)] hover:text-white"
-          title="Insert emoji"
-        >
-          <Smile className="h-3 w-3" />
-          Emoji
-        </button>
-        {showEmojiPicker && (
-          <EmojiPicker onClose={() => setShowEmojiPicker(false)} />
-        )}
-      </div>
+    <div className="space-y-4 pb-6">
 
-      {/* ── Multi-embed switcher ─────────────────────────────────────────── */}
-      {embeds.length > 1 && (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          {embeds.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => onSwitchEmbed(i)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-medium transition",
-                i === embedIndex
-                  ? "border-[rgba(224,0,26,0.36)] bg-[rgba(30,13,16,0.95)] text-white"
-                  : "border-white/10 bg-white/[0.03] text-white/52 hover:border-white/20 hover:text-white/80",
-              )}
-            >
-              Embed {i + 1}
-            </button>
-          ))}
-          {embeds.length < 10 && (
-            <button
-              type="button"
-              onClick={onAddEmbed}
-              className="flex items-center gap-1 rounded-full border border-dashed border-white/12 px-2.5 py-1 text-xs text-white/36 transition hover:border-white/24 hover:text-white/60"
-            >
-              <Plus className="h-3 w-3" />
-              Add
-            </button>
-          )}
-        </div>
-      )}
+      {/* ── Toolbar ──────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Tool buttons */}
+        {[
+          { label: "Templates", icon: <Sparkles className="h-3 w-3" />, onClick: () => setShowTemplates(true) },
+          { label: "JSON", icon: <Code2 className="h-3 w-3" />, onClick: copyJson },
+          { label: "Emoji", icon: <Smile className="h-3 w-3" />, onClick: () => setShowEmoji(true) },
+        ].map(btn => (
+          <button key={btn.label} type="button" onClick={btn.onClick}
+            className="flex items-center gap-1.5 rounded-[10px] border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-white/45 transition hover:border-white/[0.14] hover:bg-white/[0.06] hover:text-white/70 active:bg-white/[0.09]">
+            {btn.icon} {btn.label}
+          </button>
+        ))}
 
-      {/* ── Section cards ────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        {/* Content */}
-        <SectionCard
-          title="Content"
-          summary={contentSummary}
-          icon={<AlignLeft className="h-3.5 w-3.5" />}
-          defaultOpen={!isRegion("author", "image", "thumbnail", "footer", "fields", "field_name", "field_value") || isRegion("content")}
-        >
-          <div className="space-y-4">
-            <SmartInput
-              value={embed.title || ""}
-              onChange={(v) => set("title", v)}
-              placeholder="Embed headline"
-              field="title"
-              label="Title"
-            />
-            <div className="space-y-1.5">
-              <Label>Title URL</Label>
-              <Input
-                value={embed.url || ""}
-                onChange={(e) => set("url", e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Accent color</Label>
-              <ColorPicker value={embed.color || "#E0001A"} onChange={(v) => set("color", v)} />
-            </div>
-            <SmartInput
-              value={embed.description || ""}
-              onChange={(v) => set("description", v)}
-              placeholder="Describe the embed…"
-              field="description"
-              label="Description"
-              multiline
-              minHeight="min-h-[160px]"
-            />
-          </div>
-        </SectionCard>
-
-        {/* Author */}
-        <SectionCard
-          title="Author"
-          summary={authorSummary}
-          icon={<User className="h-3.5 w-3.5" />}
-          defaultOpen={isRegion("author")}
-        >
-          <div className="space-y-3">
-            <SmartInput
-              value={embed.authorName || ""}
-              onChange={(v) => set("authorName", v)}
-              placeholder="Archivist Team"
-              field="authorName"
-              label="Author name"
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Author URL</Label>
-                <Input value={embed.authorUrl || ""} onChange={(e) => set("authorUrl", e.target.value)} placeholder="https://..." />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Author icon URL</Label>
-                <Input value={embed.authorIconUrl || ""} onChange={(e) => set("authorIconUrl", e.target.value)} placeholder="https://..." />
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Fields */}
-        <SectionCard
-          title="Fields"
-          summary={fieldsSummary}
-          icon={<LayoutGrid className="h-3.5 w-3.5" />}
-          defaultOpen={isRegion("fields", "field_name", "field_value")}
-        >
-          <div className="space-y-3">
-            {/* Add buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full border-white/10 bg-white/[0.03]"
-                onClick={() => addField(false)}
-                disabled={fieldCount >= 25}
-                title={fieldCount >= 25 ? "Max 25 fields" : undefined}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add field {fieldCount >= 25 && <span className="ml-1 text-white/40">(max)</span>}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full border-white/10 bg-white/[0.03]"
-                onClick={() => addField(true)}
-                disabled={fieldCount >= 25}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Spacer
-              </Button>
-              {fieldCount > 0 && (
-                <span className="ml-auto text-xs text-white/32">{fieldCount}/25</span>
-              )}
-            </div>
-
-            {fieldCount === 0 ? (
-              <div className="rounded-[14px] border border-dashed border-white/10 bg-white/[0.02] px-4 py-4 text-sm text-white/44">
-                No fields yet. Add structured facts, stats, or grouped details.
-              </div>
-            ) : (
-              fields.map((field, i) => (
-                <FieldCard
-                  key={i}
-                  field={field}
-                  index={i}
-                  total={fieldCount}
-                  onChangeName={(v) => setField(i, { name: v })}
-                  onChangeValue={(v) => setField(i, { value: v })}
-                  onChangeInline={(v) => setField(i, { inline: v })}
-                  onMoveUp={() => moveField(i, -1)}
-                  onMoveDown={() => moveField(i, 1)}
-                  onDelete={() => deleteField(i)}
-                />
-              ))
+        {/* Embed switcher */}
+        {embeds.length > 1 ? (
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-[10px] text-white/25 tabular-nums mr-0.5">{embedIndex + 1}/{embeds.length}</span>
+            {embeds.map((_, i) => (
+              <button key={i} type="button" onClick={() => onSwitchEmbed(i)}
+                className={cn("h-6 w-6 rounded-full text-[10px] font-bold transition",
+                  i === embedIndex
+                    ? "bg-[#E0001A] text-white shadow-[0_0_10px_rgba(224,0,26,0.45)]"
+                    : "border border-white/[0.1] bg-white/[0.03] text-white/35 hover:bg-white/[0.07]")}>
+                {i + 1}
+              </button>
+            ))}
+            {embeds.length < 10 && (
+              <button type="button" onClick={onAddEmbed}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-white/[0.12] text-white/20 transition hover:border-white/[0.22] hover:text-white/35">
+                <Plus className="h-2.5 w-2.5" />
+              </button>
             )}
           </div>
-        </SectionCard>
-
-        {/* Media */}
-        <SectionCard
-          title="Media"
-          summary={mediaSummary}
-          icon={<Image className="h-3.5 w-3.5" />}
-          defaultOpen={isRegion("image", "thumbnail")}
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Image URL</Label>
-              <Input value={embed.imageUrl || ""} onChange={(e) => set("imageUrl", e.target.value)} placeholder="https://..." />
-              <p className="text-xs text-white/36">Full-width below description</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Thumbnail URL</Label>
-              <Input value={embed.thumbnailUrl || ""} onChange={(e) => set("thumbnailUrl", e.target.value)} placeholder="https://..." />
-              <p className="text-xs text-white/36">Small icon top-right</p>
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Footer */}
-        <SectionCard
-          title="Footer"
-          summary={footerSummary}
-          icon={<MessageSquare className="h-3.5 w-3.5" />}
-          defaultOpen={isRegion("footer")}
-        >
-          <div className="space-y-3">
-            <SmartInput
-              value={embed.footerText || ""}
-              onChange={(v) => set("footerText", v)}
-              placeholder="Footer text"
-              field="footer"
-              label="Footer text"
-            />
-            <div className="space-y-1.5">
-              <Label>Footer icon URL</Label>
-              <Input value={embed.footerIconUrl || ""} onChange={(e) => set("footerIconUrl", e.target.value)} placeholder="https://..." />
-            </div>
-            <div className="flex items-center justify-between rounded-[14px] border border-white/8 bg-[#090a0d] px-3 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-white">Timestamp</p>
-                <p className="text-xs text-white/44">Show current date + time</p>
-              </div>
-              <Switch checked={Boolean(embed.timestamp)} onCheckedChange={(v) => set("timestamp", v)} />
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Danger */}
-        <SectionCard
-          title="Danger zone"
-          summary="Remove this embed"
-          icon={<Trash2 className="h-3.5 w-3.5" />}
-          danger
-        >
-          <div className="space-y-3">
-            <p className="text-sm text-white/52">Remove the embed if the message should collapse back to a lighter composition.</p>
-            <Button
-              variant="outline"
-              onClick={onDelete}
-              className="border-[rgba(224,0,26,0.28)] text-red-400 hover:bg-[rgba(224,0,26,0.08)]"
-            >
-              <Trash2 className="mr-2 h-3.5 w-3.5" />
-              Remove Embed
-            </Button>
-          </div>
-        </SectionCard>
+        ) : embeds.length < 10 ? (
+          <button type="button" onClick={onAddEmbed}
+            className="ml-auto flex items-center gap-1.5 rounded-[10px] border border-[rgba(224,0,26,0.18)] bg-[rgba(224,0,26,0.05)] px-2.5 py-1.5 text-[11px] font-medium text-[rgba(255,80,96,0.65)] transition hover:bg-[rgba(224,0,26,0.09)] hover:text-[rgba(255,80,96,0.85)]">
+            <Plus className="h-3 w-3" /> Add Embed
+          </button>
+        ) : null}
       </div>
 
-      {/* Templates modal */}
-      {showTemplates && (
-        <TemplatesOverlay
-          onApply={applyTemplate}
-          onClose={() => setShowTemplates(false)}
-        />
-      )}
+      <Divider />
+
+      {/* ── Accent Color ─────────────────────────────────────────── */}
+      <div>
+        <SectionLabel>Color</SectionLabel>
+        <div className="mt-2 rounded-[14px] border border-white/[0.08] bg-white/[0.025] overflow-hidden"
+          style={{ boxShadow: `inset 3px 0 0 ${currentColor}` }}>
+          <div className="flex flex-wrap gap-1.5 px-3 py-3">
+            {SWATCHES.map(hex => (
+              <button key={hex} type="button" onClick={() => set("color", hex)} title={hex}
+                className={cn("h-6 w-6 rounded-[7px] transition-transform hover:scale-110 active:scale-95",
+                  hex.toUpperCase() === currentColor.toUpperCase() && "ring-2 ring-white/70 ring-offset-1 ring-offset-[#080810] scale-110")}
+                style={{ backgroundColor: hex }} />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 border-t border-white/[0.06] px-3 py-2">
+            <div className="h-5 w-5 rounded-[6px] shrink-0 border border-white/[0.1]" style={{ backgroundColor: currentColor }} />
+            <input
+              type="text"
+              value={currentColor}
+              onChange={e => set("color", e.target.value)}
+              style={{ fontSize: 16 }}
+              className="flex-1 rounded-[8px] border-0 bg-transparent px-1 py-0.5 font-mono text-[13px] text-white/55 outline-none focus:text-white/80 transition"
+            />
+          </div>
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* ── Core content ─────────────────────────────────────────── */}
+      <Field label="Title" value={embed.title || ""} onChange={v => set("title", v)} placeholder="Embed title" maxLen={256} showVars />
+      <Field label="URL" value={embed.url || ""} onChange={v => set("url", v)} placeholder="https://…" />
+      <Field label="Description" value={embed.description || ""} onChange={v => set("description", v)}
+        placeholder="Write your message…" multiline minH="min-h-[110px]" maxLen={4096} showVars />
+
+      <Divider />
+
+      {/* ── Author ───────────────────────────────────────────────── */}
+      <CollapsibleSection label="Author" summary={embed.authorName || undefined} defaultOpen={Boolean(embed.authorName)}>
+        <Field label="Name" value={embed.authorName || ""} onChange={v => set("authorName", v)} placeholder="Author name" maxLen={256} showVars />
+        <Field value={embed.authorUrl || ""} onChange={v => set("authorUrl", v)} placeholder="Author URL" />
+        <Field value={embed.authorIconUrl || ""} onChange={v => set("authorIconUrl", v)} placeholder="Author icon URL" />
+      </CollapsibleSection>
+
+      <Divider />
+
+      {/* ── Media ────────────────────────────────────────────────── */}
+      <CollapsibleSection label="Media"
+        summary={embed.imageUrl ? "Image" : embed.thumbnailUrl ? "Thumbnail" : undefined}
+        defaultOpen={Boolean(embed.imageUrl || embed.thumbnailUrl)}>
+        <Field label="Image URL" value={embed.imageUrl || ""} onChange={v => set("imageUrl", v)} placeholder="https://… (full-width)" />
+        <Field label="Thumbnail URL" value={embed.thumbnailUrl || ""} onChange={v => set("thumbnailUrl", v)} placeholder="https://… (top-right)" />
+      </CollapsibleSection>
+
+      <Divider />
+
+      {/* ── Fields ───────────────────────────────────────────────── */}
+      <div>
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-[2px] rounded-full shrink-0" style={{ background: "linear-gradient(180deg,#E0001A,rgba(224,0,26,0.3))" }} />
+            <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40">
+              Fields {fields.length > 0 && <span className="font-normal text-white/20 normal-case tracking-normal">({fields.length}/25)</span>}
+            </span>
+          </div>
+          <div className="flex gap-1.5">
+            <button type="button" onClick={() => addField(false)} disabled={fields.length >= 25}
+              className="flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/40 transition hover:bg-white/[0.06] disabled:opacity-25">
+              <Plus className="h-3 w-3" /> Field
+            </button>
+            <button type="button" onClick={() => addField(true)} disabled={fields.length >= 25}
+              className="flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/40 transition hover:bg-white/[0.06] disabled:opacity-25">
+              <Plus className="h-3 w-3" /> Spacer
+            </button>
+          </div>
+        </div>
+
+        {fields.length === 0 && (
+          <div className="rounded-[12px] border border-dashed border-white/[0.07] py-4 text-center">
+            <p className="text-[12px] text-white/20">No fields</p>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {fields.map((field, i) => {
+            const isSpacer = field.name === "\u200B" && field.value === "\u200B";
+            return (
+              <div key={i} className="rounded-[13px] border border-white/[0.07] bg-white/[0.02] overflow-hidden"
+                style={{ boxShadow: "inset 2px 0 0 rgba(224,0,26,0.2)" }}>
+                {/* Header */}
+                <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.05]">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
+                    {isSpacer ? "Spacer" : `Field ${i + 1}`}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    <button type="button" onClick={() => moveField(i, -1)} disabled={i === 0}
+                      className="flex h-7 w-7 items-center justify-center rounded-[8px] text-white/25 transition hover:bg-white/[0.06] hover:text-white/50 disabled:opacity-20">
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => moveField(i, 1)} disabled={i === fields.length - 1}
+                      className="flex h-7 w-7 items-center justify-center rounded-[8px] text-white/25 transition hover:bg-white/[0.06] hover:text-white/50 disabled:opacity-20">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" onClick={() => deleteField(i)}
+                      className="flex h-7 w-7 items-center justify-center rounded-[8px] text-white/20 transition hover:bg-[rgba(224,0,26,0.08)] hover:text-[#ff4d5e]">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {!isSpacer && (
+                  <div className="space-y-2 px-3 py-3">
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/22">Name</span>
+                        <CharCount value={field.name} max={256} />
+                      </div>
+                      <input type="text"
+                        {...fieldInputProps(field.name, v => setField(i, { name: v }))}
+                        placeholder="Field name"
+                        className="w-full rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
+                    </div>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/22">Value</span>
+                        <CharCount value={field.value} max={1024} />
+                      </div>
+                      <textarea
+                        {...fieldInputProps(field.value, v => setField(i, { value: v }))}
+                        placeholder="Field value"
+                        className="min-h-[60px] w-full resize-none rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
+                    </div>
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-[12px] text-white/35">Inline</span>
+                      <Switch checked={Boolean(field.inline)} onCheckedChange={v => setField(i, { inline: v })} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <Divider />
+
+      {/* ── Footer ───────────────────────────────────────────────── */}
+      <CollapsibleSection label="Footer" summary={embed.footerText || undefined}
+        defaultOpen={Boolean(embed.footerText || embed.timestamp)}>
+        <Field label="Footer Text" value={embed.footerText || ""} onChange={v => set("footerText", v)}
+          placeholder="Footer text" maxLen={2048} showVars />
+        <Field value={embed.footerIconUrl || ""} onChange={v => set("footerIconUrl", v)} placeholder="Footer icon URL" />
+        <div className="flex items-center justify-between rounded-[12px] border border-white/[0.07] bg-white/[0.025] px-4 py-3">
+          <span className="text-[13px] text-white/55">Timestamp</span>
+          <Switch checked={Boolean(embed.timestamp)} onCheckedChange={v => set("timestamp", v)} />
+        </div>
+      </CollapsibleSection>
+
+      <Divider />
+
+      {/* ── Delete ───────────────────────────────────────────────── */}
+      <button type="button" onClick={onDelete}
+        className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-[rgba(224,0,26,0.12)] bg-[rgba(224,0,26,0.04)] py-3 text-[13px] font-medium text-[rgba(255,80,96,0.55)] transition hover:border-[rgba(224,0,26,0.2)] hover:bg-[rgba(224,0,26,0.07)] hover:text-[rgba(255,80,96,0.8)]">
+        <Trash2 className="h-4 w-4" /> Remove Embed
+      </button>
+
+      {showTemplates && <TemplatesSheet onApply={p => onChange(e => Object.assign(e, p))} onClose={() => setShowTemplates(false)} />}
+      {showEmoji && <EmojiSheet serverEmojis={serverEmojis} onClose={() => setShowEmoji(false)} />}
     </div>
   );
 }

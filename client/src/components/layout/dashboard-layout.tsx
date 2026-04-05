@@ -44,14 +44,70 @@ import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_17721149
 
 type DashboardLayoutMode = "workspace" | "overview" | "site-editor";
 
+// Stars: { top, left, s=size, op=maxOpacity, dur=twinkle duration, del=delay }
 const DASH_STARS = [
-  { top: "4%",  left: "7%",  s: 1.5, op: 0.12, dur: 7,  del: 0   },
-  { top: "9%",  left: "63%", s: 2,   op: 0.16, dur: 5,  del: 1.4 },
-  { top: "16%", left: "91%", s: 1.5, op: 0.13, dur: 8,  del: 0.7 },
-  { top: "28%", left: "3%",  s: 2,   op: 0.14, dur: 6,  del: 2.2 },
-  { top: "52%", left: "45%", s: 1.5, op: 0.11, dur: 7,  del: 3.1 },
-  { top: "78%", left: "12%", s: 2,   op: 0.13, dur: 6,  del: 0.9 },
-  { top: "95%", left: "30%", s: 1.5, op: 0.12, dur: 5,  del: 1.2 },
+  // Layer 1 — small dim stars, slow twinkle
+  { top: "2%",   left: "5%",   s: 1,   op: 0.10, dur: 9,  del: 0.0  },
+  { top: "4%",   left: "22%",  s: 1.5, op: 0.12, dur: 7,  del: 1.3  },
+  { top: "6%",   left: "48%",  s: 1,   op: 0.08, dur: 11, del: 0.6  },
+  { top: "4%",   left: "71%",  s: 1.5, op: 0.13, dur: 8,  del: 2.1  },
+  { top: "7%",   left: "88%",  s: 1,   op: 0.09, dur: 10, del: 0.3  },
+  // Layer 2 — medium stars
+  { top: "13%",  left: "11%",  s: 2,   op: 0.14, dur: 6,  del: 3.0  },
+  { top: "11%",  left: "36%",  s: 1.5, op: 0.11, dur: 8,  del: 1.7  },
+  { top: "15%",  left: "62%",  s: 2,   op: 0.15, dur: 7,  del: 0.4  },
+  { top: "12%",  left: "83%",  s: 1.5, op: 0.12, dur: 9,  del: 2.6  },
+  { top: "18%",  left: "95%",  s: 1,   op: 0.09, dur: 12, del: 1.1  },
+  // Layer 3 — mid-screen
+  { top: "24%",  left: "3%",   s: 2,   op: 0.13, dur: 7,  del: 4.2  },
+  { top: "28%",  left: "19%",  s: 1.5, op: 0.10, dur: 8,  del: 2.8  },
+  { top: "22%",  left: "41%",  s: 1,   op: 0.08, dur: 10, del: 0.9  },
+  { top: "26%",  left: "57%",  s: 2,   op: 0.16, dur: 6,  del: 3.5  },
+  { top: "30%",  left: "76%",  s: 1.5, op: 0.11, dur: 9,  del: 1.4  },
+  { top: "25%",  left: "93%",  s: 1,   op: 0.09, dur: 11, del: 5.0  },
+  // Layer 4 — lower-mid
+  { top: "38%",  left: "8%",   s: 1.5, op: 0.12, dur: 8,  del: 0.7  },
+  { top: "42%",  left: "28%",  s: 1,   op: 0.08, dur: 10, del: 3.3  },
+  { top: "36%",  left: "52%",  s: 2,   op: 0.14, dur: 7,  del: 1.9  },
+  { top: "44%",  left: "67%",  s: 1.5, op: 0.11, dur: 9,  del: 4.8  },
+  { top: "39%",  left: "85%",  s: 1,   op: 0.09, dur: 6,  del: 2.2  },
+  // Layer 5 — center mass
+  { top: "52%",  left: "14%",  s: 2,   op: 0.13, dur: 8,  del: 1.0  },
+  { top: "55%",  left: "33%",  s: 1.5, op: 0.10, dur: 10, del: 3.7  },
+  { top: "48%",  left: "45%",  s: 1,   op: 0.08, dur: 7,  del: 0.2  },
+  { top: "57%",  left: "61%",  s: 2,   op: 0.15, dur: 9,  del: 2.4  },
+  { top: "50%",  left: "79%",  s: 1.5, op: 0.11, dur: 6,  del: 5.5  },
+  // Layer 6 — lower
+  { top: "64%",  left: "6%",   s: 1.5, op: 0.12, dur: 7,  del: 4.1  },
+  { top: "68%",  left: "25%",  s: 1,   op: 0.09, dur: 11, del: 1.6  },
+  { top: "62%",  left: "43%",  s: 2,   op: 0.14, dur: 8,  del: 2.9  },
+  { top: "70%",  left: "59%",  s: 1.5, op: 0.10, dur: 9,  del: 0.5  },
+  { top: "65%",  left: "75%",  s: 1,   op: 0.08, dur: 12, del: 3.8  },
+  { top: "67%",  left: "91%",  s: 2,   op: 0.13, dur: 7,  del: 1.2  },
+  // Layer 7 — bottom
+  { top: "78%",  left: "12%",  s: 2,   op: 0.13, dur: 6,  del: 0.9  },
+  { top: "82%",  left: "31%",  s: 1.5, op: 0.10, dur: 8,  del: 2.3  },
+  { top: "75%",  left: "50%",  s: 1,   op: 0.08, dur: 10, del: 4.6  },
+  { top: "85%",  left: "68%",  s: 2,   op: 0.14, dur: 7,  del: 1.8  },
+  { top: "79%",  left: "87%",  s: 1.5, op: 0.11, dur: 9,  del: 3.2  },
+  // Layer 8 — base
+  { top: "92%",  left: "9%",   s: 1.5, op: 0.10, dur: 8,  del: 0.4  },
+  { top: "95%",  left: "29%",  s: 1,   op: 0.08, dur: 11, del: 2.7  },
+  { top: "90%",  left: "55%",  s: 2,   op: 0.12, dur: 7,  del: 5.2  },
+  { top: "96%",  left: "74%",  s: 1.5, op: 0.10, dur: 9,  del: 1.5  },
+  { top: "93%",  left: "94%",  s: 1,   op: 0.09, dur: 6,  del: 3.9  },
+];
+
+// Floating dust particles — different motion style (slow drift upward)
+const DASH_PARTICLES = [
+  { left: "8%",   s: 2.5, op: 0.07, dur: 18, del: 0   },
+  { left: "19%",  s: 1.5, op: 0.06, dur: 22, del: 4   },
+  { left: "31%",  s: 2,   op: 0.07, dur: 16, del: 8   },
+  { left: "44%",  s: 1.5, op: 0.05, dur: 24, del: 2   },
+  { left: "56%",  s: 2.5, op: 0.07, dur: 20, del: 11  },
+  { left: "67%",  s: 1.5, op: 0.06, dur: 19, del: 6   },
+  { left: "79%",  s: 2,   op: 0.07, dur: 25, del: 14  },
+  { left: "89%",  s: 1.5, op: 0.05, dur: 17, del: 9   },
 ];
 
 const SECTION_ICON_MAP: Record<ArchivistCanonicalSection, typeof Braces> = {
@@ -360,27 +416,97 @@ function SimpleHeader({
 function AmbientLayers() {
   return (
     <>
+      {/* Film grain texture */}
       <div
-        className="pointer-events-none fixed inset-0 z-[1] opacity-[0.022]"
+        className="pointer-events-none fixed inset-0 z-[1] opacity-[0.018]"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
           backgroundSize: "160px 160px",
         }}
       />
+
+      {/* Deep radial red haze — top center, wide and very faint */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          background: "radial-gradient(ellipse 70% 38% at 50% 0%, rgba(224,0,26,0.055) 0%, transparent 100%)",
+        }}
+      />
+
+      {/* Secondary red glow — upper-right edge, narrower */}
+      <div
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          background: "radial-gradient(ellipse 34% 24% at 88% 6%, rgba(180,0,20,0.07) 0%, transparent 100%)",
+        }}
+      />
+
+      {/* Slow breathing red pulse — center top */}
+      <div
+        className="pointer-events-none fixed z-0"
+        style={{
+          top: "-8%", left: "20%", right: "20%", height: "28%",
+          background: "radial-gradient(ellipse at 50% 0%, rgba(224,0,26,0.038), transparent 80%)",
+          animation: "dash-glow-pulse 12s ease-in-out infinite",
+        }}
+      />
+
+      {/* Stars + particles canvas */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <style>{`@keyframes dash-twinkle{0%,100%{opacity:var(--op,0.15);transform:scale(1)}50%{opacity:calc(var(--op,0.15)*0.2);transform:scale(0.4)}}`}</style>
+        <style>{`
+          @keyframes dash-twinkle {
+            0%,100% { opacity: var(--op, 0.12); transform: scale(1); }
+            50% { opacity: calc(var(--op, 0.12) * 0.15); transform: scale(0.35); }
+          }
+          @keyframes dash-float {
+            0% { transform: translateY(100vh) scale(0.8); opacity: 0; }
+            8% { opacity: var(--pop, 0.07); }
+            92% { opacity: var(--pop, 0.07); }
+            100% { transform: translateY(-6vh) scale(1.1); opacity: 0; }
+          }
+          @keyframes dash-glow-pulse {
+            0%,100% { opacity: 1; transform: scaleX(1); }
+            50% { opacity: 0.4; transform: scaleX(0.75); }
+          }
+        `}</style>
+
+        {/* Stars */}
         {DASH_STARS.map((s, i) => (
           <span
-            key={i}
+            key={`star-${i}`}
             style={{
               position: "absolute", top: s.top, left: s.left,
               width: s.s, height: s.s, borderRadius: "50%",
-              background: "#fff", opacity: s.op,
+              background: "#fff",
+              ["--op" as any]: s.op,
+              opacity: s.op,
               animation: `dash-twinkle ${s.dur}s ease-in-out ${s.del}s infinite`,
             }}
           />
         ))}
+
+        {/* Floating dust particles */}
+        {DASH_PARTICLES.map((p, i) => (
+          <span
+            key={`particle-${i}`}
+            style={{
+              position: "absolute", bottom: 0, left: p.left,
+              width: p.s, height: p.s, borderRadius: "50%",
+              background: "rgba(255,200,200,0.9)",
+              ["--pop" as any]: p.op,
+              animation: `dash-float ${p.dur}s linear ${p.del}s infinite`,
+            }}
+          />
+        ))}
       </div>
+
+      {/* Bottom vignette fade — keeps lower content grounded */}
+      <div
+        className="pointer-events-none fixed bottom-0 inset-x-0 z-[1] h-32"
+        style={{
+          background: "linear-gradient(to top, rgba(5,5,7,0.5), transparent)",
+        }}
+      />
     </>
   );
 }

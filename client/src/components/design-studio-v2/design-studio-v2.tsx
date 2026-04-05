@@ -11,9 +11,11 @@ import {
   MessageSquareText,
   PencilLine,
   Plus,
+  Redo2,
   Rocket,
   Save,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
@@ -56,6 +58,7 @@ import { StudioV2EmptyState, type StudioEntryIntent } from "@/components/design-
 import {
   appendBundleToDocument,
   cloneDocument,
+  cloneNodeBranch,
   collectInteractionRows,
   createBlankEmbed,
   createDefaultAction,
@@ -397,13 +400,13 @@ function StudioTabButton({
       type="button"
       onClick={() => onSelect(tab)}
       className={cn(
-        "flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-[18px] border px-2 py-2.5 text-[11px] uppercase tracking-[0.2em] transition sm:flex-row sm:gap-2 sm:px-3 sm:text-sm sm:normal-case sm:tracking-normal",
+        "flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-[16px] border px-2 py-2.5 text-[11px] uppercase tracking-[0.2em] transition sm:flex-row sm:gap-2 sm:px-3 sm:text-sm sm:normal-case sm:tracking-normal",
         active
-          ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(22,14,16,0.98),rgba(11,10,11,1))] text-white shadow-[0_14px_34px_rgba(0,0,0,0.2)]"
-          : "border-white/10 bg-[#0b0d10]/95 text-white/62 hover:border-white/20 hover:text-white/82",
+          ? "border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(22,10,13,0.99),rgba(11,8,9,1))] text-white shadow-[0_0_0_1px_rgba(224,0,26,0.08),0_0_20px_rgba(224,0,26,0.10),0_12px_28px_rgba(0,0,0,0.3)]"
+          : "border-white/[0.07] bg-[rgba(11,13,16,0.9)] text-white/40 hover:border-white/[0.12] hover:text-white/65",
       )}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className={cn("h-4 w-4", active ? "text-[rgba(255,80,100,0.85)]" : "")} />
       <span>{label}</span>
     </button>
   );
@@ -423,15 +426,15 @@ function DesktopEditorSection({
   return (
     <section
       className={cn(
-        "rounded-[20px] border px-4 py-4 shadow-[0_16px_36px_rgba(0,0,0,0.18)]",
+        "rounded-[18px] border px-4 py-4",
         tone === "danger"
-          ? "border-[rgba(124,44,58,0.22)] bg-[linear-gradient(180deg,rgba(20,12,14,0.98),rgba(10,9,10,1))]"
-          : "border-white/8 bg-[linear-gradient(180deg,rgba(12,13,15,0.98),rgba(8,9,10,1))]",
+          ? "border-[rgba(180,40,60,0.16)] bg-[linear-gradient(180deg,rgba(22,10,13,0.98),rgba(11,8,9,1))] shadow-[0_0_0_1px_rgba(180,40,60,0.06),0_12px_28px_rgba(0,0,0,0.22)]"
+          : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(14,15,18,0.98),rgba(9,10,12,1))] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_12px_28px_rgba(0,0,0,0.2)]",
       )}
     >
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-white">{title}</p>
-        <p className="text-xs leading-5 text-white/44">{description}</p>
+        <p className="text-[13px] font-semibold text-white/90">{title}</p>
+        {description ? <p className="text-[11px] leading-5 text-white/38">{description}</p> : null}
       </div>
       <div className="mt-4">{children}</div>
     </section>
@@ -445,6 +448,7 @@ function BuildSelectionEditor({
   isMobile = false,
   roleOptions = [],
   channelOptions = [],
+  serverEmojis = [],
   onChangeDraft,
   onDeleteEmbed,
   onDeleteNode,
@@ -458,6 +462,7 @@ function BuildSelectionEditor({
   isMobile?: boolean;
   roleOptions?: Array<{ id: string; name: string }>;
   channelOptions?: Array<{ id: string; name: string }>;
+  serverEmojis?: Array<{ id: string; name: string; animated: boolean }>;
   onChangeDraft: (updater: (document: StudioDocument) => void) => void;
   onDeleteEmbed: (embedIndex: number) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -1053,7 +1058,7 @@ function BuildSelectionEditor({
             </div>
           </div>
         ) : (
-          <div className="rounded-[16px] border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white/60">
             This action does not have a modal selected yet.
           </div>
         )}
@@ -1111,6 +1116,7 @@ function BuildSelectionEditor({
         onChange={updateSelectedEmbed}
         onDelete={() => onDeleteEmbed(selection.embedIndex)}
         activeRegion={selection.region ?? null}
+        serverEmojis={serverEmojis}
       />
     );
   }
@@ -1408,31 +1414,62 @@ function BuildSelectionEditor({
     const rowChildren = node.childIds.map((childId) => draft.nodes[childId]).filter(Boolean);
     const rowHasButtons = rowChildren.some((child) => child.type === "button");
     const rowHasSelect = rowChildren.some((child) => child.type !== "button");
+    const canAddButton = !rowHasSelect && node.childIds.length < 5;
     const rowEditor = (
       <div className="space-y-4">
-        <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3 text-sm text-white/72">
-          This row contains {node.childIds.length} item{node.childIds.length === 1 ? "" : "s"}.
-          <p className="mt-1 text-xs text-white/42">Discord rows can hold up to 5 buttons or 1 select menu. Mixing both is technically possible in the draft but warned against before publish.</p>
+        <div className="flex items-center justify-between rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-white">{node.childIds.length} / 5 slots used</p>
+            <p className="mt-0.5 text-xs text-white/42">Discord rows hold up to 5 buttons or 1 menu.</p>
+          </div>
+          {canAddButton ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-[12px] border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-white/80 hover:bg-[rgba(224,0,26,0.1)] hover:text-white"
+              onClick={() => onChangeDraft((document) => {
+                const row = document.nodes[node.id];
+                if (!row || row.type !== "action_row") return;
+                const rowChildren = row.childIds.map((c) => document.nodes[c]).filter(Boolean);
+                if (rowChildren.some((c) => c.type !== "button") || row.childIds.length >= 5) return;
+                const action = createDefaultAction(`Action ${row.childIds.length + 1}`);
+                const btnId = makeId("btn");
+                document.actions[action.id] = action;
+                document.nodes[btnId] = {
+                  id: btnId, type: "button", viewId: node.viewId,
+                  parentId: node.id, childIds: [], actionId: action.id,
+                  props: { label: `Button ${row.childIds.length + 1}`, style: 1, customId: makeId("button") },
+                };
+                row.childIds.push(btnId);
+              })}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add button
+            </Button>
+          ) : rowHasSelect ? (
+            <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/40">Menu row</Badge>
+          ) : (
+            <Badge variant="outline" className="border-white/10 text-white/40">Row full</Badge>
+          )}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-            <p className="text-sm font-semibold text-white">Add through the grouped flow</p>
+          <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+            <p className="text-sm font-semibold text-white">Row type</p>
             <p className="mt-1 text-xs leading-5 text-white/42">
               {rowHasSelect
-                ? "This row already has a menu. Keep button groups and menu rows separate when you add the next interaction."
+                ? "This row contains a menu. Keep buttons and menus in separate rows."
                 : rowHasButtons
-                  ? "Use the grouped add flow to keep stacking buttons into this row without opening a second insertion pattern."
-                  : "Open the grouped add flow above to insert either a button set or a single menu into this row."}
+                  ? "Button row — click 'Add button' above or use the insert catalog to stack more."
+                  : "Empty row — add a button or menu to activate this row."}
             </p>
           </div>
-          <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-            <p className="text-sm font-semibold text-white">Discord row limits</p>
+          <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+            <p className="text-sm font-semibold text-white">Discord limits</p>
             <p className="mt-1 text-xs leading-5 text-white/42">
-              {rowHasSelect
-                ? "A menu owns the whole row. Add another row if you need more actions."
-                : node.childIds.length >= 5
-                  ? "This row is full. Reorder, trim, or create another row for additional actions."
-                  : "Rows hold up to 5 buttons or 1 menu. Studio keeps that publish reality visible while you work."}
+              {node.childIds.length >= 5
+                ? "Row is full. Add another action row for more buttons."
+                : `${5 - node.childIds.length} slot${5 - node.childIds.length === 1 ? "" : "s"} remaining in this row.`}
             </p>
           </div>
         </div>
@@ -1540,8 +1577,9 @@ function BuildSelectionEditor({
             })}
           </>
         ) : (
-          <div className="rounded-[16px] border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            This button does not have a handler yet.
+          <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.025] px-4 py-3 text-sm text-white/55">
+            <p className="font-semibold text-white/75">No handler attached</p>
+            <p className="mt-1 text-[12px] text-white/40">This button was added without an action. Save the draft and re-open the document to restore the handler, or remove and re-add this button.</p>
           </div>
         )}
       </div>
@@ -1816,7 +1854,7 @@ function BuildSelectionEditor({
                       })}
                     </div>
                   ) : (
-                    <div className="rounded-[16px] border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white/60">
                       This option does not have a handler yet.
                     </div>
                   )}
@@ -1919,6 +1957,16 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const [serverPreflight, setServerPreflight] = useState<any | null>(null);
   const preflightRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Undo/redo history
+  const historyRef = useRef<StudioDocument[]>([]);
+  const historyIndexRef = useRef(-1);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Auto-save
+  const autoSaveTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
   const documents = useMemo(
     () => ((documentsQuery.data || []) as StudioDocumentRecord[]).map((record) => ({ ...record, document: normalizeStudioDocument(record.document, record.name) })),
@@ -2163,11 +2211,74 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const touchDraft = (updater: (document: StudioDocument) => void) => {
     setDraft((current) => {
       if (!current) return current;
+      // Push current state to undo history before mutating
+      const snapshot = cloneDocument(current);
+      const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+      newHistory.push(snapshot);
+      if (newHistory.length > 50) newHistory.shift(); // cap at 50
+      historyRef.current = newHistory;
+      historyIndexRef.current = newHistory.length - 1;
+      setCanUndo(newHistory.length > 0);
+      setCanRedo(false);
+
       const next = cloneDocument(current);
       updater(next);
       return next;
     });
     setDirty(true);
+    setSaveStatus("idle");
+
+    // Auto-save after 2.5 s of inactivity
+    if (autoSaveTimerRef.current !== null) window.clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      setSaveStatus("saving");
+      setDraft((current) => {
+        if (!current) return current;
+        setCurrentDocumentId((docId) => {
+          if (!docId) return docId;
+          updateDocumentMutation.mutate(
+            { id: docId, data: { name: current.meta.name, document: current } },
+            { onSuccess: () => { setDirty(false); setSaveStatus("saved"); setTimeout(() => setSaveStatus("idle"), 2000); } }
+          );
+          return docId;
+        });
+        return current;
+      });
+    }, 2500);
+  };
+
+  const undo = () => {
+    const idx = historyIndexRef.current;
+    if (idx < 0) return;
+    const snapshot = historyRef.current[idx];
+    if (!snapshot) return;
+    historyIndexRef.current = idx - 1;
+    setCanUndo(idx - 1 >= 0);
+    setCanRedo(true);
+    setDraft(cloneDocument(snapshot));
+    setDirty(true);
+  };
+
+  const redo = () => {
+    const idx = historyIndexRef.current + 1;
+    const snapshot = historyRef.current[idx];
+    if (!snapshot) return;
+    historyIndexRef.current = idx;
+    setCanUndo(true);
+    setCanRedo(idx + 1 < historyRef.current.length);
+    setDraft(cloneDocument(snapshot));
+    setDirty(true);
+  };
+
+  const duplicateNode = (nodeId: string) => {
+    let newId: string | null = null;
+    touchDraft((document) => {
+      newId = cloneNodeBranch(document, nodeId);
+    });
+    if (newId) {
+      select({ kind: "node", nodeId: newId }, { nodeType: draft?.nodes[nodeId]?.type || null });
+    }
   };
 
   const openInsertFlow = (parentId?: string | null) => {
@@ -2354,6 +2465,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     setCurrentDocumentId(record.id);
     setDraft(cloneDocument(record.document));
     setDirty(false);
+    historyRef.current = []; historyIndexRef.current = -1; setCanUndo(false); setCanRedo(false); setSaveStatus("idle");
     setSelectedViewId(record.document.meta.entryViewId);
     setSelection(nextSelection);
     setActiveTab("build");
@@ -2491,6 +2603,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       props: {
         label: `Button ${row.childIds.length + 1}`,
         style: 1,
+        customId: makeId("button"),
       },
     };
     row.childIds.push(buttonId);
@@ -2590,6 +2703,30 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     });
     select({ kind: "message", region: "body" });
   };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      if (!draft) return;
+      const meta = e.ctrlKey || e.metaKey;
+      const inInput = isMobileTextEditingTarget(document.activeElement);
+
+      if (meta && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (meta && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redo(); return; }
+      if (meta && e.key === "s") { e.preventDefault(); saveDraft(); return; }
+      if (meta && e.key === "d" && selection.kind === "node") { e.preventDefault(); duplicateNode(selection.nodeId); return; }
+      if ((e.key === "Delete" || e.key === "Backspace") && !inInput) {
+        if (selection.kind === "node") { e.preventDefault(); deleteNode(selection.nodeId); }
+        return;
+      }
+      if (e.key === "Escape" && selection.kind !== "message") {
+        setSelection({ kind: "message", region: "body" });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [draft, selection, undo, redo, saveDraft, duplicateNode, deleteNode]);
 
   const jumpToDiagnostic = (path?: string) => {
     if (!draft) return;
@@ -2832,14 +2969,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   };
 
   const selectionContextPanel = selectedNode ? (
-    <div className="rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,14,17,0.98),rgba(7,8,9,1))] px-4 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
+    <div className="rounded-[20px] border border-[rgba(224,0,26,0.1)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(9,8,10,1))] px-4 py-4 shadow-[0_0_0_1px_rgba(224,0,26,0.06),0_18px_44px_rgba(0,0,0,0.3)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/34">{getNodeOutlineEyebrow(selectedNode)}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[rgba(224,0,26,0.6)]">{getNodeOutlineEyebrow(selectedNode)}</p>
           <p className="mt-2 text-base font-semibold text-white">{getNodeOutlineTitle(selectedNode)}</p>
           <p className="mt-1 text-sm leading-6 text-white/52">{getNodeOutlineDescription(selectedNode)}</p>
         </div>
-        <Badge variant="outline">{selectedLabel}</Badge>
+        <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/50">{selectedLabel}</Badge>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
@@ -2879,10 +3016,10 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       </div>
     </div>
   ) : selectedEmbed ? (
-    <div className="rounded-[20px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,14,17,0.98),rgba(7,8,9,1))] px-4 py-4 shadow-[0_18px_44px_rgba(0,0,0,0.26)]">
+    <div className="rounded-[20px] border border-[rgba(224,0,26,0.1)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(9,8,10,1))] px-4 py-4 shadow-[0_0_0_1px_rgba(224,0,26,0.06),0_18px_44px_rgba(0,0,0,0.3)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/34">Embed surface</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[rgba(224,0,26,0.6)]">Embed surface</p>
           <p className="mt-2 text-base font-semibold text-white">
             {summarizeStudioCopy(String(selectedEmbed.title || selectedEmbed.description || ""), `Embed ${selectedEmbedIndex + 1}`)}
           </p>
@@ -2979,6 +3116,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         isMobile={isMobile}
         roleOptions={(discordContextQuery.data?.roles || []).map((role: any) => ({ id: String(role.id), name: String(role.name || role.id) }))}
         channelOptions={(discordContextQuery.data?.channels || []).map((channel: any) => ({ id: String(channel.id), name: String(channel.name || channel.id) }))}
+        serverEmojis={discordContextQuery.data?.emojis || []}
         onChangeDraft={touchDraft}
         onDeleteEmbed={deleteEmbed}
         onDeleteNode={deleteNode}
@@ -2990,24 +3128,22 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   );
 
   const selectionPanel = (
-    <Card className="archivist-panel archivist-panel-muted">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-xl text-white">{selectionPanelTitle}</CardTitle>
-            <CardDescription>{selectionPanelDescription}</CardDescription>
-          </div>
-          <Badge variant="outline">{selectedLabel}</Badge>
+    <div className="studio-surface">
+      <div className="studio-panel-header">
+        <div className="flex items-center gap-2.5">
+          <div className="studio-indicator" />
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/40">{selectionPanelTitle}</p>
         </div>
-      </CardHeader>
-      <CardContent>{selectionPanelContent}</CardContent>
-    </Card>
+        <Badge variant="outline" className="border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-[rgba(255,100,120,0.9)]">{selectedLabel}</Badge>
+      </div>
+      <div className="p-4">{selectionPanelContent}</div>
+    </div>
   );
 
   const mobileComponentScreen = isMobile ? (
     <div className="space-y-4">
-      <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
-        <CardContent className="space-y-4 p-4">
+      <div className="rounded-[20px] bg-white/[0.03]">
+        <div className="space-y-4 p-4">
           <div className="flex items-start gap-3">
             <Button
               type="button"
@@ -3030,8 +3166,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           <div className="rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3 text-sm text-white/62">
             Buttons, menus, and selectors now open in a dedicated mobile editor screen instead of a trapping drawer.
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
       <div className="space-y-4">{selectionPanelContent}</div>
     </div>
   ) : null;
@@ -3266,26 +3402,47 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     : [];
 
   const compositionPanel = (
-    <StudioCompositionOutline
-      title={currentMode === "layout_v2" ? "Message + blocks" : "Message structure"}
-      description={
-        currentMode === "layout_v2"
-          ? "The message body, embeds, and interaction blocks all live in one composition map so it is obvious what you are building."
-          : "Start with the message, add richer surfaces only when needed, and keep the whole composition legible on mobile."
-      }
-      groups={compositionGroups}
-      actions={
-        <>
-          {activeInsertTargetId ? <Badge variant="outline">Child target active</Badge> : null}
-          {isMobile ? (
-            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={() => openInsertFlow(activeInsertTargetId)}>
-              <Plus className="h-4 w-4" />
-              Add block
-            </Button>
-          ) : null}
-        </>
-      }
-    />
+    <>
+      {draft && Object.keys(draft.views).length > 1 ? (
+        <div className="flex gap-1 overflow-x-auto pb-0.5">
+          {Object.entries(draft.views).map(([viewId, view]) => {
+            const isEntry = viewId === draft.meta.entryViewId;
+            const active = viewId === selectedViewId;
+            return (
+              <button
+                key={viewId}
+                type="button"
+                onClick={() => setSelectedViewId(viewId)}
+                className={cn(
+                  "shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition",
+                  active
+                    ? "border-[rgba(168,41,63,0.22)] bg-[linear-gradient(180deg,rgba(21,14,16,0.98),rgba(11,10,11,1))] text-white"
+                    : "border-white/10 bg-[#0b0d10] text-white/50 hover:text-white/80"
+                )}
+              >
+                {isEntry ? "Entry" : (view as any).label || viewId}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      <StudioCompositionOutline
+        title={currentMode === "layout_v2" ? "Message + blocks" : "Message structure"}
+        description=""
+        groups={compositionGroups}
+        actions={
+          <>
+            {activeInsertTargetId ? <Badge variant="outline">Child target active</Badge> : null}
+            {isMobile ? (
+              <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={() => openInsertFlow(activeInsertTargetId)}>
+                <Plus className="h-4 w-4" />
+                Add block
+              </Button>
+            ) : null}
+          </>
+        }
+      />
+    </>
   );
 
   const builderStatusStrip = (
@@ -3302,21 +3459,13 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   );
 
   const addPartPanel = (
-    <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
-      <CardContent className="p-4">
-        <StudioInsertCatalog
-          title={currentMode === "layout_v2" ? contextualInsertLabel : "Add the next part"}
-          description={
-            currentMode === "layout_v2"
-              ? activeInsertTargetId
-                ? "The selected layout block is the current insertion target, so new parts will land inside it."
-                : "Choose the next block by what it does: visible copy, richer surface, interaction, or structural layout."
-              : "Choose the next visible part of the message. Studio keeps the preview and the publish reality attached while you build."
-          }
-          groups={insertGroups}
-        />
-      </CardContent>
-    </Card>
+    <div className="studio-surface p-4">
+      <StudioInsertCatalog
+        title={currentMode === "layout_v2" ? contextualInsertLabel : "Add part"}
+        description=""
+        groups={insertGroups}
+      />
+    </div>
   );
 
   const documentManagerContent = (
@@ -3352,12 +3501,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           ].map((section) => (
             <div key={section.key} className="space-y-3">
               <div>
-                <p className="text-sm font-semibold text-white">{section.title}</p>
-                <p className="mt-1 text-sm text-white/52">{section.description}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-white/30">{section.title}</p>
               </div>
               {section.records.length === 0 ? (
                 <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-white/48">
-                  {section.key === "templates" ? "No templates yet. Save one from the current draft." : "No drafts yet. Create a message, embed, or interactive layout to get started."}
+                  {section.key === "templates" ? "No templates yet." : "No drafts yet."}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -3438,16 +3586,20 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
 
   return (
     <div className={cn("space-y-4", isMobile ? "pb-[calc(env(safe-area-inset-bottom)+5rem)]" : "")}>
-      <Card className="sticky top-0 z-20 overflow-hidden border-white/10 bg-[#060709]/95 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur">
-        <CardContent className="flex items-center gap-3 p-3">
+      <div className="sticky top-0 z-20 overflow-hidden rounded-[20px] border border-[rgba(224,0,26,0.16)] bg-[rgba(6,7,9,0.97)] shadow-[0_0_0_1px_rgba(224,0,26,0.06),0_0_28px_rgba(224,0,26,0.07),0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+        <div className="h-[1.5px] w-full" style={{ background: "linear-gradient(90deg, #E0001A 0%, rgba(224,0,26,0.5) 40%, transparent 70%)", boxShadow: "0 0 12px rgba(224,0,26,0.4)" }} />
+        <div className="flex items-center gap-3 p-3">
           <Button variant="ghost" size="icon" onClick={() => (draft ? handleMobileBack() : onOpenServerSettings?.())}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">{draft.meta.name}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {dirty ? "Unsaved editing state" : "Saved editing state"} · {draftModeLabel(currentMode)}
-            </p>
+            <span className={cn(
+              "text-[10px] font-semibold",
+              saveStatus === "saving" ? "text-white/40" : dirty ? "text-[#E0001A]/70" : "text-white/30"
+            )}>
+              {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : dirty ? "Unsaved" : "Saved"} · {draftModeLabel(currentMode)}
+            </span>
           </div>
           <Badge variant={errorCount > 0 ? "destructive" : warningCount > 0 ? "secondary" : "outline"}>
             {errorCount > 0 ? "Blocked" : warningCount > 0 ? "Review" : "Ready"}
@@ -3458,8 +3610,11 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           </Button>
           {isMobile ? (
             <>
-              <Button variant="outline" size="icon" onClick={saveDraft} disabled={!dirty || updateDocumentMutation.isPending} className="rounded-[16px]">
-                <Save className="h-4 w-4" />
+              <Button variant="outline" size="icon" onClick={undo} disabled={!canUndo} className="rounded-[16px]">
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={redo} disabled={!canRedo} className="rounded-[16px]">
+                <Redo2 className="h-4 w-4" />
               </Button>
               <Button size="icon" onClick={() => setActiveTab("publish")} className="rounded-[16px]">
                 <Rocket className="h-4 w-4" />
@@ -3467,13 +3622,15 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={saveAsTemplate}>
-                <Copy className="h-4 w-4" />
-                Save as Template
+              <Button variant="outline" size="icon" onClick={undo} disabled={!canUndo} className="rounded-[16px]" title="Undo (Ctrl+Z)">
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={redo} disabled={!canRedo} className="rounded-[16px]" title="Redo (Ctrl+Y)">
+                <Redo2 className="h-4 w-4" />
               </Button>
               <Button variant="outline" onClick={saveDraft} disabled={!dirty || updateDocumentMutation.isPending}>
                 <Save className="h-4 w-4" />
-                Save
+                {saveStatus === "saving" ? "Saving…" : "Save"}
               </Button>
               <Button onClick={() => setActiveTab("publish")}>
                 <Rocket className="h-4 w-4" />
@@ -3481,8 +3638,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               </Button>
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {!isMobile ? (
         <div className="grid gap-2 sm:grid-cols-4">
@@ -3502,26 +3659,18 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
 
             {isMobile ? (
               <>
-                <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
-                        <CardDescription>
-                          {selection.kind === "node"
-                            ? "The canvas stays visual. Select the block you want, then refine only that block."
-                            : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
-                        </CardDescription>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
-                        <Badge variant="outline">
-                          {selectedLabel}
-                        </Badge>
-                      </div>
+                <div className="rounded-[20px] bg-white/[0.03]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.05] px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{currentMode === "layout_v2" ? "Canvas" : "Message"}</p>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive" : publishPlan?.publishPath === "downgraded" ? "Simplified" : "Message"}</Badge>
+                      <Badge variant="outline">{selectedLabel}</Badge>
+                    </div>
+                  </div>
+                  <div className="space-y-4 p-4">
                     <div className="space-y-3">
                       {mobileEditTargets.length > 0 ? (
                         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -3542,17 +3691,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                           ))}
                         </div>
                       ) : null}
-                      <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3">
+                      <div className="flex items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-2.5">
                         <Badge variant="outline">{selectedLabel}</Badge>
-                        <span className="text-xs text-white/56">
-                          {selection.kind === "node"
-                            ? selectedNodeSupportsInlineInspector
-                              ? "The block stays on-canvas while its focused editor opens as a lighter mobile inspector."
-                              : "Interaction-heavy blocks still open in a dedicated screen so the canvas never gets cramped."
-                            : selection.kind === "embed"
-                              ? "Embeds stay visual on the canvas while the inspector handles structure, fields, media, and footer details."
-                            : "Build directly on the live message surface."}
-                        </span>
                         <div className="ml-auto flex gap-2">
                           <Button variant="outline" size="sm" className="rounded-full" onClick={() => openInsertFlow(activeInsertTargetId)}>
                             <Plus className="h-4 w-4" />
@@ -3583,59 +3723,75 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                       </div>
                     </div>
                     {buildPreview}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
                 {compositionPanel}
               </>
+            ) : selection.kind === "embed" ? (
+              /* ── Embed focus mode: preview + inspector, no left column clutter ── */
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+                {/* Preview canvas */}
+                <div className="studio-surface">
+                  <div className="studio-panel-header">
+                    <div className="flex items-center gap-2.5">
+                      <div className="studio-indicator" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-white/40">Message preview</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Escape embed mode back to message */}
+                      <button
+                        type="button"
+                        onClick={() => select({ kind: "message", region: "body" })}
+                        className="rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/40 transition hover:border-white/[0.12] hover:text-white/70"
+                      >
+                        ← All blocks
+                      </button>
+                      <Badge variant="outline" className="border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-[rgba(255,100,120,0.9)]">{selectedLabel}</Badge>
+                    </div>
+                  </div>
+                  <div className="space-y-4 p-4 pt-5">
+                    {buildPreview}
+                  </div>
+                </div>
+
+                {/* Embed inspector */}
+                {selectionPanel}
+              </div>
             ) : (
+              /* ── Normal mode: left outline + center canvas + optional right inspector ── */
               <div
                 className={cn(
-                  "grid gap-4",
+                  "grid gap-5",
                   selection.kind !== "message"
-                    ? "xl:grid-cols-[320px_minmax(0,1fr)_360px]"
-                    : "xl:grid-cols-[320px_minmax(0,1fr)]",
+                    ? "xl:grid-cols-[300px_minmax(0,1fr)_380px]"
+                    : "xl:grid-cols-[300px_minmax(0,1fr)]",
                 )}
               >
+                {/* Left column: outline + insert */}
                 <div className="space-y-4">
                   {compositionPanel}
                   {addPartPanel}
                 </div>
 
-                <Card className="archivist-panel archivist-panel-muted border-white/10 bg-[#090a0d]/96">
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <CardTitle className="text-xl text-white">{currentMode === "layout_v2" ? "Live composition canvas" : "Live message canvas"}</CardTitle>
-                        <CardDescription>
-                          {selection.kind === "node"
-                            ? "The canvas stays visual. Select the block you want, then refine only that block."
-                            : "Tap the exact part of the Discord message you want to change. The canvas is the editor."}
-                        </CardDescription>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{publishPlan?.publishPath === "v2" ? "Interactive publish path" : publishPlan?.publishPath === "downgraded" ? "Simplified publish path" : "Message publish path"}</Badge>
-                        <Badge variant="outline">
-                          {selectedLabel}
-                        </Badge>
-                      </div>
+                {/* Center column: live preview canvas */}
+                <div className="studio-surface">
+                  <div className="studio-panel-header">
+                    <div className="flex items-center gap-2.5">
+                      <div className="studio-indicator" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-white/40">{currentMode === "layout_v2" ? "Canvas" : "Message preview"}</p>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2 rounded-[18px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-                      <Badge variant="outline">{selectedLabel}</Badge>
-                      <span className="text-sm text-white/58">
-                        {selection.kind === "node"
-                          ? "The right panel stays focused on the selected block while the canvas stays visible."
-                          : selection.kind === "embed"
-                            ? "The embed preview stays visual while the inspector carries deeper structure, media, and field controls."
-                          : "Use the composition map for structure, then add the next surface from the catalog instead of jumping between insertion patterns."}
-                      </span>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/50">{publishPlan?.publishPath === "v2" ? "Interactive" : publishPlan?.publishPath === "downgraded" ? "Simplified" : "Message"}</Badge>
+                      <Badge variant="outline" className="border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-[rgba(255,100,120,0.9)]">{selectedLabel}</Badge>
                     </div>
+                  </div>
+                  <div className="space-y-4 p-4 pt-5">
                     {buildPreview}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
+                {/* Right column: node inspector */}
                 {selection.kind !== "message" ? selectionPanel : null}
               </div>
             )}
@@ -3644,20 +3800,18 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       ) : null}
 
       {activeTab === "assets" ? (
-        <Card className="archivist-panel archivist-panel-muted">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-xl text-white">Assets</CardTitle>
-                <CardDescription>Keep media links and uploads attached to the current draft.</CardDescription>
-              </div>
-              <Button onClick={() => fileInputRef.current?.click()} disabled={uploadStudioAssetMutation.isPending}>
-                <ImageIcon className="h-4 w-4" />
-                Upload
-              </Button>
+        <div className="rounded-[20px] bg-white/[0.03]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Assets</p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            <Button size="sm" className="rounded-full" onClick={() => fileInputRef.current?.click()} disabled={uploadStudioAssetMutation.isPending}>
+              <ImageIcon className="h-3.5 w-3.5" />
+              Upload
+            </Button>
+          </div>
+          <div className="space-y-4 p-4">
             <input
               ref={fileInputRef}
               type="file"
@@ -3697,7 +3851,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 No assets match that search yet.
               </div>
             ) : (
-              <div className="grid gap-3 xl:grid-cols-2">
+              <div className="space-y-2">
                 {filteredAssets.map((asset) => {
                   const usageCount = assetUsage.get(asset.id) || 0;
                   const canApplyToEmbed = selection.kind === "embed" && asset.type === "image";
@@ -3705,75 +3859,75 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                   const canApplyToGallery = selectedNode?.type === "media_gallery" && asset.type === "image";
 
                   return (
-                    <div key={asset.id} className="overflow-hidden rounded-[20px] border border-white/10 bg-white/[0.03]">
-                      <div className="relative aspect-[16/9] overflow-hidden border-b border-white/10 bg-[#111317]">
-                        {asset.type === "image" ? (
-                          <img src={asset.url} alt={asset.name} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-sm font-medium text-white/60">
-                            {asset.type === "banner" ? "Banner asset" : "File asset"}
-                          </div>
-                        )}
+                    <div key={asset.id} className="rounded-[16px] border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                      <div className="flex items-center gap-3 px-3 py-3">
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-[10px] bg-[#111317] border border-white/[0.06]">
+                          {asset.type === "image" ? (
+                            <img src={asset.url} alt={asset.name} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center">
+                              <ImageIcon className="h-4 w-4 text-white/25" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-semibold text-white">{asset.name}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-white/30">{asset.url}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-1.5">
+                          <span className="rounded-full border border-white/8 px-2 py-0.5 text-[10px] uppercase tracking-widest text-white/35">{asset.type}</span>
+                          {usageCount > 0 ? (
+                            <span className="rounded-full border border-[#E0001A]/20 bg-[#E0001A]/8 px-2 py-0.5 text-[10px] uppercase tracking-widest text-[#E0001A]/60">{usageCount} refs</span>
+                          ) : (
+                            <span className="rounded-full border border-white/8 px-2 py-0.5 text-[10px] uppercase tracking-widest text-white/20">Unused</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-3 p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-white">{asset.name}</p>
-                            <p className="mt-1 break-all text-xs text-muted-foreground">{asset.url}</p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Badge variant="outline">{asset.type}</Badge>
-                            <Badge variant="outline">{usageCount > 0 ? `${usageCount} refs` : "Unused"}</Badge>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => copyAssetUrl(asset)}>
-                            <Copy className="h-3.5 w-3.5" />
-                            Copy URL
-                          </Button>
-                          {canApplyToEmbed ? (
-                            <>
-                              <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "embed_image")}>Set Image</Button>
-                              <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "embed_thumbnail")}>Set Thumb</Button>
-                              <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "author_icon")}>Author Icon</Button>
-                              <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "footer_icon")}>Footer Icon</Button>
-                            </>
-                          ) : null}
-                          {canApplyToFile ? (
-                            <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "file_url")}>Attach to File</Button>
-                          ) : null}
-                          {canApplyToGallery ? (
-                            <Button variant="outline" size="sm" className="rounded-[14px]" onClick={() => applyAssetToSelection(asset, "gallery_item")}>Add to Gallery</Button>
-                          ) : null}
-                          <Button variant="ghost" size="sm" className="rounded-[14px] text-white/65 hover:text-white" onClick={() => removeAssetFromDraft(asset)} disabled={usageCount > 0}>
-                            Remove
-                          </Button>
-                        </div>
+                      <div className="flex flex-wrap gap-1.5 border-t border-white/[0.04] px-3 py-2">
+                        <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => copyAssetUrl(asset)}>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </Button>
+                        {canApplyToEmbed ? (
+                          <>
+                            <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "embed_image")}>Image</Button>
+                            <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "embed_thumbnail")}>Thumb</Button>
+                            <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "author_icon")}>Author</Button>
+                            <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "footer_icon")}>Footer</Button>
+                          </>
+                        ) : null}
+                        {canApplyToFile ? (
+                          <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "file_url")}>Attach</Button>
+                        ) : null}
+                        {canApplyToGallery ? (
+                          <Button variant="outline" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={() => applyAssetToSelection(asset, "gallery_item")}>Gallery</Button>
+                        ) : null}
+                        <Button variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs text-white/40 hover:text-white/70" onClick={() => removeAssetFromDraft(asset)} disabled={usageCount > 0}>
+                          Remove
+                        </Button>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       {activeTab === "issues" ? (
-        <Card className="archivist-panel archivist-panel-muted">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-xl text-white">Issues</CardTitle>
-                <CardDescription>This uses the same preflight result publish uses. No fake green state.</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
-                <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
-              </div>
+        <div className="rounded-[20px] bg-white/[0.03]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Issues</p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
+              <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
+            </div>
+          </div>
+          <div className="space-y-4 p-4">
             <StudioPreview
               document={draft}
               viewId={selectedViewId}
@@ -3804,24 +3958,22 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 ))}
               </div>
             </ScrollArea>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       {activeTab === "publish" ? (
-        <Card className="archivist-panel archivist-panel-muted">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-xl text-white">Publish</CardTitle>
-                <CardDescription>Choose where the message should go, review any downgrade warning, then publish.</CardDescription>
-              </div>
-              <Badge variant={publishPlan?.publishPath === "blocked" ? "destructive" : publishPlan?.publishPath === "downgraded" ? "secondary" : "outline"}>
-                {publishPlan?.label || "No plan"}
-              </Badge>
+        <div className="rounded-[20px] bg-white/[0.03]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Publish</p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            <Badge variant={publishPlan?.publishPath === "blocked" ? "destructive" : publishPlan?.publishPath === "downgraded" ? "secondary" : "outline"}>
+              {publishPlan?.label || "No plan"}
+            </Badge>
+          </div>
+          <div className="space-y-4 p-4">
             {isMobile ? (
               <div className="space-y-3 rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
                 <div className="flex flex-wrap items-center gap-2">
@@ -3870,7 +4022,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             </div>
 
             {publishPlan?.requiresSimplifiedConfirmation ? (
-              <div className="flex items-center justify-between rounded-[18px] border border-amber-400/20 bg-amber-500/10 px-4 py-4">
+              <div className="flex items-center justify-between rounded-[18px] border border-white/[0.08] bg-white/[0.03] px-4 py-4">
                 <div>
                   <p className="text-sm font-semibold text-white">Allow downgraded publish</p>
                   <p className="text-xs text-white/72">This draft cannot publish exactly as designed. Confirm before publishing the simplified version.</p>
@@ -3903,8 +4055,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       {isMobile ? (
@@ -3958,12 +4110,8 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             </DrawerHeader>
             <div className="pb-2">
               <StudioInsertCatalog
-                title={currentMode === "layout_v2" ? contextualInsertLabel : "Add the next part"}
-                description={
-                  currentMode === "layout_v2"
-                    ? "Pick the next visible or interactive block. Studio will insert it into the current lane and move focus naturally."
-                    : "Pick the next visible part of the message. Studio keeps the canvas and publish truth attached while you add."
-                }
+                title={currentMode === "layout_v2" ? contextualInsertLabel : "Add part"}
+                description=""
                 groups={insertGroups}
               />
             </div>
@@ -4012,7 +4160,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
 
       {isMobile && !hideMobileChrome ? (
         <>
-          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090a0d]/96 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-18px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+          <div className="fixed inset-x-0 bottom-[max(4.5rem,calc(4rem+env(safe-area-inset-bottom)))] z-30 border-t border-white/10 bg-[#090a0d]/96 px-2 pb-2 pt-2 shadow-[0_-18px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
             <div className="grid grid-cols-3 gap-2">
               <StudioTabButton tab="build" activeTab={activeTab} onSelect={setActiveTab} icon={MessageSquareText} label="Edit" />
               <StudioTabButton tab="assets" activeTab={activeTab} onSelect={setActiveTab} icon={ImageIcon} label="Assets" />

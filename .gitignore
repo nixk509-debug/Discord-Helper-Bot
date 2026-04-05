@@ -3,4 +3,13 @@ dist
 .DS_Store
 server/public
 vite.config.ts.*
-*.tar.gz
+*.tar.gztmp-edge-qa-*/
+tmp-qa-*.png
+tmp-qa-*.json
+.claude/
+*.pma
+*.tar
+deploy-*.zip
+deploy-*.txt
+tmp-*.png
+tmp-*.tar

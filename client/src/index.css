@@ -10,33 +10,35 @@
     --font-display: 'Syne', sans-serif;
     --font-mono: 'Fira Code', monospace;
 
-    /* Archivist Premium Palette */
-    --bg-app: #050507;
-    --bg-shell: #0a0a0c;
-    --bg-panel: #0f0f12;
-    --bg-panel-raised: #151518;
-    --bg-panel-focus: #171014;
-    --bg-panel-inset: #08080b;
-    --bg-panel-overlay: rgba(5, 5, 7, 0.92);
+    /* Archivist — Chrome Dark */
+    --bg-app: #030305;
+    --bg-shell: #06060a;
+    --bg-panel: #0b0b10;
+    --bg-panel-raised: #101016;
+    --bg-panel-focus: #0f0a0d;
+    --bg-panel-inset: #050508;
+    --bg-panel-overlay: rgba(3, 3, 5, 0.95);
 
+    /* Chrome borders — cool metallic whites */
     --border-subtle: rgba(255, 255, 255, 0.07);
-    --border-default: rgba(255, 255, 255, 0.1);
+    --border-default: rgba(255, 255, 255, 0.10);
     --border-strong: rgba(224, 0, 26, 0.18);
     --border-brand: rgba(224, 0, 26, 0.28);
-    --border-cold: rgba(255, 255, 255, 0.09);
+    --border-cold: rgba(200, 210, 255, 0.07);
 
-    --text-primary: #f5f0f2;
-    --text-secondary: #b8adb0;
-    --text-muted: rgba(210, 198, 201, 0.6);
-    --text-faint: rgba(210, 198, 201, 0.36);
+    /* Chrome text — cool white */
+    --text-primary: #eeeef5;
+    --text-secondary: #9898b0;
+    --text-muted: rgba(180, 180, 210, 0.50);
+    --text-faint: rgba(180, 180, 210, 0.28);
 
     --accent-primary: #e0001a;
-    --accent-secondary: #ff4d60;
-    --brand-primary-strong: #ff6070;
-    --category-accent: #ff6070;
+    --accent-secondary: #ff3d52;
+    --brand-primary-strong: #ff4d5e;
+    --category-accent: #ff4d5e;
     --success: #1FA971;
-    --warning: #C9952E;
-    --danger: #D95763;
+    --warning: #e0001a;
+    --danger: #e0001a;
     --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 
     /* Shadcn/UI Compatibility */
@@ -80,9 +82,9 @@
     @apply font-sans antialiased bg-background text-foreground;
     background-color: var(--bg-app);
     background-image:
-      radial-gradient(circle at 50% 0%, rgba(224, 0, 26, 0.07), transparent 28%),
-      radial-gradient(circle at 82% 18%, rgba(140, 0, 16, 0.1), transparent 18%),
-      linear-gradient(180deg, #050507 0%, #09090c 52%, #040406 100%);
+      radial-gradient(ellipse 60% 20% at 50% 0%, rgba(224, 0, 26, 0.045), transparent 100%),
+      radial-gradient(ellipse 30% 15% at 82% 5%, rgba(180, 0, 20, 0.04), transparent 100%),
+      linear-gradient(180deg, #030305 0%, #05050a 60%, #030305 100%);
     background-attachment: fixed;
     min-height: 100vh;
   }
@@ -92,21 +94,20 @@
     @apply tracking-tight font-bold;
   }
 
-  /* ── Prevent iOS auto-zoom on input focus ──────────────────────────────
-     iOS Safari zooms in whenever a focused input has font-size < 16px.
-     Force 16px on mobile so the viewport never jumps, then scale text
-     back visually with transform so it still looks like 14px. */
-  @media (max-width: 768px) {
-    input, textarea, select {
-      font-size: 16px !important;
-    }
-  }
+}
+
+/* ── iOS zoom kill — must live OUTSIDE any @layer so nothing overrides it ── */
+input, textarea, select {
+  font-size: 16px !important;
+  touch-action: manipulation;
 }
 
 @layer utilities {
   .archivist-panel {
     @apply relative overflow-hidden rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-panel)];
-    box-shadow: var(--shadow-panel);
+    box-shadow:
+      0 0 0 1px rgba(200,210,255,0.025),
+      var(--shadow-panel);
   }
 
   .archivist-panel-raised {
@@ -135,6 +136,37 @@
 
   .glass-card {
     @apply border border-[var(--border-subtle)] bg-white/[0.02] backdrop-blur-md;
+  }
+
+  /* Studio surface — used for the main build canvas container */
+  .studio-surface {
+    @apply relative rounded-[20px] border border-white/[0.08] overflow-hidden;
+    background: linear-gradient(180deg, rgba(11,11,17,0.99) 0%, rgba(6,6,10,1) 100%);
+    box-shadow:
+      0 0 0 1px rgba(224,0,26,0.05),
+      0 20px 50px rgba(0,0,0,0.38),
+      inset 0 1px 0 rgba(200,210,255,0.03);
+  }
+
+  /* Studio panel header stripe */
+  .studio-panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-white/[0.055] px-4 py-3;
+  }
+
+  /* Red indicator bar for panel headers */
+  .studio-indicator {
+    @apply h-3.5 w-[2px] rounded-full;
+    background: linear-gradient(180deg, #E0001A 0%, rgba(224,0,26,0.4) 100%);
+    box-shadow: 0 0 6px rgba(224,0,26,0.5);
+  }
+
+  /* Studio insert / composition card */
+  .studio-insert-card {
+    @apply rounded-[16px] border border-white/[0.06] bg-white/[0.025] transition-colors;
+  }
+
+  .studio-insert-card:hover {
+    @apply border-white/[0.1] bg-white/[0.035];
   }
 }
 
