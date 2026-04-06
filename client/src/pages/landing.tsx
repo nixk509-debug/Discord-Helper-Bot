@@ -1,40 +1,18 @@
 import { motion } from "framer-motion";
 import { Link } from "wouter";
-import { 
-  Shield, 
-  Zap, 
-  BarChart, 
-  ArrowRight,
-  Terminal,
-  MessageSquare,
-  UserPlus,
-  TrendingUp,
-  Star,
-  Ticket,
-  Clock,
-  Layout,
-  Hash,
-  Crown,
-  Workflow,
-  Coins,
-  Users,
-  Activity,
-  Globe,
-  Check,
-  X,
-  ChevronRight,
-  Menu,
-  ExternalLink
+import {
+  Shield, Zap, BarChart, ArrowRight, Terminal, MessageSquare, UserPlus,
+  TrendingUp, Star, Ticket, Clock, Layout, Hash, Crown, Workflow, Coins,
+  Users, Activity, Globe, Check, X, ChevronRight, Menu, ExternalLink,
+  Layers, Code2, Gamepad2,
 } from "lucide-react";
-import { SiDiscord } from "react-icons/si";
+import { SiDiscord, SiGithub } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useStats } from "@/hooks/use-bot";
 import { useAuth, getAvatarUrl } from "@/hooks/use-auth";
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import archivistAvatar from "@assets/archivist-avatar.png";
-import dashboardArt from "@assets/dashboard-art.png";
 import archivistLogo from "@assets/FDEBE754-F9DF-41D4-A19B-B2933432B230_1772114960531.png";
 
 function TypingCounter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -217,8 +195,64 @@ const FEATURES = [
   },
 ];
 
+// ── Sparkle star background ──────────────────────────────────────
+const STARS = [
+  { top: "8%",  left: "6%",  size: 10, delay: "0s",   dur: "3.2s" },
+  { top: "15%", left: "88%", size: 7,  delay: "0.8s",  dur: "2.8s" },
+  { top: "28%", left: "72%", size: 14, delay: "1.4s",  dur: "4s"   },
+  { top: "42%", left: "3%",  size: 8,  delay: "0.3s",  dur: "3.5s" },
+  { top: "55%", left: "92%", size: 6,  delay: "2s",    dur: "2.6s" },
+  { top: "62%", left: "18%", size: 12, delay: "0.6s",  dur: "3.8s" },
+  { top: "75%", left: "80%", size: 9,  delay: "1.1s",  dur: "3s"   },
+  { top: "85%", left: "44%", size: 5,  delay: "1.7s",  dur: "2.9s" },
+  { top: "20%", left: "34%", size: 7,  delay: "2.3s",  dur: "3.4s" },
+  { top: "35%", left: "58%", size: 11, delay: "0.5s",  dur: "4.2s" },
+  { top: "68%", left: "63%", size: 6,  delay: "1.9s",  dur: "2.7s" },
+  { top: "90%", left: "12%", size: 8,  delay: "0.9s",  dur: "3.1s" },
+  { top: "5%",  left: "51%", size: 9,  delay: "1.5s",  dur: "3.7s" },
+  { top: "50%", left: "27%", size: 6,  delay: "2.1s",  dur: "3.3s" },
+  { top: "78%", left: "95%", size: 7,  delay: "0.4s",  dur: "2.5s" },
+];
+
+function StarField() {
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }}>
+      {STARS.map((s, i) => (
+        <div
+          key={i}
+          className="star"
+          style={{
+            top: s.top,
+            left: s.left,
+            width: s.size,
+            height: s.size,
+            animation: `star-twinkle ${s.dur} ${s.delay} ease-in-out infinite`,
+            filter: "drop-shadow(0 0 4px #FF2D4D)",
+          }}
+        />
+      ))}
+      {/* sweep arcs */}
+      <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.12 }} xmlns="http://www.w3.org/2000/svg">
+        <path d="M-100 400 Q 400 -100 900 400" fill="none" stroke="#FF2D4D" strokeWidth="1.5"
+          strokeDasharray="800" strokeDashoffset="800"
+          style={{ animation: "sweep-arc 8s 1s linear infinite" }} />
+        <path d="M 200 800 Q 700 200 1200 600" fill="none" stroke="#B11226" strokeWidth="1"
+          strokeDasharray="900" strokeDashoffset="900"
+          style={{ animation: "sweep-arc 11s 4s linear infinite" }} />
+      </svg>
+    </div>
+  );
+}
+
+// ── Module pills ──────────────────────────────────────────────────
+const PILLS = [
+  { label: "Slash Commands", icon: Code2 },
+  { label: "Embed Studio",   icon: Layers },
+  { label: "Moderation",     icon: Shield },
+  { label: "Community Tools",icon: Users  },
+];
+
 export default function Landing() {
-  const { data: stats } = useStats();
   const { data: user } = useAuth();
   const { data: inviteData } = useQuery<{ url: string }>({ queryKey: ["/api/invite-url"] });
   const [selectedFeature, setSelectedFeature] = useState<typeof FEATURES[0] | null>(null);
@@ -235,74 +269,44 @@ export default function Landing() {
     if (inviteData?.url) window.open(inviteData.url, "_blank");
   }, [inviteData]);
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.2 } }
-  };
-
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: { y: 0, opacity: 1, transition: { type: "spring", stiffness: 100 } }
-  };
-
-  const statItems = [
-    { label: "Active Servers", value: stats?.totalServers || 12400, suffix: "+" },
-    { label: "Total Members", value: stats?.totalMembers || 2100000, suffix: "+" },
-    { label: "Commands Executed", value: stats?.commandsExecuted || 45000000, suffix: "+" },
-    { label: "Uptime", value: 9999, suffix: "%" },
-  ];
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden flex flex-col">
 
+      <StarField />
+
+      {/* ── Nav ── */}
       <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-background/90 backdrop-blur-xl border-b border-white/8 shadow-lg shadow-black/20" : "bg-transparent"}`}>
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 flex-shrink-0">
-            <div className="w-9 h-9 rounded-xl overflow-hidden box-glow flex-shrink-0">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="w-8 h-8 rounded-xl overflow-hidden box-glow flex-shrink-0">
               <img src={archivistLogo} alt="Archivist" className="w-full h-full object-cover" />
             </div>
-            <span className="font-display font-bold text-xl tracking-tight text-glow">Archivist</span>
+            <span className="font-display font-bold text-lg tracking-tight text-glow">Archivist</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
-            <a href="#features" className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-white/5">Features</a>
-            <a href="#compare" className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-white/5">Compare</a>
-            <Link href="/premium" className="px-4 py-2 text-sm text-muted-foreground hover:text-yellow-400 transition-colors rounded-lg hover:bg-white/5 flex items-center gap-1.5">
+            <a href="#features" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-white/5">Features</a>
+            <a href="#compare" className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-white/5">Compare</a>
+            <Link href="/premium" className="px-3 py-2 text-sm text-muted-foreground hover:text-yellow-400 transition-colors rounded-lg hover:bg-white/5 flex items-center gap-1.5">
               <Crown className="w-3.5 h-3.5 text-yellow-400" /> Premium
             </Link>
           </div>
 
           <div className="flex items-center gap-2">
             <Button
-              onClick={handleInvite}
               size="sm"
-              className="hidden md:flex rounded-full px-4 h-9 text-sm font-semibold text-white box-glow gap-1.5"
-              style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}
-              data-testid="button-nav-invite"
+              className="rounded-full px-5 h-9 text-sm font-semibold text-white hidden md:flex"
+              style={{ background: "linear-gradient(135deg, #B11226, #FF2D4D)" }}
+              asChild
             >
-              <SiDiscord className="w-3.5 h-3.5" /> Add to Discord
+              {user ? (
+                <a href="/dashboard">Dashboard</a>
+              ) : (
+                <a href="/auth/discord">Dashboard</a>
+              )}
             </Button>
-            {user ? (
-              <Button asChild size="sm" variant="outline" className="rounded-full px-4 h-9 text-sm font-semibold border-white/15 hidden md:flex">
-                <a href="/dashboard">
-                  <img src={getAvatarUrl(user)} alt="" className="w-5 h-5 rounded-full mr-1.5" />
-                  Dashboard
-                </a>
-              </Button>
-            ) : (
-              <Button asChild size="sm" className="rounded-full px-4 h-9 text-sm font-semibold bg-[#5865F2] hover:bg-[#4752C4] text-white hidden md:flex" data-testid="button-nav-login">
-                <a href="/auth/discord">
-                  <SiDiscord className="w-3.5 h-3.5 mr-1.5" /> Login
-                </a>
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="md:hidden px-2"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              data-testid="button-mobile-menu"
-            >
+            <Button variant="ghost" size="sm" className="md:hidden px-2" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
               <Menu className="w-5 h-5" />
             </Button>
           </div>
@@ -312,22 +316,10 @@ export default function Landing() {
           <div className="md:hidden bg-background/95 backdrop-blur-xl border-b border-white/8 px-6 py-4 space-y-2">
             <a href="#features" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-white/5">Features</a>
             <a href="#compare" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-white/5">Compare</a>
-            <Link href="/premium" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-yellow-400/80 hover:text-yellow-400 rounded-lg hover:bg-white/5">
-              <Crown className="w-3.5 h-3.5" /> Premium
-            </Link>
-            <div className="pt-2 flex flex-col gap-2">
-              <Button onClick={handleInvite} className="w-full rounded-lg text-sm font-semibold text-white gap-2" style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}>
-                <SiDiscord className="w-4 h-4" /> Add to Discord
+            <div className="pt-2">
+              <Button className="w-full rounded-lg text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #B11226, #FF2D4D)" }} asChild>
+                {user ? <a href="/dashboard">Dashboard</a> : <a href="/auth/discord">Dashboard</a>}
               </Button>
-              {user ? (
-                <Button asChild variant="outline" className="w-full rounded-lg border-white/15">
-                  <a href="/dashboard">Dashboard</a>
-                </Button>
-              ) : (
-                <Button asChild className="w-full rounded-lg bg-[#5865F2] hover:bg-[#4752C4] text-white">
-                  <a href="/auth/discord"><SiDiscord className="w-4 h-4 mr-2" /> Login with Discord</a>
-                </Button>
-              )}
             </div>
           </div>
         )}
@@ -335,119 +327,110 @@ export default function Landing() {
 
       <div className="pt-[72px]" />
 
-      <section className="relative z-10 gradient-hero py-24 px-4 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/4 left-1/3 w-[800px] h-[800px] rounded-full blur-[200px]" style={{ background: "hsl(0 72% 51% / 0.12)" }} />
-          <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full blur-[150px]" style={{ background: "hsl(340 75% 55% / 0.10)" }} />
-        </div>
-
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-12">
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={containerVariants}
-            className="flex-1 flex flex-col items-start text-left"
+      {/* ── Hero ── */}
+      <section className="relative z-10 py-28 px-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+          className="max-w-3xl mx-auto flex flex-col items-center"
+        >
+          {/* Logo / mascot */}
+          <div
+            className="w-24 h-24 rounded-3xl overflow-hidden mb-8 flex-shrink-0"
+            style={{ boxShadow: "0 0 60px -10px #FF2D4D, 0 0 30px -5px #B11226" }}
           >
-            <motion.div variants={itemVariants} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-6">
-              <Zap className="w-3.5 h-3.5" />
-              <span>The bot dashboard NO one else has built</span>
-            </motion.div>
+            <img src={archivistLogo} alt="Archivist" className="w-full h-full object-cover" />
+          </div>
 
-            <motion.h1
-              variants={itemVariants}
-              className="text-6xl md:text-7xl lg:text-8xl font-display font-extrabold tracking-tighter leading-tight mb-5"
-            >
-              <span className="text-transparent bg-clip-text" style={{ backgroundImage: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}>
-                Archivist
-              </span>
-              <span className="block text-foreground text-4xl md:text-5xl lg:text-6xl mt-1">for Discord</span>
-            </motion.h1>
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold tracking-widest uppercase mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            Discord Control System
+          </div>
 
-            <motion.p variants={itemVariants} className="text-lg md:text-xl text-muted-foreground max-w-xl mb-4 leading-relaxed">
-              The last Discord bot you'll ever need — built around <span className="text-foreground font-semibold">YOUR server's logic</span>
-            </motion.p>
+          {/* Headline */}
+          <h1 className="text-5xl md:text-7xl font-display font-extrabold tracking-tighter leading-tight mb-4">
+            <span className="text-foreground">Build the server.</span>
+            <span className="block text-muted-foreground/50">Not a pile of modules.</span>
+          </h1>
 
-            <motion.div variants={itemVariants} className="flex flex-wrap gap-2 mb-8">
-              {["✗ MEE6 — no flow builder", "✗ Carl-bot — no HTTP actions", "✗ Dyno — no economy"].map((pill) => (
-                <span key={pill} className="inline-flex items-center px-2.5 py-1 rounded-full bg-destructive/10 border border-destructive/20 text-xs text-destructive/90 font-medium line-through decoration-destructive/50">
-                  {pill}
-                </span>
-              ))}
-            </motion.div>
+          <p className="text-base md:text-lg text-muted-foreground max-w-xl mb-10 leading-relaxed">
+            One dark workspace. Commands, design, and community — unified under four clean pillars.
+          </p>
 
-            <motion.div variants={itemVariants} className="flex flex-col sm:flex-row gap-3 mb-10">
-              <Button
-                size="lg"
-                onClick={handleInvite}
-                className="rounded-full px-8 h-12 text-base font-semibold text-white box-glow gap-2"
-                style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}
-                data-testid="button-hero-invite"
-              >
-                Add to Discord <ArrowRight className="w-4 h-4" />
-              </Button>
-              <Button size="lg" variant="outline" asChild className="rounded-full px-8 h-12 text-base font-semibold border-white/10 glass-card">
-                {user ? (
-                  <a href="/dashboard">Open Dashboard <ChevronRight className="w-4 h-4 ml-1" /></a>
-                ) : (
-                  <a href="/auth/discord">Open Dashboard <ChevronRight className="w-4 h-4 ml-1" /></a>
-                )}
-              </Button>
-            </motion.div>
+          {/* CTA */}
+          <Button
+            size="lg"
+            className="rounded-full px-10 h-12 text-base font-semibold text-white gap-2 box-glow"
+            style={{ background: "linear-gradient(135deg, #B11226, #FF2D4D)" }}
+            asChild
+            data-testid="button-hero-dashboard"
+          >
+            {user ? (
+              <a href="/dashboard">Open Dashboard <ArrowRight className="w-4 h-4" /></a>
+            ) : (
+              <a href="/auth/discord">Open Dashboard <ArrowRight className="w-4 h-4" /></a>
+            )}
+          </Button>
+        </motion.div>
+      </section>
 
-            <motion.div
-              variants={itemVariants}
-              className="grid grid-cols-2 gap-3 sm:grid-cols-4 w-full glass-card rounded-2xl px-6 py-4 border-t-2"
-              style={{ borderImage: "linear-gradient(90deg, hsl(0,72%,51%), hsl(340,75%,55%)) 1" }}
-            >
-              {statItems.map((stat, i) => (
-                <div key={i} className="flex flex-col items-center justify-center text-center py-2">
-                  <span className="text-2xl md:text-3xl font-display font-bold text-foreground text-glow" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, "-")}`}>
-                    <TypingCounter target={stat.value} suffix={stat.suffix} />
-                  </span>
-                  <span className="section-header mt-1">{stat.label}</span>
+      {/* ── Workspace preview ── */}
+      <section className="relative z-10 py-16 px-4">
+        <div className="max-w-2xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="rounded-2xl overflow-hidden border border-white/10"
+            style={{ boxShadow: "0 0 60px -15px rgba(177,18,38,0.4)" }}
+          >
+            {/* Window chrome */}
+            <div className="bg-[#111418] border-b border-white/5 px-4 py-3 flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-500/70" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500/70" />
+                <div className="w-3 h-3 rounded-full bg-green-500/70" />
+              </div>
+              <span className="text-xs text-muted-foreground font-mono ml-2">Archivist Workspace</span>
+            </div>
+            {/* Module tiles */}
+            <div className="bg-[#0B0D10] p-4 grid grid-cols-2 gap-3">
+              {[
+                { icon: Code2,    label: "Commands",   sub: "12 active" },
+                { icon: Layers,   label: "Studio",     sub: "4 drafts"  },
+                { icon: Gamepad2, label: "Fun & Creative", sub: ""      },
+                { icon: Shield,   label: "Moderation", sub: "OK"        },
+              ].map(({ icon: Icon, label, sub }) => (
+                <div key={label} className="feature-card rounded-xl p-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{label}</p>
+                    {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+                  </div>
                 </div>
               ))}
-            </motion.div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 40, rotate: 3 }}
-            animate={{ opacity: 1, x: 0, rotate: 4 }}
-            transition={{ type: "spring", stiffness: 80, delay: 0.4 }}
-            className="hidden lg:block flex-shrink-0 w-[420px]"
-            style={{ animation: "float 6s ease-in-out infinite" }}
-          >
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ boxShadow: "0 0 60px -10px hsl(0 72% 51% / 0.5), 0 0 30px -5px hsl(340 75% 55% / 0.3)" }}
-            >
-              <img src={dashboardArt} alt="Archivist Dashboard" className="w-full" />
             </div>
           </motion.div>
         </div>
       </section>
 
-      <section className="py-20 px-4 max-w-7xl mx-auto w-full">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl md:text-4xl font-display font-bold mb-3">How It Works</h2>
-          <p className="text-muted-foreground max-w-xl mx-auto">Up and running in under 60 seconds. No coding required.</p>
-        </div>
-        <div className="relative flex flex-col md:flex-row gap-6 md:gap-0 items-start">
-          <div className="hidden md:block absolute top-10 left-[calc(16.67%+20px)] right-[calc(16.67%+20px)] h-px border-t-2 border-dashed border-primary/30" />
-          {HOW_IT_WORKS.map(({ step, icon: Icon, title, desc }) => (
-            <div key={step} className="flex-1 flex flex-col items-center text-center relative px-6">
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 relative z-10 text-white font-display font-bold text-xl box-glow"
-                style={{ background: "linear-gradient(135deg, hsl(0,72%,51%), hsl(340,75%,55%))" }}
-              >
-                {step}
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center mb-3">
-                <Icon className="w-5 h-5 text-primary" />
-              </div>
-              <h3 className="font-display font-bold text-lg mb-2">{title}</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">{desc}</p>
-            </div>
+      {/* ── Module pills ── */}
+      <section className="relative z-10 py-8 px-4">
+        <div className="max-w-2xl mx-auto flex flex-wrap justify-center gap-3">
+          {PILLS.map(({ label, icon: Icon }) => (
+            <a
+              key={label}
+              href="#features"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-card border border-white/8 text-sm text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all duration-200"
+            >
+              <Icon className="w-3.5 h-3.5 text-primary" />
+              {label}
+            </a>
           ))}
         </div>
       </section>
@@ -578,53 +561,67 @@ export default function Landing() {
         </div>
       </main>
 
-      <footer className="relative z-10 border-t border-white/5 py-12 px-6">
-        <div className="max-w-7xl mx-auto">
+      <footer className="relative z-10 border-t border-white/5 py-14 px-6">
+        <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-10">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-9 h-9 rounded-xl overflow-hidden box-glow">
+            {/* Brand */}
+            <div className="md:col-span-1">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-xl overflow-hidden box-glow">
                   <img src={archivistLogo} alt="Archivist" className="w-full h-full object-cover" />
                 </div>
-                <span className="font-display font-bold text-lg text-glow">Archivist</span>
+                <span className="font-display font-bold text-base text-glow">Archivist</span>
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed max-w-sm">
-                The most powerful Discord bot dashboard — visual automation, economy, member CRM, and 15+ configurable modules.
+              <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+                Discord server management, done right.
               </p>
+              <div className="flex items-center gap-3">
+                <a href="https://discord.gg" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-[#5865F2] transition-colors">
+                  <SiDiscord className="w-4 h-4" />
+                </a>
+                <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+                  <SiGithub className="w-4 h-4" />
+                </a>
+              </div>
             </div>
+
+            {/* Product */}
             <div>
               <p className="section-header mb-4">Product</p>
               <ul className="space-y-2.5">
-                <li><a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Features</a></li>
-                <li><Link href="/premium" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Premium</Link></li>
-                <li><Link href="/marketplace" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Marketplace</Link></li>
-                <li>
-                  <button onClick={handleInvite} className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
-                    Add to Discord <ExternalLink className="w-3 h-3" />
-                  </button>
-                </li>
+                <li><Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Dashboard</Link></li>
+                <li><a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Commands</a></li>
+                <li><a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Embed Studio</a></li>
+                <li><a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Server Tools</a></li>
               </ul>
             </div>
+
+            {/* Resources */}
             <div>
-              <p className="section-header mb-4">Account</p>
+              <p className="section-header mb-4">Resources</p>
               <ul className="space-y-2.5">
-                {user ? (
-                  <>
-                    <li><Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Dashboard</Link></li>
-                    <li><Link href="/dashboard/preferences" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Preferences</Link></li>
-                  </>
-                ) : (
-                  <li><a href="/auth/discord" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Login with Discord</a></li>
-                )}
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Documentation</a></li>
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Support Server</a></li>
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Changelog</a></li>
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Status</a></li>
+              </ul>
+            </div>
+
+            {/* Legal */}
+            <div>
+              <p className="section-header mb-4">Legal</p>
+              <ul className="space-y-2.5">
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</a></li>
+                <li><a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms of Service</a></li>
               </ul>
             </div>
           </div>
+
           <div className="border-t border-white/5 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Archivist. Built for serious Discord communities.</p>
-            <div className="flex items-center gap-4">
-              <button onClick={handleInvite} className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
-                <SiDiscord className="w-3.5 h-3.5" /> Add Bot
-              </button>
+            <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Archivist Control Systems. All rights reserved.</p>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
+              <span className="text-xs text-muted-foreground">All systems operational</span>
             </div>
           </div>
         </div>
@@ -682,12 +679,6 @@ export default function Landing() {
         </DialogContent>
       </Dialog>
 
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: rotate(4deg) translateY(0); }
-          50% { transform: rotate(4deg) translateY(-14px); }
-        }
-      `}</style>
     </div>
   );
 }

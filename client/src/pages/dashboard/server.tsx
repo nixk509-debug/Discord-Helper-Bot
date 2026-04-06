@@ -50,7 +50,11 @@ export default function ServerSettings() {
   const [, params] = useRoute("/dashboard/servers/:id");
   const serverId = parseInt(params?.id || "0");
   const { toast } = useToast();
-  const [activeModule, setActiveModule] = useState("general");
+
+  const tabFromUrl = new URLSearchParams(window.location.search).get("tab") || "";
+  const [activeModule, setActiveModule] = useState(tabFromUrl || "general");
+  const isolated = !!tabFromUrl;
+
   useWebSocket(serverId);
 
   const { data: server, isLoading } = useServer(serverId);
@@ -153,6 +157,38 @@ export default function ServerSettings() {
       default:
         return <PlaceholderModule moduleId={activeModule} />;
     }
+  }
+
+  if (isolated) {
+    return (
+      <DashboardLayout>
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground gap-2 mb-4 -ml-1"
+            onClick={() => window.history.back()}
+          >
+            <Save className="w-4 h-4 rotate-180" />
+            Back to Dashboard
+          </Button>
+          <div className="flex items-center gap-4 mb-6">
+            {server.iconUrl ? (
+              <img src={server.iconUrl} alt={server.name} className="w-10 h-10 rounded-xl shadow-lg shadow-primary/20" />
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-sm font-display font-bold">
+                {server.name.substring(0, 2).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <p className="section-header">{server.name}</p>
+              <h1 className="text-xl font-display font-bold capitalize">{activeModule.replace(/-/g, " ")}</h1>
+            </div>
+          </div>
+        </div>
+        {renderActiveModule()}
+      </DashboardLayout>
+    );
   }
 
   return (
