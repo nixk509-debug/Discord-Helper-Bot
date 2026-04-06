@@ -1,0 +1,42 @@
+name: Deploy to Droplet
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/archivist
+
+            echo "→ Pulling latest code..."
+            git pull origin main
+
+            echo "→ Installing dependencies..."
+            npm install --production=false
+
+            echo "→ Building..."
+            npm run build
+
+            echo "→ Verifying build output..."
+            npm run verify:build-output
+
+            echo "→ Restarting with PM2..."
+            pm2 restart archivist --update-env
+
+            echo "→ Health check..."
+            sleep 3
+            curl -sf http://127.0.0.1:5000/health || (echo "Health check failed!" && exit 1)
+
+            echo "✓ Deploy complete"
