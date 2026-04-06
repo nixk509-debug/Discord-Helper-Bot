@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Trash2, Plus, RefreshCw } from "lucide-react";
+import { Trash2, Plus, RefreshCw, Shield, ShieldAlert, UserCheck, Coins, Hash, AlertTriangle, Zap } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
+  useUpdateSettings,
   useLeveling,
   useUpdateLeveling,
   useStarboard,
@@ -756,5 +758,49 @@ export function PollsPage({ serverId, channels }: { serverId: number; channels: 
         </div>
       )}
     </PageWrap>
+  );
+}
+
+// ─── Shared settings section header ──────────────────────────────────────────
+function SettingSection({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-[20px] bg-white/[0.03]">
+      <div className="flex items-center gap-2.5 border-b border-white/[0.05] px-4 py-3">
+        <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
+        <Icon className="h-3.5 w-3.5 text-white/30" />
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{title}</p>
+      </div>
+      <div className="space-y-2 p-4">{children}</div>
+    </div>
+  );
+}
+
+function ToggleRow({ label, sub, checked, onChange }: { label: string; sub?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.02] px-4 py-3">
+      <div>
+        <p className="text-[13px] font-medium text-white">{label}</p>
+        {sub ? <p className="mt-0.5 text-[11px] text-white/35">{sub}</p> : null}
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function SaveBtn({ pending, onClick }: { pending: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} disabled={pending}
+      className="w-full rounded-[18px] bg-[#E0001A] py-3 text-[13px] font-semibold text-white active:opacity-80 disabled:opacity-50">
+      {pending ? "Saving..." : "Save Changes"}
+    </button>
   );
 }

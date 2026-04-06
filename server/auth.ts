@@ -9,6 +9,7 @@ import { db, hasDatabaseUrl, pool } from "./db";
 import { users, type User } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "./storage";
+import { getServerRecord, listServerRecords } from "./repositories/server-repository";
 
 declare global {
   namespace Express {
@@ -348,7 +349,7 @@ export async function setupAuth(app: Express) {
       return res.status(503).json({ message: "QA bypass server is not configured." });
     }
 
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) {
       return res.status(404).json({ message: "Configured QA server was not found." });
     }
@@ -390,7 +391,7 @@ export async function setupAuth(app: Express) {
 
     const ownerServerIds = getOwnerSessionServerIdsValue();
     if (ownerServerIds?.length) {
-      const knownServers = await Promise.all(ownerServerIds.map((serverId) => storage.getServer(serverId)));
+      const knownServers = await Promise.all(ownerServerIds.map((serverId) => getServerRecord(serverId)));
       if (knownServers.some((server) => !server)) {
         return res.status(503).json({ message: "Owner login server access is misconfigured." });
       }
@@ -520,7 +521,7 @@ export async function setupAuth(app: Express) {
   app.get("/api/auth/guilds", requireAuth, async (req, res) => {
     if (isOwnerSessionUser(req.user)) {
       const allowedServerIds = req.user.ownerServerIds ?? null;
-      const allServers = await storage.getServers();
+      const allServers = await listServerRecords();
       const visibleServers = allowedServerIds?.length
         ? allServers.filter((server) => allowedServerIds.includes(server.id))
         : allServers;
@@ -536,7 +537,7 @@ export async function setupAuth(app: Express) {
 
     if (isQaBypassUser(req.user)) {
       const serverId = req.user.qaServerId;
-      const server = await storage.getServer(serverId);
+      const server = await getServerRecord(serverId);
       if (!server) return res.json([]);
       return res.json([
         {
@@ -560,7 +561,7 @@ export async function setupAuth(app: Express) {
     const cachedGuilds = sessionState?.manageableGuildCache;
     const now = Date.now();
     if (cachedGuilds && Array.isArray(cachedGuilds.guildIds) && now - cachedGuilds.fetchedAt < 30 * 60 * 1000) {
-      const allServers = await storage.getServers();
+      const allServers = await listServerRecords();
       const cachedServerMap = new Map(allServers.map((server) => [server.discordId, server]));
       return res.json(
         cachedGuilds.guildIds.map((guildId) => {
@@ -582,7 +583,7 @@ export async function setupAuth(app: Express) {
       });
       if (!response.ok) {
         if (cachedGuilds?.guildIds?.length) {
-          const allServers = await storage.getServers();
+          const allServers = await listServerRecords();
           const cachedServerMap = new Map(allServers.map((server) => [server.discordId, server]));
           return res.json(
             cachedGuilds.guildIds.map((guildId) => {
@@ -612,7 +613,7 @@ export async function setupAuth(app: Express) {
       res.json(manageableGuilds);
     } catch (err) {
       if (cachedGuilds?.guildIds?.length) {
-        const allServers = await storage.getServers();
+        const allServers = await listServerRecords();
         const cachedServerMap = new Map(allServers.map((server) => [server.discordId, server]));
         return res.json(
           cachedGuilds.guildIds.map((guildId) => {

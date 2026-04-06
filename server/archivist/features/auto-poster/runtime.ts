@@ -1,5 +1,9 @@
 import { Client } from "discord.js";
-import { storage } from "../../../storage";
+import {
+  listScheduledMessageRecords,
+  updateScheduledMessageRecord,
+} from "../../../repositories/operations-config-repository";
+import { getServerByDiscordIdRecord } from "../../../repositories/server-repository";
 import type { ArchivistLogger } from "../../lib/logger";
 import {
   findNextCronSlotAfter,
@@ -21,7 +25,7 @@ async function resolveServerIdForGuild(guildId: string) {
   const cached = serverCache.get(guildId);
   if (cached && cached.expiresAt > now()) return cached.serverId;
 
-  const server = await storage.getServerByDiscordId(guildId);
+  const server = await getServerByDiscordIdRecord(guildId);
   if (!server) return null;
 
   serverCache.set(guildId, { serverId: server.id, expiresAt: now() + SCHEDULE_TICK_MS });
@@ -39,7 +43,7 @@ async function runAutoPosters(client: Client<true>, logger: ArchivistLogger) {
     const serverId = await resolveServerIdForGuild(guild.id);
     if (!serverId) continue;
 
-    const scheduledMessages = await storage.getScheduledMessages(serverId);
+    const scheduledMessages = await listScheduledMessageRecords(serverId);
     if (scheduledMessages.length === 0) continue;
 
     for (const scheduledMessage of scheduledMessages) {
@@ -58,7 +62,7 @@ async function runAutoPosters(client: Client<true>, logger: ArchivistLogger) {
 
       if (!matchesCronExpression(cronExpression, dueSlot, timezone)) {
         const correctedNextRunAt = findNextCronSlotAfter(cronExpression, currentNow, timezone);
-        await storage.updateScheduledMessage(scheduledMessage.id, {
+        await updateScheduledMessageRecord(scheduledMessage.id, {
           nextRunAt: correctedNextRunAt,
         });
         continue;
@@ -67,7 +71,7 @@ async function runAutoPosters(client: Client<true>, logger: ArchivistLogger) {
       const channel = await guild.channels.fetch(scheduledMessage.channelId).catch(() => null);
       if (!channel || !channel.isTextBased() || !("send" in channel)) {
         const correctedNextRunAt = findNextCronSlotAfter(cronExpression, dueSlot, timezone);
-        await storage.updateScheduledMessage(scheduledMessage.id, {
+        await updateScheduledMessageRecord(scheduledMessage.id, {
           lastRunAt: dueSlot,
           nextRunAt: correctedNextRunAt,
         });
@@ -82,7 +86,7 @@ async function runAutoPosters(client: Client<true>, logger: ArchivistLogger) {
       try {
         await (channel as any).send(scheduledMessage.embedData.payload as StoredAutoPosterPayload);
         const correctedNextRunAt = findNextCronSlotAfter(cronExpression, dueSlot, timezone);
-        await storage.updateScheduledMessage(scheduledMessage.id, {
+          await updateScheduledMessageRecord(scheduledMessage.id, {
           lastRunAt: dueSlot,
           nextRunAt: correctedNextRunAt,
         });
@@ -93,7 +97,7 @@ async function runAutoPosters(client: Client<true>, logger: ArchivistLogger) {
         });
       } catch (error) {
         const correctedNextRunAt = findNextCronSlotAfter(cronExpression, dueSlot, timezone);
-        await storage.updateScheduledMessage(scheduledMessage.id, {
+      await updateScheduledMessageRecord(scheduledMessage.id, {
           lastRunAt: dueSlot,
           nextRunAt: correctedNextRunAt,
         });

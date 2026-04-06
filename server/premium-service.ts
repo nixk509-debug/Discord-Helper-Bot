@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { getServerRecord } from "./repositories/server-repository";
 
 function coerceDate(value: unknown) {
   if (!value) return null;
@@ -15,7 +16,7 @@ function isEntitlementActive(enabled: unknown, expiresAt: unknown) {
 }
 
 export async function isPremiumEnabledForServer(serverId: number) {
-  const server = await storage.getServer(serverId);
+  const server = await getServerRecord(serverId);
   if (!server) return false;
 
   const ownerIds = (process.env.OWNER_IDS || "")
@@ -35,4 +36,3 @@ export async function isPremiumEnabledForServer(serverId: number) {
   const ownerUser = server.ownerId ? await storage.getUserByDiscordId(server.ownerId) : null;
   return isEntitlementActive(ownerUser?.isPremium, ownerUser?.premiumExpiresAt);
 }
-

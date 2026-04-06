@@ -1,9 +1,9 @@
-import { storage } from "../storage";
+import { getServerRecord } from "../repositories/server-repository";
 import { getBotClient, getBotStatus } from "./bot/runtime";
 import { commandActivityStore } from "./lib/logger/activity-store";
 
 export async function getServerWorkspaceOverview(serverId: number) {
-  const server = await storage.getServer(serverId);
+  const server = await getServerRecord(serverId);
   if (!server) return null;
 
   const client = getBotClient();
@@ -43,7 +43,7 @@ export async function getServerWorkspaceOverview(serverId: number) {
 }
 
 export async function getServerCommandLogs(serverId: number, limit = 25) {
-  const server = await storage.getServer(serverId);
+  const server = await getServerRecord(serverId);
   if (!server) return null;
 
   return {

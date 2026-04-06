@@ -24,6 +24,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../../db";
 import { serverSettings, servers, templates, users } from "@shared/schema";
 import { storage } from "../../../storage";
+import { getServerByDiscordIdRecord } from "../../../repositories/server-repository";
 import type { CommandContext, CommandModule } from "../../commands/types";
 import { CommandError } from "../../lib/errors";
 import {
@@ -412,7 +413,7 @@ async function ensurePanelUser(actor: User) {
 }
 
 async function ensurePanelServer(guild: Guild) {
-  const existing = await storage.getServerByDiscordId(guild.id);
+  const existing = await getServerByDiscordIdRecord(guild.id);
   if (existing) return existing;
   const [created] = await db.insert(servers).values({
     discordId: guild.id,

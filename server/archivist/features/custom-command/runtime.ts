@@ -30,7 +30,8 @@ import {
 import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
 import { resolveStudioTokensInString, resolveStudioTokensInValue, type StudioTokenContext } from "@shared/studio-tokens";
 import type { CommandAction, CustomCommand } from "@shared/schema";
-import { storage } from "../../../storage";
+import { listCustomCommandRecords, touchCustomCommandUsageRecord } from "../../../repositories/custom-command-repository";
+import { getServerByDiscordIdRecord, getServerRecord } from "../../../repositories/server-repository";
 import { buildStudioDiscordPayload } from "../../../studio-discord";
 import { getStudioDocumentById, normalizeStudioDocument } from "../../../studio-service";
 import { isPremiumEnabledForServer } from "../../../premium-service";
@@ -95,7 +96,7 @@ async function resolveServerIdForGuild(guildId: string) {
   const cached = serverCache.get(guildId);
   if (cached && cached.expiresAt > now()) return cached.serverId;
 
-  const server = await storage.getServerByDiscordId(guildId);
+  const server = await getServerByDiscordIdRecord(guildId);
   if (!server) return null;
 
   serverCache.set(guildId, { serverId: server.id, expiresAt: now() + CACHE_TTL_MS });
@@ -106,7 +107,7 @@ async function getCommandsForServer(serverId: number) {
   const cached = commandCache.get(serverId);
   if (cached && cached.expiresAt > now()) return cached.commands;
 
-  const commands = await storage.getCommands(serverId);
+  const commands = await listCustomCommandRecords(serverId);
   commandCache.set(serverId, { commands, expiresAt: now() + CACHE_TTL_MS });
   return commands;
 }
@@ -315,7 +316,7 @@ export async function syncCustomCommandsForServer(input: {
 }) {
   if (!input.env.clientId || !input.env.token) return;
 
-  const server = await storage.getServer(input.serverId);
+  const server = await getServerRecord(input.serverId);
   if (!server?.discordId) return;
 
   const rest = new REST({ version: "10" }).setToken(input.env.token);
@@ -778,7 +779,7 @@ async function runCommand(command: CustomCommand, source: InvocationSource, serv
   const summary = await executeActions(command, source, logger);
   startCooldown(command, source);
   await tryDeleteInvocation(command, source);
-  await storage.touchCommandUsage(command.id);
+    await touchCustomCommandUsageRecord(command.id);
   command.lastUsedAt = new Date();
   command.usageCount = Number(command.usageCount || 0) + 1;
   commandActivityStore.recordSuccess({

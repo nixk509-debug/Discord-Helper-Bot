@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearch } from "wouter";
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
   ChevronLeft,
   Copy,
   ImageIcon,
   Layers3,
   MessageSquareText,
+  Palette,
   PencilLine,
   Plus,
   Redo2,
   Rocket,
   Save,
+  SlidersHorizontal,
+  Sparkles,
   Trash2,
   Undo2,
   X,
@@ -36,8 +39,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -76,6 +79,15 @@ import {
   selectionFromPath,
   type StudioSelection,
 } from "@/components/design-studio-v2/studio-v2-utils";
+import { createStudioBlockPresetBundle, STUDIO_BLOCK_PRESETS } from "@/components/design-studio-v2/studio-v2-block-presets";
+import {
+  STUDIO_STYLE_PRESETS,
+  applyStudioStylePreset,
+  getActiveStudioThemePack,
+  getStudioStylePresetDefinition,
+  syncStudioThemeToDocument,
+  updateActiveStudioThemePack,
+} from "@/components/design-studio-v2/studio-v2-style-system";
 import {
   useDiscordContext,
   useCreateStudioDocument,
@@ -91,7 +103,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type StudioTabId = "build" | "assets" | "issues" | "publish";
+type StudioTabId = "build" | "style" | "publish";
 type MobileStudioScreen = "home" | "editor" | "component";
 type StudioSelectNodeKind = Extract<StudioNode["type"], "string_select" | "role_select" | "user_select" | "channel_select" | "mentionable_select">;
 
@@ -178,6 +190,46 @@ function isStudioSelectNodeType(value: string | null | undefined): value is Stud
 
 function getStudioSelectKindLabel(value: string | null | undefined) {
   return isStudioSelectNodeType(value) ? STUDIO_SELECT_KIND_LABELS[value] : "Select Menu";
+}
+
+const BUTTON_STYLE_META: Record<number, { label: string; chipClassName: string; previewClassName: string }> = {
+  1: {
+    label: "Primary",
+    chipClassName: "border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.08)] text-[rgba(255,214,219,0.92)]",
+    previewClassName: "border-[rgba(224,0,26,0.28)] bg-[linear-gradient(180deg,rgba(58,13,20,0.98),rgba(29,10,14,1))] text-white shadow-[0_10px_20px_rgba(224,0,26,0.16)]",
+  },
+  2: {
+    label: "Secondary",
+    chipClassName: "border-white/[0.1] bg-white/[0.04] text-white/72",
+    previewClassName: "border-white/[0.12] bg-[rgba(18,20,24,0.95)] text-white/88",
+  },
+  3: {
+    label: "Affirm",
+    chipClassName: "border-[rgba(177,18,38,0.18)] bg-[rgba(177,18,38,0.08)] text-[rgba(255,214,219,0.86)]",
+    previewClassName: "border-[rgba(177,18,38,0.24)] bg-[linear-gradient(180deg,rgba(54,14,22,0.98),rgba(24,10,14,1))] text-white",
+  },
+  4: {
+    label: "Destructive",
+    chipClassName: "border-[rgba(255,77,94,0.22)] bg-[rgba(99,20,31,0.22)] text-[rgba(255,224,228,0.94)]",
+    previewClassName: "border-[rgba(255,77,94,0.28)] bg-[linear-gradient(180deg,rgba(86,17,29,0.98),rgba(33,10,14,1))] text-white",
+  },
+  5: {
+    label: "Link",
+    chipClassName: "border-white/[0.1] bg-white/[0.03] text-white/70",
+    previewClassName: "border-white/[0.14] bg-transparent text-white underline-offset-4",
+  },
+};
+
+const BUTTON_STYLE_EDITOR_OPTIONS: Array<{ value: number; description: string }> = [
+  { value: 1, description: "Primary action." },
+  { value: 2, description: "Secondary action." },
+  { value: 3, description: "Confirm action." },
+  { value: 4, description: "Danger action." },
+  { value: 5, description: "External link." },
+];
+
+function getButtonStyleMeta(style: unknown) {
+  return BUTTON_STYLE_META[Number(style) || 1] || BUTTON_STYLE_META[1];
 }
 
 function parseCommaSeparatedValues(value: string) {
@@ -453,6 +505,7 @@ function BuildSelectionEditor({
   onDeleteEmbed,
   onDeleteNode,
   onMoveNode,
+  onSelectNode,
   onAddEmbed,
   onSwitchEmbed,
 }: {
@@ -467,6 +520,7 @@ function BuildSelectionEditor({
   onDeleteEmbed: (embedIndex: number) => void;
   onDeleteNode: (nodeId: string) => void;
   onMoveNode: (nodeId: string, direction: -1 | 1) => void;
+  onSelectNode?: (nodeId: string) => void;
   onAddEmbed?: () => void;
   onSwitchEmbed?: (index: number) => void;
 }) {
@@ -1267,25 +1321,6 @@ function BuildSelectionEditor({
         <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3 text-xs text-white/46">
           This layout currently contains {node.childIds.length} child {node.childIds.length === 1 ? "part" : "parts"}.
         </div>
-        <div className="rounded-[18px] border border-dashed border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-white">Insertion stays in one flow</p>
-              <p className="mt-1 text-xs text-white/46">Use the insert action above to add text, layout, or interaction inside this {node.type === "section" ? "section" : "container"} without switching to a different add model.</p>
-            </div>
-            <Badge variant="outline">{node.childIds.length} child{node.childIds.length === 1 ? "" : "ren"}</Badge>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-              <p className="text-sm font-semibold text-white">Current target</p>
-              <p className="mt-1 text-xs leading-5 text-white/46">{node.type === "container" ? "Containers can hold nested sections plus content blocks." : "Sections work best for grouped copy, notices, and interaction beats."}</p>
-            </div>
-            <div className="rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-              <p className="text-sm font-semibold text-white">Why this changed</p>
-              <p className="mt-1 text-xs leading-5 text-white/46">Studio now keeps the grouped insert catalog as the primary way to add the next block, so the builder reads consistently on mobile.</p>
-            </div>
-          </div>
-        </div>
       </div>
     );
 
@@ -1417,98 +1452,150 @@ function BuildSelectionEditor({
     const canAddButton = !rowHasSelect && node.childIds.length < 5;
     const rowEditor = (
       <div className="space-y-4">
-        <div className="flex items-center justify-between rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold text-white">{node.childIds.length} / 5 slots used</p>
-            <p className="mt-0.5 text-xs text-white/42">Discord rows hold up to 5 buttons or 1 menu.</p>
+        <div className="rounded-[18px] border border-[rgba(224,0,26,0.1)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(9,8,10,1))] px-4 py-4 shadow-[0_0_0_1px_rgba(224,0,26,0.05),0_18px_40px_rgba(0,0,0,0.28)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[rgba(224,0,26,0.62)]">Action row</p>
+              <p className="mt-2 text-base font-semibold text-white">{node.childIds.length} of 5 slots active</p>
+              <p className="mt-1 text-sm leading-6 text-white/52">
+                {rowHasSelect
+                  ? "This row is menu-driven, so keep it dedicated to one selector."
+                  : rowHasButtons
+                    ? "This row is button-based. Add or reorder actions here without breaking the grouping."
+                    : "Start with one action, then add more only when the next choice truly needs to stay visible."}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/58">
+                {rowHasSelect ? "Selector Row" : rowHasButtons ? "Button Row" : "Empty Row"}
+              </Badge>
+              {canAddButton ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-white/80 hover:bg-[rgba(224,0,26,0.1)] hover:text-white"
+                  onClick={() => onChangeDraft((document) => {
+                    const row = document.nodes[node.id];
+                    if (!row || row.type !== "action_row") return;
+                    const rowChildren = row.childIds.map((c) => document.nodes[c]).filter(Boolean);
+                    if (rowChildren.some((c) => c.type !== "button") || row.childIds.length >= 5) return;
+                    const action = createDefaultAction(`Action ${row.childIds.length + 1}`);
+                    const btnId = makeId("btn");
+                    document.actions[action.id] = action;
+                    document.nodes[btnId] = {
+                      id: btnId, type: "button", viewId: node.viewId,
+                      parentId: node.id, childIds: [], actionId: action.id,
+                      props: { label: `Button ${row.childIds.length + 1}`, style: 1, customId: makeId("button") },
+                    };
+                    row.childIds.push(btnId);
+                  })}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add button
+                </Button>
+              ) : rowHasSelect ? (
+                <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/40">Menu row</Badge>
+              ) : (
+                <Badge variant="outline" className="border-white/10 text-white/40">Row full</Badge>
+              )}
+            </div>
           </div>
-          {canAddButton ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="rounded-[12px] border-[rgba(224,0,26,0.2)] bg-[rgba(224,0,26,0.06)] text-white/80 hover:bg-[rgba(224,0,26,0.1)] hover:text-white"
-              onClick={() => onChangeDraft((document) => {
-                const row = document.nodes[node.id];
-                if (!row || row.type !== "action_row") return;
-                const rowChildren = row.childIds.map((c) => document.nodes[c]).filter(Boolean);
-                if (rowChildren.some((c) => c.type !== "button") || row.childIds.length >= 5) return;
-                const action = createDefaultAction(`Action ${row.childIds.length + 1}`);
-                const btnId = makeId("btn");
-                document.actions[action.id] = action;
-                document.nodes[btnId] = {
-                  id: btnId, type: "button", viewId: node.viewId,
-                  parentId: node.id, childIds: [], actionId: action.id,
-                  props: { label: `Button ${row.childIds.length + 1}`, style: 1, customId: makeId("button") },
-                };
-                row.childIds.push(btnId);
-              })}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add button
-            </Button>
-          ) : rowHasSelect ? (
-            <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/40">Menu row</Badge>
-          ) : (
-            <Badge variant="outline" className="border-white/10 text-white/40">Row full</Badge>
-          )}
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Slots</p>
+              <p className="mt-2 text-sm font-semibold text-white">{5 - node.childIds.length} remaining</p>
+            </div>
+            <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Behavior</p>
+              <p className="mt-2 text-sm font-semibold text-white">{rowHasSelect ? "Single selector" : "Multi-button lane"}</p>
+            </div>
+            <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Next move</p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {node.childIds.length === 0 ? "Add first action" : rowHasSelect ? "Tune the selector" : "Refine labels + handlers"}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
-            <p className="text-sm font-semibold text-white">Row type</p>
-            <p className="mt-1 text-xs leading-5 text-white/42">
-              {rowHasSelect
-                ? "This row contains a menu. Keep buttons and menus in separate rows."
-                : rowHasButtons
-                  ? "Button row — click 'Add button' above or use the insert catalog to stack more."
-                  : "Empty row — add a button or menu to activate this row."}
-            </p>
+        {node.childIds.length === 0 ? (
+          <div className="rounded-[16px] border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-4 text-sm text-white/42">
+            This row is empty. Add a button or a selector to turn it into a real interaction lane.
           </div>
-          <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
-            <p className="text-sm font-semibold text-white">Discord limits</p>
-            <p className="mt-1 text-xs leading-5 text-white/42">
-              {node.childIds.length >= 5
-                ? "Row is full. Add another action row for more buttons."
-                : `${5 - node.childIds.length} slot${5 - node.childIds.length === 1 ? "" : "s"} remaining in this row.`}
-            </p>
-          </div>
-        </div>
+        ) : null}
         <div className="space-y-2">
           {node.childIds.map((childId, index) => {
             const child = draft.nodes[childId];
             if (!child) return null;
             const canMoveUp = index > 0;
             const canMoveDown = index < node.childIds.length - 1;
+            const styleMeta = child.type === "button" ? getButtonStyleMeta(child.props.style) : null;
+            const actionLabel = child.actionId && draft.actions[child.actionId] ? draft.actions[child.actionId].label : null;
+            const childLabel = String(child.props.label || (isStudioSelectNodeType(child.type) ? `${getStudioSelectKindLabel(child.type)} ${index + 1}` : `Button ${index + 1}`));
             return (
-              <div key={childId} className="flex items-center justify-between gap-3 rounded-[16px] border border-white/8 bg-[#0b0d10] px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">{String(child.props.label || (isStudioSelectNodeType(child.type) ? `${getStudioSelectKindLabel(child.type)} ${index + 1}` : `Button ${index + 1}`))}</p>
-                  <p className="mt-1 text-xs text-white/42">{isStudioSelectNodeType(child.type) ? "Tap the selector in preview to edit its behavior." : "Tap the button in preview to edit its behavior."}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8 rounded-full border-white/10 bg-white/[0.03]"
-                      onClick={() => onMoveNode(childId, -1)}
-                      disabled={!canMoveUp}
-                    >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8 rounded-full border-white/10 bg-white/[0.03]"
-                      onClick={() => onMoveNode(childId, 1)}
-                      disabled={!canMoveDown}
-                    >
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </Button>
+              <div key={childId} className="rounded-[18px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(15,16,19,0.98),rgba(9,10,12,1))] px-4 py-4 shadow-[0_12px_24px_rgba(0,0,0,0.2)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-white">{childLabel}</p>
+                      <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em]", styleMeta ? styleMeta.chipClassName : "border-white/[0.1] bg-white/[0.03] text-white/62")}>
+                        {isStudioSelectNodeType(child.type) ? getStudioSelectKindLabel(child.type) : styleMeta?.label || "Action"}
+                      </span>
+                      <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/42">#{index + 1}</Badge>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-white/42">
+                      {isStudioSelectNodeType(child.type)
+                        ? "Open the selector to tune placeholder, choices, and the follow-up action."
+                        : "Open the button to tune copy, custom ID, style, and the attached handler."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-medium text-white/48">
+                      {child.type === "button" && child.props.customId ? (
+                        <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-1 font-mono">
+                          {String(child.props.customId)}
+                        </span>
+                      ) : null}
+                      {actionLabel ? (
+                        <span className="rounded-full border border-[rgba(224,0,26,0.14)] bg-[rgba(224,0,26,0.05)] px-2 py-1">
+                          {actionLabel}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <Badge variant="outline">{index + 1}</Badge>
+                  <div className="flex items-center gap-2">
+                    {onSelectNode ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full border-white/10 bg-white/[0.03] text-white/72"
+                        onClick={() => onSelectNode(childId)}
+                      >
+                        Open
+                      </Button>
+                    ) : null}
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 rounded-full border-white/10 bg-white/[0.03]"
+                        onClick={() => onMoveNode(childId, -1)}
+                        disabled={!canMoveUp}
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 rounded-full border-white/10 bg-white/[0.03]"
+                        onClick={() => onMoveNode(childId, 1)}
+                        disabled={!canMoveDown}
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             );
@@ -1539,29 +1626,98 @@ function BuildSelectionEditor({
 
   if (node.type === "button") {
     const action = node.actionId ? draft.actions[node.actionId] : null;
+    const buttonStyleMeta = getButtonStyleMeta(node.props.style);
+    const buttonLabel = String(node.props.label || "");
+    const buttonEmoji = String(node.props.emoji || "");
+    const buttonCustomId = String(node.props.customId || "");
     const buttonEditor = (
       <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>Button label</Label>
-          <Input value={String(node.props.label || "")} onChange={(event) => onChangeDraft((document) => { document.nodes[node.id].props.label = event.target.value; })} placeholder="Primary Action" />
+        <div className="rounded-[18px] border border-[rgba(224,0,26,0.12)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(9,8,10,1))] px-4 py-4 shadow-[0_0_0_1px_rgba(224,0,26,0.05),0_18px_40px_rgba(0,0,0,0.28)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[rgba(224,0,26,0.62)]">Button surface</p>
+              <div className="mt-3">
+                <div className={cn("inline-flex min-h-[42px] items-center gap-2 rounded-[14px] border px-4 py-2 text-sm font-semibold transition", buttonStyleMeta.previewClassName)}>
+                  {buttonEmoji ? <span aria-hidden="true">{buttonEmoji}</span> : null}
+                  <span>{buttonLabel || "Primary Action"}</span>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-white/48">
+                {action
+                  ? `This button currently routes into ${getStudioActionMeta(action.type).label.toLowerCase()}.`
+                  : "This button does not have an attached action yet."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <span className={cn("rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]", buttonStyleMeta.chipClassName)}>
+                {buttonStyleMeta.label}
+              </span>
+              <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-white/56">
+                {buttonCustomId ? "ID ready" : "Add ID"}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label>Button style</Label>
-            <Select value={String(node.props.style || 1)} onValueChange={(value) => onChangeDraft((document) => { document.nodes[node.id].props.style = Number(value); })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">Primary</SelectItem>
-                <SelectItem value="2">Secondary</SelectItem>
-                <SelectItem value="3">Success</SelectItem>
-                <SelectItem value="4">Danger</SelectItem>
-                <SelectItem value="5">Link</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label>Button label</Label>
+            <Input value={buttonLabel} onChange={(event) => onChangeDraft((document) => { document.nodes[node.id].props.label = event.target.value; })} placeholder="Primary Action" />
           </div>
           <div className="space-y-2">
             <Label>Emoji</Label>
-            <Input value={String(node.props.emoji || "")} onChange={(event) => onChangeDraft((document) => { document.nodes[node.id].props.emoji = event.target.value; })} placeholder="Optional emoji" />
+            <Input value={buttonEmoji} onChange={(event) => onChangeDraft((document) => { document.nodes[node.id].props.emoji = event.target.value; })} placeholder="Optional emoji" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Label>Interaction tone</Label>
+            <span className="text-[11px] text-white/38">Choose the surface visually so the action reads before the copy does.</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {BUTTON_STYLE_EDITOR_OPTIONS.map((option) => {
+              const meta = getButtonStyleMeta(option.value);
+              const active = option.value === Number(node.props.style || 1);
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onChangeDraft((document) => { document.nodes[node.id].props.style = option.value; })}
+                  className={cn(
+                    "rounded-[16px] border p-3 text-left transition",
+                    active
+                      ? "border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(24,12,16,0.98),rgba(11,9,11,1))] shadow-[0_14px_28px_rgba(0,0,0,0.24)]"
+                      : "border-white/[0.08] bg-[#0c0e11] hover:border-white/[0.14] hover:bg-[#101319]",
+                  )}
+                >
+                  <div className={cn("inline-flex min-h-[38px] items-center gap-2 rounded-[12px] border px-3 py-2 text-sm font-semibold", meta.previewClassName)}>
+                    {buttonEmoji ? <span aria-hidden="true">{buttonEmoji}</span> : null}
+                    <span>{buttonLabel || meta.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-white">{meta.label}</p>
+                    {active ? <CheckCircle2 className="h-4 w-4 text-[rgba(255,110,126,0.92)]" /> : null}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-white/44">{option.description}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-2">
+            <Label>Custom ID</Label>
+            <Input value={buttonCustomId} onChange={(event) => onChangeDraft((document) => { document.nodes[node.id].props.customId = event.target.value; })} placeholder="button_verify_access" />
+            <p className="text-[11px] leading-5 text-white/38">Discord uses this ID to route the interaction safely after publish.</p>
+          </div>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-[16px] border-white/10 bg-white/[0.03]"
+              onClick={() => onChangeDraft((document) => { document.nodes[node.id].props.customId = makeId("button"); })}
+            >
+              {buttonCustomId ? "Refresh ID" : "Generate ID"}
+            </Button>
           </div>
         </div>
         {action ? (
@@ -1872,7 +2028,7 @@ function BuildSelectionEditor({
         {
           value: "menu",
           title: selectKindLabel,
-          description: isStringSelect ? "Configure the dropdown and its option-level actions without leaving the live message." : "Configure the selector without fighting Discord internals.",
+          description: isStringSelect ? "Configure options and actions." : "Configure the selector.",
           content: selectEditor,
         },
         {
@@ -1943,7 +2099,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const [mobileStudioScreen, setMobileStudioScreen] = useState<MobileStudioScreen>("home");
   const [selectedViewId, setSelectedViewId] = useState("entry");
   const [selection, setSelection] = useState<StudioSelection>({ kind: "message", region: "body" });
-  const [hideMobileChrome, setHideMobileChrome] = useState(false);
   const [publishChannelId, setPublishChannelId] = useState("");
   const [updateMessageId, setUpdateMessageId] = useState("");
   const [allowDowngrade, setAllowDowngrade] = useState(false);
@@ -2024,41 +2179,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       setMobileStudioScreen("home");
     }
   }, [draft, isMobile]);
-
-  useEffect(() => {
-    if (!isMobile || typeof window === "undefined" || typeof document === "undefined") {
-      setHideMobileChrome(false);
-      return;
-    }
-
-    const viewport = window.visualViewport;
-    const updateChromeVisibility = () => {
-      const hasEditingFocus = isMobileTextEditingTarget(document.activeElement);
-      const viewportHeight = viewport?.height ?? window.innerHeight;
-      const keyboardOpen = window.innerHeight - viewportHeight > 120;
-      setHideMobileChrome(hasEditingFocus || keyboardOpen);
-    };
-    const handleFocusOut = () => window.setTimeout(updateChromeVisibility, 0);
-
-    updateChromeVisibility();
-    document.addEventListener("focusin", updateChromeVisibility);
-    document.addEventListener("focusout", handleFocusOut);
-    viewport?.addEventListener("resize", updateChromeVisibility);
-    window.addEventListener("resize", updateChromeVisibility);
-
-    return () => {
-      document.removeEventListener("focusin", updateChromeVisibility);
-      document.removeEventListener("focusout", handleFocusOut);
-      viewport?.removeEventListener("resize", updateChromeVisibility);
-      window.removeEventListener("resize", updateChromeVisibility);
-    };
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (isMobile && activeTab === "issues") {
-      setActiveTab("publish");
-    }
-  }, [activeTab, isMobile]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -2160,12 +2280,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const activeInsertTargetId = selectedNode && isInsertTargetNode(selectedNode.type) ? selectedNode.id : null;
   const activeInsertTargetType = activeInsertTargetId ? selectedNode?.type || null : null;
   const contextualInsertLabel = activeInsertTargetType === "section"
-    ? "Adding into selected section"
+    ? "Add to section"
     : activeInsertTargetType === "container"
-      ? "Adding into selected container"
+      ? "Add to container"
       : activeInsertTargetType === "action_row"
-        ? "Adding into selected action row"
-      : "Add parts";
+        ? "Add to row"
+      : "Add part";
   const assetSelectionHint =
     selection.kind === "embed"
       ? "Quick apply can place this asset into the selected embed image, thumbnail, author icon, or footer icon."
@@ -2885,6 +3005,70 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     );
   }
 
+  const activeThemePack = getActiveStudioThemePack(draft);
+  const activeThemePreset = getStudioStylePresetDefinition(activeThemePack?.id || draft.meta.themePackId);
+  const activeThemeName = activeThemePack?.name || activeThemePreset.label;
+  const activeThemeAccent = String(activeThemePack?.accentColor || activeThemePreset.accentColor);
+  const activeThemeBorderStyle = activeThemePack?.borderStyle || activeThemePreset.borderStyle;
+  const activeThemeSpacingFeel = activeThemePack?.spacingFeel || activeThemePreset.spacingFeel;
+  const activeThemeEmojiStyle = activeThemePack?.emojiStyle || activeThemePreset.emojiStyle;
+  const currentViewBlockCount = currentView?.rootNodeIds.length || 0;
+  const totalEmbedCount = Object.values(draft.views).reduce((sum, view) => sum + view.embeds.length, 0);
+  const noticeBlockCount = Object.values(draft.nodes).filter((node) => node.type === "style_block").length;
+  const buttonBlockCount = Object.values(draft.nodes).filter((node) => node.type === "button").length;
+  const stylePackSummary = activeThemeSpacingFeel === "compact"
+    ? "Dense and operator-focused."
+    : activeThemeSpacingFeel === "airy"
+      ? "More editorial breathing room."
+      : "Balanced for daily Studio work.";
+  const applyStylePreset = (presetId: string) => {
+    touchDraft((document) => {
+      applyStudioStylePreset(document, presetId);
+      syncStudioThemeToDocument(document, { onlyUnstyled: true });
+    });
+    const preset = getStudioStylePresetDefinition(presetId);
+    toast({ title: "Preset applied", description: `${preset.label} is now the active Studio style pack.` });
+  };
+  const updateThemePack = (updater: Parameters<typeof updateActiveStudioThemePack>[1]) => {
+    touchDraft((document) => {
+      updateActiveStudioThemePack(document, updater);
+    });
+  };
+  const restyleDraftFromTheme = () => {
+    touchDraft((document) => {
+      syncStudioThemeToDocument(document);
+    });
+    toast({ title: "Draft restyled", description: "Embeds and notice blocks were synced to the active Studio theme." });
+  };
+  const syncUnstyledDraftFromTheme = () => {
+    touchDraft((document) => {
+      syncStudioThemeToDocument(document, { onlyUnstyled: true });
+    });
+    toast({ title: "Untouched surfaces filled", description: "Any unstyled embeds and notice blocks now inherit the active Studio theme." });
+  };
+  const addPresetBlock = (presetId: typeof STUDIO_BLOCK_PRESETS[number]["id"], parentIdOverride?: string | null) => {
+    let nextSelection: StudioSelection = { kind: "message", region: "body" };
+    let nextNodeType: StudioNode["type"] | null = null;
+
+    touchDraft((document) => {
+      const parentId = typeof parentIdOverride !== "undefined"
+        ? parentIdOverride
+        : selection.kind === "node" && isInsertTargetNode(document.nodes[selection.nodeId]?.type || null)
+          ? selection.nodeId
+          : null;
+      const bundle = createStudioBlockPresetBundle(presetId, selectedViewId);
+      appendBundleToDocument(document, selectedViewId, bundle, parentId);
+      const nextNodeId = bundle.nodeIds[0] || bundle.nodes[0]?.id;
+      if (nextNodeId) {
+        nextSelection = { kind: "node", nodeId: nextNodeId };
+        nextNodeType = document.nodes[nextNodeId]?.type || null;
+      }
+    });
+
+    setMobileInsertOpen(false);
+    select(nextSelection, { nodeType: nextNodeType });
+  };
+
   const buildPreview = (
     <StudioPreview
       document={draft}
@@ -2920,11 +3104,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   );
 
   const selectionPanelTitle = selection.kind === "node" ? "Component controls" : selection.kind === "embed" ? "Embed inspector" : "Message controls";
-  const selectionPanelDescription = selection.kind === "node"
-    ? "Only the controls for the selected block stay visible here."
-    : selection.kind === "embed"
-      ? "Keep the live canvas visual while this inspector handles embed structure, fields, media, and footer details."
-      : "The live message is the editor. Use this panel only when you need deeper settings.";
   const selectedEmbed = selection.kind === "embed" ? currentView?.embeds[selection.embedIndex] || null : null;
   const selectedEmbedIndex = selection.kind === "embed" ? selection.embedIndex : -1;
   const selectedEmbedRegion = selection.kind === "embed" ? selection.region ?? "embed" : null;
@@ -2940,6 +3119,91 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const canMoveSelectedNodeUp = selectedNodeIndex > 0;
   const canMoveSelectedNodeDown = selectedNodeIndex > -1 && selectedNodeIndex < selectedNodeSiblings.length - 1;
   const selectedNodeSupportsInlineInspector = Boolean(selectedNode && !needsDedicatedMobileNodeScreen(selectedNode.type));
+  const selectedButtonStyle = selectedNode?.type === "button" ? Number(selectedNode.props.style || 1) : null;
+  const selectedButtonStyleMeta = selectedNode?.type === "button" ? getButtonStyleMeta(selectedNode.props.style) : null;
+  const selectedButtonLabel = selectedNode?.type === "button" ? String(selectedNode.props.label || "") : "";
+  const selectedButtonEmoji = selectedNode?.type === "button" ? String(selectedNode.props.emoji || "") : "";
+  const selectedButtonCustomId = selectedNode?.type === "button" ? String(selectedNode.props.customId || "") : "";
+  const selectedSurfaceAccent = selection.kind === "embed"
+    ? String(selectedEmbed?.color || "")
+    : selectedNode?.type === "style_block"
+      ? String(selectedNode.props.accentColor || "")
+      : "";
+  const selectionAccentChoices = Array.from(new Set([
+    ...STUDIO_STYLE_PRESETS.map((preset) => preset.accentColor),
+    activeThemeAccent,
+    selectedSurfaceAccent,
+  ].filter(Boolean)));
+  const selectionStyleTitle = selection.kind === "embed"
+    ? `Embed ${selectedEmbedIndex + 1} styling`
+    : selectedNode?.type === "style_block"
+      ? "Notice styling"
+      : selectedNode?.type === "button"
+        ? "Button styling"
+        : selection.kind === "message"
+          ? "Document styling"
+          : "Inherited styling";
+  const applyAccentToSelection = (accentColor: string) => {
+    if (selection.kind === "embed" && selectedEmbed) {
+      changeEmbed(selectedEmbedIndex, (embed) => {
+        embed.color = accentColor;
+      });
+      return;
+    }
+
+    if (selectedNode?.type === "style_block") {
+      touchDraft((document) => {
+        const node = document.nodes[selectedNode.id];
+        if (node?.type === "style_block") {
+          node.props.accentColor = accentColor;
+        }
+      });
+      return;
+    }
+
+    updateThemePack((pack) => {
+      pack.accentColor = accentColor;
+    });
+  };
+  const syncSelectionAccentFromTheme = () => {
+    applyAccentToSelection(activeThemeAccent);
+    toast({
+      title: selection.kind === "embed" || selectedNode?.type === "style_block" ? "Surface aligned" : "Theme updated",
+      description: selection.kind === "embed" || selectedNode?.type === "style_block"
+        ? "The selected surface now matches the active Studio accent."
+        : "The document accent now reflects the active Studio style pack.",
+    });
+  };
+  const promoteSelectionAccentToTheme = () => {
+    if (!(selection.kind === "embed" || selectedNode?.type === "style_block") || !selectedSurfaceAccent) {
+      toast({ title: "No surface accent yet", description: "Select an embed or notice block with a visible accent first.", variant: "destructive" });
+      return;
+    }
+
+    updateThemePack((pack) => {
+      pack.accentColor = selectedSurfaceAccent;
+    });
+    toast({ title: "Theme updated", description: "The active Studio theme now adopts this surface accent." });
+  };
+  const updateSelectedButtonStyle = (style: number) => {
+    if (selectedNode?.type !== "button") return;
+    touchDraft((document) => {
+      const node = document.nodes[selectedNode.id];
+      if (node?.type === "button") {
+        node.props.style = style;
+      }
+    });
+  };
+  const refreshSelectedButtonCustomId = () => {
+    if (selectedNode?.type !== "button") return;
+    touchDraft((document) => {
+      const node = document.nodes[selectedNode.id];
+      if (node?.type === "button") {
+        node.props.customId = makeId("button");
+      }
+    });
+    toast({ title: "Button ID ready", description: "The selected button now has a fresh interaction ID." });
+  };
   const openSelectedEmbedInspector = () => {
     if (!selectedEmbed) return;
     setMobileStudioScreen("editor");
@@ -3121,6 +3385,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         onDeleteEmbed={deleteEmbed}
         onDeleteNode={deleteNode}
         onMoveNode={moveNode}
+        onSelectNode={(nodeId) => select({ kind: "node", nodeId })}
         onAddEmbed={addEmbed}
         onSwitchEmbed={(i) => select({ kind: "embed", embedIndex: i })}
       />
@@ -3143,7 +3408,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
   const mobileComponentScreen = isMobile ? (
     <div className="space-y-4">
       <div className="rounded-[20px] bg-white/[0.03]">
-        <div className="space-y-4 p-4">
+        <div className="p-4">
           <div className="flex items-start gap-3">
             <Button
               type="button"
@@ -3160,11 +3425,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             <div className="min-w-0 flex-1">
               <p className="text-[10px] uppercase tracking-[0.22em] text-white/34">Component editor</p>
               <p className="mt-2 truncate text-base font-semibold text-white">{selectedLabel}</p>
-              <p className="mt-1 text-sm text-white/54">{selectionPanelDescription}</p>
             </div>
-          </div>
-          <div className="rounded-[18px] border border-white/8 bg-[#0b0d10] px-3 py-3 text-sm text-white/62">
-            Buttons, menus, and selectors now open in a dedicated mobile editor screen instead of a trapping drawer.
           </div>
         </div>
       </div>
@@ -3287,12 +3548,25 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         {
           id: "insert-mention",
           label: "Mention selector",
-          description: "Pick the next mentionable target without leaving the Studio flow.",
+          description: "Pick a mention target.",
           eyebrow: "Flexible",
           icon: "mention",
           onSelect: () => addPart("mentionable_select"),
         },
       ],
+    },
+    {
+      id: "presets",
+      title: "Preset blocks",
+      description: "Start from stronger product patterns when the message needs more than one loose part.",
+      options: STUDIO_BLOCK_PRESETS.map((preset) => ({
+        id: `preset-${preset.id}`,
+        label: preset.label,
+        description: preset.description,
+        eyebrow: preset.eyebrow,
+        icon: preset.id === "cta_row" ? "button" : preset.id === "announcement_stack" ? "notice" : "layout",
+        onSelect: () => addPresetBlock(preset.id),
+      })),
     },
     {
       id: "structure",
@@ -3341,15 +3615,14 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         {
           id: "message",
           title: "Message",
-          description: "The top-level message body anchors the whole surface.",
           items: [
             {
               id: "composition-message",
               eyebrow: "Message",
               title: summarizeStudioCopy(String(currentView.messageContent || ""), "Message body"),
               description: String(currentView.messageContent || "").trim()
-                ? "Core message copy that members read before embeds or interactions."
-                : "No body text yet. Leave it empty only if the embed or interaction surface carries the whole message.",
+                ? "Body text"
+                : "No body text",
               meta: String(currentView.messageContent || "").trim() ? `${String(currentView.messageContent || "").length} chars` : "Empty",
               icon: "message",
               selected: selection.kind === "message",
@@ -3360,8 +3633,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         {
           id: "embeds",
           title: "Embeds",
-          description: "Embeds add richer hierarchy, images, and structured detail.",
-          emptyLabel: "No embeds yet. Add one when the message needs stronger visual structure.",
+          emptyLabel: "No embeds",
           items: currentView.embeds.map((embed, index) => {
             const fieldCount = Array.isArray(embed.fields) ? embed.fields.length : 0;
             const mediaCount = [embed.imageUrl, embed.thumbnailUrl].filter(Boolean).length;
@@ -3371,7 +3643,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               title: summarizeStudioCopy(String(embed.title || embed.description || ""), `Embed ${index + 1}`),
               description: fieldCount > 0 || mediaCount > 0
                 ? `${fieldCount > 0 ? `${fieldCount} field${fieldCount === 1 ? "" : "s"}` : "No fields yet"}${mediaCount > 0 ? ` / ${mediaCount} media slot${mediaCount === 1 ? "" : "s"}` : ""}`
-                : "No structured details yet. Start with headline, description, or media.",
+                : "No fields or media",
               meta: embed.color || "#B11226",
               icon: "embed",
               selected: selection.kind === "embed" && selection.embedIndex === index,
@@ -3382,8 +3654,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         {
           id: "blocks",
           title: "Blocks",
-          description: "Everything interactive or structural lives here as clear message blocks.",
-          emptyLabel: "No blocks yet. Add text, structure, or interaction when the message needs more than copy and embeds.",
+          emptyLabel: "No blocks",
           items: currentView.rootNodeIds
             .map((nodeId) => draft.nodes[nodeId])
             .filter((node): node is StudioNode => Boolean(node))
@@ -3428,7 +3699,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       ) : null}
       <StudioCompositionOutline
         title={currentMode === "layout_v2" ? "Message + blocks" : "Message structure"}
-        description=""
         groups={compositionGroups}
         actions={
           <>
@@ -3453,7 +3723,7 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
       publishPath={publishPlan?.publishPath || null}
       errorCount={errorCount}
       warningCount={warningCount}
-      onOpenIssues={() => setActiveTab("issues")}
+      onOpenIssues={() => setActiveTab("publish")}
       onOpenPublish={() => setActiveTab("publish")}
     />
   );
@@ -3462,9 +3732,141 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
     <div className="studio-surface p-4">
       <StudioInsertCatalog
         title={currentMode === "layout_v2" ? contextualInsertLabel : "Add part"}
-        description=""
         groups={insertGroups}
       />
+    </div>
+  );
+  const styleFocusPanel = (
+    <div className="rounded-[20px] border border-[rgba(224,0,26,0.12)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(8,8,10,1))] p-4 shadow-[0_0_0_1px_rgba(224,0,26,0.05),0_18px_40px_rgba(0,0,0,0.28)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-lg font-semibold text-white">{selectionStyleTitle}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {selection.kind === "embed" || selectedNode?.type === "style_block" ? (
+            <span className="h-3.5 w-3.5 rounded-full border border-white/10" style={{ backgroundColor: selectedSurfaceAccent || activeThemeAccent, boxShadow: `0 0 12px ${(selectedSurfaceAccent || activeThemeAccent)}55` }} />
+          ) : null}
+          <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/58">{selectedLabel}</Badge>
+        </div>
+      </div>
+
+      {selection.kind === "embed" || selectedNode?.type === "style_block" ? (
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <Label>{selection.kind === "embed" ? "Embed accent" : "Notice accent"}</Label>
+            <Input
+              value={selectedSurfaceAccent || activeThemeAccent}
+              onChange={(event) => applyAccentToSelection(event.target.value)}
+              placeholder={activeThemeAccent}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {selectionAccentChoices.map((accent) => {
+              const active = (selectedSurfaceAccent || activeThemeAccent).toLowerCase() === accent.toLowerCase();
+              return (
+                <button
+                  key={accent}
+                  type="button"
+                  aria-label={`Use ${accent}`}
+                  onClick={() => applyAccentToSelection(accent)}
+                  className={cn(
+                    "h-9 w-9 rounded-full border transition",
+                    active ? "border-white/40 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]" : "border-white/10 hover:border-white/26",
+                  )}
+                  style={{ backgroundColor: accent, boxShadow: `0 0 18px ${accent}44` }}
+                />
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={syncSelectionAccentFromTheme}>
+              Use Theme Accent
+            </Button>
+            <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={promoteSelectionAccentToTheme}>
+              Promote To Theme
+            </Button>
+          </div>
+        </div>
+      ) : selectedNode?.type === "button" ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {BUTTON_STYLE_EDITOR_OPTIONS.map((option) => {
+              const meta = getButtonStyleMeta(option.value);
+              const active = option.value === selectedButtonStyle;
+              return (
+                <button
+                  key={`style-focus-button-${option.value}`}
+                  type="button"
+                  onClick={() => updateSelectedButtonStyle(option.value)}
+                  className={cn(
+                    "rounded-[16px] border p-3 text-left transition",
+                    active
+                      ? "border-[rgba(224,0,26,0.22)] bg-[linear-gradient(180deg,rgba(24,12,16,0.98),rgba(11,9,11,1))] shadow-[0_14px_28px_rgba(0,0,0,0.24)]"
+                      : "border-white/[0.08] bg-[#0c0e11] hover:border-white/[0.14] hover:bg-[#101319]",
+                  )}
+                >
+                  <div className={cn("inline-flex min-h-[38px] items-center gap-2 rounded-[12px] border px-3 py-2 text-sm font-semibold", meta.previewClassName)}>
+                    {selectedButtonEmoji ? <span aria-hidden="true">{selectedButtonEmoji}</span> : null}
+                    <span>{selectedButtonLabel || meta.label}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-white">{meta.label}</p>
+                    {active ? <CheckCircle2 className="h-4 w-4 text-[rgba(255,110,126,0.92)]" /> : null}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-white/44">{option.description}</p>
+                </button>
+              );
+            })}
+          </div>
+          <div className="rounded-[16px] border border-white/[0.08] bg-[#0c0e11] px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Interaction ID</p>
+                <p className="mt-2 text-sm font-semibold text-white">{selectedButtonCustomId || "Missing custom ID"}</p>
+                <p className="mt-1 text-xs leading-5 text-white/42">Keep buttons publish-safe with a valid `customId` even when their action changes later.</p>
+              </div>
+              <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={refreshSelectedButtonCustomId}>
+                {selectedButtonCustomId ? "Refresh ID" : "Generate ID"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-[16px] border border-white/[0.08] bg-[#0c0e11] px-4 py-4 text-sm text-white/62">
+          Select an embed, notice, or button for targeted styling.
+        </div>
+      )}
+    </div>
+  );
+  const stylePropagationPanel = (
+    <div className="rounded-[20px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(14,15,18,0.96),rgba(8,9,11,1))] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-white/42" />
+        <p className="text-sm font-semibold text-white">Theme propagation</p>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Embeds</p>
+          <p className="mt-2 text-sm font-semibold text-white">{totalEmbedCount}</p>
+        </div>
+        <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Notice blocks</p>
+          <p className="mt-2 text-sm font-semibold text-white">{noticeBlockCount}</p>
+        </div>
+        <div className="rounded-[16px] border border-white/[0.06] bg-[#0c0e11] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/34">Buttons</p>
+          <p className="mt-2 text-sm font-semibold text-white">{buttonBlockCount}</p>
+        </div>
+      </div>
+      <div className="mt-4 space-y-2">
+        <Button variant="outline" className="w-full rounded-[16px] border-[rgba(224,0,26,0.18)] bg-[rgba(224,0,26,0.05)] text-white/82 hover:bg-[rgba(224,0,26,0.09)]" onClick={restyleDraftFromTheme}>
+          <Sparkles className="h-4 w-4" />
+          Sync Theme Into Draft
+        </Button>
+        <Button variant="outline" className="w-full rounded-[16px] border-white/10 bg-white/[0.03]" onClick={syncUnstyledDraftFromTheme}>
+          Fill Untouched Surfaces
+        </Button>
+      </div>
     </div>
   );
 
@@ -3639,16 +4041,31 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             </>
           )}
         </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.05] px-3 pb-3 pt-0">
+          <Badge variant="outline" className="border-white/[0.08] bg-white/[0.03] text-white/58">{draftModeLabel(currentMode)}</Badge>
+          <Badge variant="outline" className="border-[rgba(224,0,26,0.16)] bg-[rgba(224,0,26,0.05)] text-[rgba(255,221,225,0.92)]">
+            {activeThemeName}
+          </Badge>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[10px] font-medium text-white/48">
+            {currentView?.embeds.length || 0} embed{(currentView?.embeds.length || 0) === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[10px] font-medium text-white/48">
+            {currentViewBlockCount} block{currentViewBlockCount === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[10px] font-medium text-white/48">
+            {draft.assets.length} asset{draft.assets.length === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[10px] font-medium text-white/48">
+            {selectedLabel}
+          </span>
+        </div>
       </div>
 
-      {!isMobile ? (
-        <div className="grid gap-2 sm:grid-cols-4">
-          <StudioTabButton tab="build" activeTab={activeTab} onSelect={setActiveTab} icon={MessageSquareText} label="Build" />
-          <StudioTabButton tab="assets" activeTab={activeTab} onSelect={setActiveTab} icon={ImageIcon} label="Assets" />
-          <StudioTabButton tab="issues" activeTab={activeTab} onSelect={setActiveTab} icon={AlertTriangle} label="Issues" />
-          <StudioTabButton tab="publish" activeTab={activeTab} onSelect={setActiveTab} icon={Rocket} label="Publish" />
-        </div>
-      ) : null}
+      <div className={cn("grid gap-2", isMobile ? "grid-cols-3" : "sm:grid-cols-3")}>
+        <StudioTabButton tab="build" activeTab={activeTab} onSelect={setActiveTab} icon={MessageSquareText} label={isMobile ? "Edit" : "Build"} />
+        <StudioTabButton tab="style" activeTab={activeTab} onSelect={setActiveTab} icon={Palette} label="Style" />
+        <StudioTabButton tab="publish" activeTab={activeTab} onSelect={setActiveTab} icon={Rocket} label="Publish" />
+      </div>
 
       {activeTab === "build" ? (
         isMobile && mobileStudioScreen === "component" ? (
@@ -3799,12 +4216,12 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         )
       ) : null}
 
-      {activeTab === "assets" ? (
+      {activeTab === "style" ? (
         <div className="rounded-[20px] bg-white/[0.03]">
           <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
             <div className="flex items-center gap-2.5">
               <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Assets</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Style system</p>
             </div>
             <Button size="sm" className="rounded-full" onClick={() => fileInputRef.current?.click()} disabled={uploadStudioAssetMutation.isPending}>
               <ImageIcon className="h-3.5 w-3.5" />
@@ -3827,6 +4244,140 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                 event.target.value = "";
               }}
             />
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+              <div className="rounded-[20px] border border-[rgba(224,0,26,0.12)] bg-[linear-gradient(180deg,rgba(18,10,12,0.98),rgba(8,8,10,1))] p-4 shadow-[0_0_0_1px_rgba(224,0,26,0.05),0_18px_44px_rgba(0,0,0,0.28)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[rgba(224,0,26,0.62)]">Active preset</p>
+                    <p className="mt-2 text-lg font-semibold text-white">{activeThemeName}</p>
+                    <p className="mt-1 max-w-[34rem] text-sm leading-6 text-white/52">{activeThemePreset.description}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/56">
+                      {activeThemeBorderStyle} chrome
+                    </span>
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/56">
+                      {activeThemeSpacingFeel}
+                    </span>
+                    <span className="rounded-full border border-[rgba(224,0,26,0.18)] bg-[rgba(224,0,26,0.05)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgba(255,224,228,0.92)]">
+                      {activeThemeAccent}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {STUDIO_STYLE_PRESETS.map((preset) => {
+                    const active = preset.id === (activeThemePack?.id || activeThemePreset.id);
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyStylePreset(preset.id)}
+                        className={cn(
+                          "rounded-[18px] border p-4 text-left transition",
+                          active
+                            ? "border-[rgba(224,0,26,0.24)] bg-[linear-gradient(180deg,rgba(28,12,16,0.98),rgba(10,8,10,1))] shadow-[0_0_0_1px_rgba(224,0,26,0.08),0_18px_28px_rgba(0,0,0,0.28)]"
+                            : "border-white/[0.08] bg-[rgba(14,15,18,0.92)] hover:border-white/[0.14] hover:bg-[rgba(17,18,21,0.96)]",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="h-3.5 w-3.5 rounded-full border border-white/10" style={{ backgroundColor: preset.accentColor, boxShadow: `0 0 12px ${preset.accentColor}55` }} />
+                            <p className="text-sm font-semibold text-white">{preset.label}</p>
+                          </div>
+                          {active ? <CheckCircle2 className="h-4 w-4 text-[rgba(255,110,126,0.92)]" /> : null}
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-white/46">{preset.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rounded-[20px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(14,15,18,0.96),rgba(8,9,11,1))] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.22)]">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-white/42" />
+                  <p className="text-sm font-semibold text-white">Document styling</p>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-white/44">{stylePackSummary}</p>
+                <div className="mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label>Accent color</Label>
+                    <Input value={activeThemeAccent} onChange={(event) => updateThemePack((pack) => { pack.accentColor = event.target.value; })} placeholder="#E0001A" />
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(new Set([...STUDIO_STYLE_PRESETS.map((preset) => preset.accentColor), activeThemeAccent])).map((accent) => {
+                        const active = activeThemeAccent.toLowerCase() === accent.toLowerCase();
+                        return (
+                          <button
+                            key={`theme-accent-${accent}`}
+                            type="button"
+                            aria-label={`Use ${accent}`}
+                            onClick={() => updateThemePack((pack) => { pack.accentColor = accent; })}
+                            className={cn(
+                              "h-8 w-8 rounded-full border transition",
+                              active ? "border-white/40 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]" : "border-white/10 hover:border-white/26",
+                            )}
+                            style={{ backgroundColor: accent, boxShadow: `0 0 18px ${accent}44` }}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Border style</Label>
+                      <Select value={activeThemeBorderStyle} onValueChange={(value) => updateThemePack((pack) => { pack.borderStyle = value as "minimal" | "soft" | "strong"; })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="minimal">Minimal</SelectItem>
+                          <SelectItem value="soft">Soft</SelectItem>
+                          <SelectItem value="strong">Strong</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Spacing feel</Label>
+                      <Select value={activeThemeSpacingFeel} onValueChange={(value) => updateThemePack((pack) => { pack.spacingFeel = value as "compact" | "balanced" | "airy"; })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="compact">Compact</SelectItem>
+                          <SelectItem value="balanced">Balanced</SelectItem>
+                          <SelectItem value="airy">Airy</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Emoji priority</Label>
+                    <Select value={activeThemeEmojiStyle} onValueChange={(value) => updateThemePack((pack) => { pack.emojiStyle = value as "native" | "custom_first"; })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="native">Native first</SelectItem>
+                        <SelectItem value="custom_first">Custom first</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button variant="outline" className="rounded-[16px] border-[rgba(224,0,26,0.18)] bg-[rgba(224,0,26,0.05)] text-white/82 hover:bg-[rgba(224,0,26,0.09)]" onClick={restyleDraftFromTheme}>
+                      <Sparkles className="h-4 w-4" />
+                      Sync Full Draft
+                    </Button>
+                    <Button variant="outline" className="rounded-[16px] border-white/10 bg-white/[0.03]" onClick={syncUnstyledDraftFromTheme}>
+                      Fill Untouched
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+              {styleFocusPanel}
+              {stylePropagationPanel}
+            </div>
+            <div className="rounded-[20px] border border-white/[0.08] bg-[rgba(9,10,12,0.76)] p-4">
+              <div className="flex items-center gap-2">
+                <Palette className="h-4 w-4 text-white/42" />
+                <p className="text-sm font-semibold text-white">Assets and tokens</p>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-white/44">Manage reusable media beside the styling system so Studio stays powerful without adding another top-level mode.</p>
+            </div>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-2">
                 <Label>Search assets</Label>
@@ -3915,53 +4466,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         </div>
       ) : null}
 
-      {activeTab === "issues" ? (
-        <div className="rounded-[20px] bg-white/[0.03]">
-          <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <div className="h-3.5 w-[2px] rounded-full bg-[#E0001A]" />
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Issues</p>
-            </div>
-            <div className="flex gap-2">
-              <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
-              <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
-            </div>
-          </div>
-          <div className="space-y-4 p-4">
-            <StudioPreview
-              document={draft}
-              viewId={selectedViewId}
-              interactionRows={interactionRows}
-              diagnostics={diagnostics}
-              mode="mobile"
-              publishPlan={publishPlan}
-            />
-            <ScrollArea className="max-h-[28rem] rounded-[20px] border border-white/10 bg-white/[0.03] p-3">
-              <div className="space-y-2">
-                {diagnostics.length === 0 ? (
-                  <div className="rounded-[16px] border border-emerald-500/20 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
-                    No issues found in the current message draft.
-                  </div>
-                ) : diagnostics.map((entry, index) => (
-                  <button
-                    key={`${entry.code}-${index}`}
-                    type="button"
-                    onClick={() => jumpToDiagnostic(entry.path)}
-                    className="w-full rounded-[16px] border border-white/10 bg-background/40 px-4 py-3 text-left transition hover:border-primary/35"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={entry.level === "error" ? "destructive" : entry.level === "warning" ? "secondary" : "outline"}>{entry.level}</Badge>
-                      <p className="text-sm font-medium text-white">{entry.message}</p>
-                    </div>
-                    {entry.path ? <p className="mt-2 text-xs text-muted-foreground">{entry.path}</p> : null}
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
-        </div>
-      ) : null}
-
       {activeTab === "publish" ? (
         <div className="rounded-[20px] bg-white/[0.03]">
           <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
@@ -3974,14 +4478,26 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             </Badge>
           </div>
           <div className="space-y-4 p-4">
-            {isMobile ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-3 rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
-                  <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Preflight</p>
+                    <p className="mt-1 text-xs leading-5 text-white/48">Review blockers, warnings, and publish truth before Studio ships this surface.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={errorCount > 0 ? "destructive" : "outline"}>{errorCount} errors</Badge>
+                    <Badge variant={warningCount > 0 ? "secondary" : "outline"}>{warningCount} warnings</Badge>
+                  </div>
                 </div>
                 {diagnostics.length === 0 ? (
-                  <p className="text-sm text-white/68">No blocking issues found in the current message draft.</p>
+                  <div className="rounded-[16px] border border-[rgba(224,0,26,0.16)] bg-[rgba(24,12,15,0.92)] px-4 py-4">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-[rgba(255,110,126,0.92)]" />
+                      <p className="text-sm font-semibold text-white">No blocking issues found</p>
+                    </div>
+                    <p className="mt-2 text-sm text-white/62">This draft is ready for a clean review and publish pass.</p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {diagnostics.map((entry, index) => (
@@ -4004,7 +4520,31 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
                   </div>
                 )}
               </div>
-            ) : null}
+              <div className="rounded-[18px] border border-white/10 bg-[rgba(12,13,16,0.76)] p-4">
+                <p className="text-sm font-semibold text-white">Publish posture</p>
+                <p className="mt-1 text-xs leading-5 text-white/48">
+                  {publishPlan?.summary || "Studio will derive the safest publish plan from the current document state."}
+                </p>
+                <div className="mt-4 space-y-2 text-xs text-white/56">
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                    <span>Path</span>
+                    <span className="font-semibold text-white/82">{publishPlan?.publishPath || "pending"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                    <span>Exact nodes</span>
+                    <span className="font-semibold text-white/82">{publishPlan?.exactNodeCount || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                    <span>Downgraded</span>
+                    <span className="font-semibold text-white/82">{publishPlan?.downgradedNodeCount || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                    <span>Missing custom IDs</span>
+                    <span className="font-semibold text-white/82">{publishPlan?.missingCustomIdCount || 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <DiscordChannelPicker
                 serverId={serverId}
@@ -4064,7 +4604,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           <DrawerContent className="h-[min(88dvh,calc(100dvh-0.75rem))] overflow-y-auto overscroll-contain border-white/10 bg-[#090a0d]/98 px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
             <DrawerHeader className="px-0">
               <DrawerTitle className="text-white">Templates & drafts</DrawerTitle>
-              <DrawerDescription>Switch, rename, duplicate, or delete Studio work without leaving the editor.</DrawerDescription>
             </DrawerHeader>
             {documentManagerContent}
           </DrawerContent>
@@ -4074,7 +4613,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
           <DialogContent className="max-w-3xl border-white/10 bg-[#090a0d]/98 text-white">
             <DialogHeader>
               <DialogTitle>Templates & drafts</DialogTitle>
-              <DialogDescription>Manage the full Studio lifecycle from one calmer surface.</DialogDescription>
             </DialogHeader>
             {documentManagerContent}
           </DialogContent>
@@ -4088,11 +4626,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <DrawerTitle className="text-white">{currentMode === "layout_v2" ? "Add block" : "Add message part"}</DrawerTitle>
-                  <DrawerDescription>
-                    {currentMode === "layout_v2"
-                      ? "Add structure or interactions right where you are working."
-                      : "Add only the next thing the message still needs."}
-                  </DrawerDescription>
                 </div>
                 <DrawerClose asChild>
                   <Button
@@ -4111,7 +4644,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
             <div className="pb-2">
               <StudioInsertCatalog
                 title={currentMode === "layout_v2" ? contextualInsertLabel : "Add part"}
-                description=""
                 groups={insertGroups}
               />
             </div>
@@ -4126,7 +4658,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <DrawerTitle className="text-white">{selectionPanelTitle}</DrawerTitle>
-                  <DrawerDescription>{selectionPanelDescription}</DrawerDescription>
                 </div>
                 <DrawerClose asChild>
                   <Button
@@ -4158,17 +4689,6 @@ export function DesignStudioTab({ serverId, onOpenServerSettings, entryIntent }:
         </Drawer>
       ) : null}
 
-      {isMobile && !hideMobileChrome ? (
-        <>
-          <div className="fixed inset-x-0 bottom-[max(4.5rem,calc(4rem+env(safe-area-inset-bottom)))] z-30 border-t border-white/10 bg-[#090a0d]/96 px-2 pb-2 pt-2 shadow-[0_-18px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-            <div className="grid grid-cols-3 gap-2">
-              <StudioTabButton tab="build" activeTab={activeTab} onSelect={setActiveTab} icon={MessageSquareText} label="Edit" />
-              <StudioTabButton tab="assets" activeTab={activeTab} onSelect={setActiveTab} icon={ImageIcon} label="Assets" />
-              <StudioTabButton tab="publish" activeTab={activeTab} onSelect={setActiveTab} icon={Rocket} label="Publish" />
-            </div>
-          </div>
-        </>
-      ) : null}
     </div>
   );
 }

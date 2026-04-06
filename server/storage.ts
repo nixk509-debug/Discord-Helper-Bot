@@ -1,9 +1,74 @@
-import { db, pool } from "./db";
+import { db } from "./db";
+import { getServerByDiscordIdRecord, getServerRecord, listServerRecords } from "./repositories/server-repository";
 import {
-  servers, serverSettings, customCommands, customCommandsV2, customCommandV2Sessions, siteContentSurfaces, embeds,
-  channelSettings, reactionRoles, autoRoles, warnings,
-  punishmentConfig, levelingConfig, starboardConfig,
-  ticketConfig, ticketPanels, scheduledMessages, auditLogConfig,
+  claimCustomCommandV2SessionRecord,
+  consumeCustomCommandV2SessionRecord,
+  createCustomCommandRecord,
+  createCustomCommandV2Record,
+  createCustomCommandV2SessionRecord,
+  deleteCustomCommandRecord,
+  deleteCustomCommandV2Record,
+  getCustomCommandRecord,
+  getCustomCommandV2Record,
+  listCustomCommandRecords,
+  listCustomCommandV2Records,
+  listPendingCustomCommandV2SessionRecords,
+  touchCustomCommandUsageRecord,
+  touchCustomCommandV2UsageRecord,
+  updateCustomCommandRecord,
+  updateCustomCommandV2Record,
+} from "./repositories/custom-command-repository";
+import {
+  createEmbedRecord,
+  deleteEmbedRecord,
+  getEmbedRecord,
+  listEmbedRecords,
+  updateEmbedRecord,
+} from "./repositories/embed-repository";
+import {
+  createAutoRoleRecord,
+  createReactionRoleRecord,
+  deleteAutoRoleRecord,
+  deleteChannelSettingRecord,
+  deleteReactionRoleRecord,
+  getAutoRoleRecord,
+  getChannelSettingRecord,
+  getReactionRoleRecord,
+  listAutoRoleRecords,
+  listChannelSettingRecords,
+  listReactionRoleRecords,
+  upsertChannelSettingRecord,
+} from "./repositories/access-config-repository";
+import {
+  clearWarningRecords,
+  createWarningRecord,
+  deletePunishmentConfigRecord,
+  deleteWarningRecord,
+  listPunishmentConfigRecords,
+  listWarningRecords,
+  upsertPunishmentConfigRecord,
+} from "./repositories/moderation-config-repository";
+import {
+  getLevelingConfigRecord,
+  getStarboardConfigRecord,
+  upsertLevelingConfigRecord,
+  upsertStarboardConfigRecord,
+} from "./repositories/community-config-repository";
+import {
+  createScheduledMessageRecord,
+  createTicketPanelRecord,
+  deleteScheduledMessageRecord,
+  deleteTicketPanelRecord,
+  getTicketConfigRecord,
+  listScheduledMessageRecords,
+  listTicketPanelRecords,
+  updateScheduledMessageRecord,
+  updateTicketPanelRecord,
+  upsertTicketConfigRecord,
+} from "./repositories/operations-config-repository";
+import {
+  servers, serverSettings, customCommands, siteContentSurfaces,
+  auditLogConfig,
   users, templates, automations, serverVariables, economy, roleShop,
   economyTransactions, memberNotes, serverInsights, commandShares,
   commandImports, serverWebhooks, polls, giveaways, userPreferences,
@@ -25,7 +90,7 @@ import {
   type SiteEditorSurfaceState,
 } from "@shared/site-editor";
 import { type ServerWithRelations } from "@shared/routes";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 function isSchemaMismatchError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -200,102 +265,23 @@ export class DatabaseStorage {
   }
 
   async getServers(): Promise<ServerWithRelations[]> {
-    try {
-      const result = await pool.query(`
-        SELECT
-          s.id,
-          s.discord_id AS "discordId",
-          s.name,
-          s.icon_url AS "iconUrl",
-          s.member_count AS "memberCount",
-          s.joined_at AS "joinedAt",
-          s.owner_id AS "ownerId",
-          COALESCE(to_jsonb(ss), '{}'::jsonb) AS settings,
-          COALESCE(cmd.command_count, 0) AS "customCommandCount",
-          COALESCE(emb.embed_count, 0) AS "embedCount"
-        FROM servers s
-        LEFT JOIN server_settings ss ON ss.server_id = s.id
-        LEFT JOIN (
-          SELECT server_id, COUNT(*)::int AS command_count
-          FROM custom_commands
-          GROUP BY server_id
-        ) cmd ON cmd.server_id = s.id
-        LEFT JOIN (
-          SELECT server_id, COUNT(*)::int AS embed_count
-          FROM embeds
-          GROUP BY server_id
-        ) emb ON emb.server_id = s.id
-        ORDER BY s.id ASC
-      `);
-      return result.rows.map(buildServerListPayload);
-    } catch (error) {
-      console.warn(
-        `[Storage] Failed to load server list${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
-        error instanceof Error ? error.message : error,
-      );
-      try {
-        const baseServers = await db.select().from(servers);
-        return baseServers.map(toBasicServerPayload);
-      } catch (fallbackError) {
-        console.error("[Storage] Basic server fallback failed:", fallbackError instanceof Error ? fallbackError.message : fallbackError);
-        throw fallbackError;
-      }
-    }
+    return listServerRecords();
   }
 
   async getServer(id: number): Promise<ServerWithRelations | undefined> {
-    try {
-      const result = await pool.query(`
-        SELECT
-          s.id,
-          s.discord_id AS "discordId",
-          s.name,
-          s.icon_url AS "iconUrl",
-          s.member_count AS "memberCount",
-          s.joined_at AS "joinedAt",
-          s.owner_id AS "ownerId",
-          COALESCE(to_jsonb(ss), '{}'::jsonb) AS settings
-        FROM servers s
-        LEFT JOIN server_settings ss ON ss.server_id = s.id
-        WHERE s.id = $1
-        LIMIT 1
-      `, [id]);
-      const row = result.rows[0];
-      if (!row) return undefined;
+    const server = await getServerRecord(id);
+    if (!server) return undefined;
 
-      const [serverCommands, serverEmbeds] = await Promise.all([
-        this.getCommands(id),
-        this.getEmbeds(id),
-      ]);
+    const [serverCommands, serverEmbeds] = await Promise.all([
+      this.getCommands(id),
+      this.getEmbeds(id),
+    ]);
 
-      return {
-        id: Number(row.id),
-        discordId: row.discordId,
-        name: row.name,
-        iconUrl: row.iconUrl ?? null,
-        memberCount: Number(row.memberCount ?? 0),
-        joinedAt: row.joinedAt ?? null,
-        ownerId: row.ownerId,
-        settings: row.settings ? camelizeValue(row.settings) : null,
-        customCommands: serverCommands,
-        embeds: serverEmbeds,
-      } as any;
-    } catch (error) {
-      console.warn(
-        `[Storage] Failed to load server payload for ${id}${isSchemaMismatchError(error) ? " (schema mismatch)" : ""}:`,
-        error instanceof Error ? error.message : error,
-      );
-      try {
-        const [baseServer] = await db.select().from(servers).where(eq(servers.id, id));
-        return baseServer ? toBasicServerPayload(baseServer) : undefined;
-      } catch (fallbackError) {
-        console.error(
-          `[Storage] Basic server fallback failed for ${id}:`,
-          fallbackError instanceof Error ? fallbackError.message : fallbackError,
-        );
-        throw fallbackError;
-      }
-    }
+    return {
+      ...server,
+      customCommands: serverCommands,
+      embeds: serverEmbeds,
+    } as any;
   }
   // --- SETTINGS ---
   async updateSettings(serverId: number, settings: any): Promise<ServerSettings> {
@@ -336,310 +322,190 @@ export class DatabaseStorage {
 
   // --- COMMANDS ---
   async getCommands(serverId: number): Promise<CustomCommand[]> {
-    return await db.select().from(customCommands).where(eq(customCommands.serverId, serverId));
+    return listCustomCommandRecords(serverId);
   }
   async getCommandById(id: number): Promise<CustomCommand | undefined> {
-    const [command] = await db.select().from(customCommands).where(eq(customCommands.id, id));
-    return command;
+    return getCustomCommandRecord(id);
   }
   async createCommand(serverId: number, cmd: any): Promise<CustomCommand> {
-    const [created] = await db.insert(customCommands).values({ ...cmd, serverId } as any).returning();
-    return created;
+    return createCustomCommandRecord(serverId, cmd);
   }
   async updateCommand(id: number, cmd: any): Promise<CustomCommand> {
-    const [updated] = await db.update(customCommands).set(cmd as any).where(eq(customCommands.id, id)).returning();
-    return updated;
+    return updateCustomCommandRecord(id, cmd);
   }
   async deleteCommand(id: number): Promise<void> {
-    await db.delete(customCommands).where(eq(customCommands.id, id));
+    await deleteCustomCommandRecord(id);
   }
   async touchCommandUsage(id: number): Promise<void> {
-    await db
-      .update(customCommands)
-      .set({
-        usageCount: sql`${customCommands.usageCount} + 1`,
-        lastUsedAt: new Date(),
-      } as any)
-      .where(eq(customCommands.id, id));
+    await touchCustomCommandUsageRecord(id);
   }
 
   async getCommandsV2(serverId: number): Promise<CustomCommandV2Record[]> {
-    return await db
-      .select()
-      .from(customCommandsV2)
-      .where(eq(customCommandsV2.serverId, serverId));
+    return listCustomCommandV2Records(serverId);
   }
   async getCommandV2ById(id: number): Promise<CustomCommandV2Record | undefined> {
-    const [command] = await db.select().from(customCommandsV2).where(eq(customCommandsV2.id, id));
-    return command;
+    return getCustomCommandV2Record(id);
   }
   async createCommandV2(serverId: number, cmd: any): Promise<CustomCommandV2Record> {
-    const [created] = await db
-      .insert(customCommandsV2)
-      .values({
-        ...cmd,
-        serverId,
-        updatedAt: new Date(),
-      } as any)
-      .returning();
-    return created;
+    return createCustomCommandV2Record(serverId, cmd);
   }
   async updateCommandV2(id: number, cmd: any): Promise<CustomCommandV2Record> {
-    const [updated] = await db
-      .update(customCommandsV2)
-      .set({
-        ...cmd,
-        updatedAt: new Date(),
-      } as any)
-      .where(eq(customCommandsV2.id, id))
-      .returning();
-    return updated;
+    return updateCustomCommandV2Record(id, cmd);
   }
   async touchCommandV2Usage(id: number, input?: { lastRunAt?: Date }): Promise<void> {
-    await db
-      .update(customCommandsV2)
-      .set({
-        usageCount: sql`${customCommandsV2.usageCount} + 1`,
-        lastRunAt: input?.lastRunAt ?? new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(customCommandsV2.id, id));
+    await touchCustomCommandV2UsageRecord(id, input);
   }
   async deleteCommandV2(id: number): Promise<void> {
-    await db.delete(customCommandsV2).where(eq(customCommandsV2.id, id));
+    await deleteCustomCommandV2Record(id);
   }
   async getPendingCommandV2Sessions(
     serverId: number,
     continuationType?: "button" | "select" | "modal_submit",
   ): Promise<CustomCommandV2SessionRecord[]> {
-    const filters = [eq(customCommandV2Sessions.serverId, serverId), isNull(customCommandV2Sessions.consumedAt)];
-    if (continuationType) {
-      filters.push(eq(customCommandV2Sessions.continuationType, continuationType));
-    }
-    return await db
-      .select()
-      .from(customCommandV2Sessions)
-      .where(and(...filters))
-      .orderBy(desc(customCommandV2Sessions.createdAt));
+    return listPendingCustomCommandV2SessionRecords(serverId, continuationType);
   }
   async createCommandV2Session(serverId: number, session: any): Promise<CustomCommandV2SessionRecord> {
-    const [created] = await db
-      .insert(customCommandV2Sessions)
-      .values({
-        ...session,
-        serverId,
-        updatedAt: new Date(),
-      } as any)
-      .returning();
-    return created;
+    return createCustomCommandV2SessionRecord(serverId, session);
   }
   async claimCommandV2Session(id: number): Promise<CustomCommandV2SessionRecord | null> {
-    const [claimed] = await db
-      .update(customCommandV2Sessions)
-      .set({
-        consumedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(customCommandV2Sessions.id, id), isNull(customCommandV2Sessions.consumedAt)))
-      .returning();
-    return claimed ?? null;
+    return claimCustomCommandV2SessionRecord(id);
   }
   async consumeCommandV2Session(id: number): Promise<void> {
-    await db
-      .update(customCommandV2Sessions)
-      .set({
-        consumedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(customCommandV2Sessions.id, id));
+    await consumeCustomCommandV2SessionRecord(id);
   }
 
   // --- EMBEDS ---
   async getEmbeds(serverId: number): Promise<Embed[]> {
-    return await db.select().from(embeds).where(eq(embeds.serverId, serverId));
+    return listEmbedRecords(serverId);
   }
   async createEmbed(serverId: number, embed: any): Promise<Embed> {
-    const [created] = await db.insert(embeds).values({ ...embed, serverId } as any).returning();
-    return created;
+    return createEmbedRecord(serverId, embed);
   }
   async getEmbedById(id: number): Promise<Embed | undefined> {
-    const [embed] = await db.select().from(embeds).where(eq(embeds.id, id));
-    return embed;
+    return getEmbedRecord(id);
   }
   async updateEmbed(id: number, embed: any): Promise<Embed> {
-    const [updated] = await db.update(embeds).set(embed as any).where(eq(embeds.id, id)).returning();
-    return updated;
+    return updateEmbedRecord(id, embed);
   }
   async deleteEmbed(id: number): Promise<void> {
-    await db.delete(embeds).where(eq(embeds.id, id));
+    await deleteEmbedRecord(id);
   }
 
   // --- CHANNEL SETTINGS ---
   async getChannelSettings(serverId: number): Promise<ChannelSetting[]> {
-    return await db.select().from(channelSettings).where(eq(channelSettings.serverId, serverId));
+    return listChannelSettingRecords(serverId);
   }
   async upsertChannelSettings(serverId: number, data: any): Promise<ChannelSetting> {
-    const existing = await db.select().from(channelSettings)
-      .where(and(eq(channelSettings.serverId, serverId), eq(channelSettings.channelId, data.channelId)));
-    if (existing.length > 0) {
-      const [updated] = await db.update(channelSettings).set(data as any)
-        .where(eq(channelSettings.id, existing[0].id)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(channelSettings).values({ ...data, serverId } as any).returning();
-    return created;
+    return upsertChannelSettingRecord(serverId, data);
   }
   async getChannelSettingsById(id: number): Promise<ChannelSetting | undefined> {
-    const [entry] = await db.select().from(channelSettings).where(eq(channelSettings.id, id));
-    return entry;
+    return getChannelSettingRecord(id);
   }
   async deleteChannelSettings(id: number): Promise<void> {
-    await db.delete(channelSettings).where(eq(channelSettings.id, id));
+    await deleteChannelSettingRecord(id);
   }
 
   // --- REACTION ROLES ---
   async getReactionRoles(serverId: number): Promise<ReactionRole[]> {
-    return await db.select().from(reactionRoles).where(eq(reactionRoles.serverId, serverId));
+    return listReactionRoleRecords(serverId);
   }
   async createReactionRole(serverId: number, data: any): Promise<ReactionRole> {
-    const [created] = await db.insert(reactionRoles).values({ ...data, serverId } as any).returning();
-    return created;
+    return createReactionRoleRecord(serverId, data);
   }
   async getReactionRoleById(id: number): Promise<ReactionRole | undefined> {
-    const [entry] = await db.select().from(reactionRoles).where(eq(reactionRoles.id, id));
-    return entry;
+    return getReactionRoleRecord(id);
   }
   async deleteReactionRole(id: number): Promise<void> {
-    await db.delete(reactionRoles).where(eq(reactionRoles.id, id));
+    await deleteReactionRoleRecord(id);
   }
 
   // --- AUTO ROLES ---
   async getAutoRoles(serverId: number): Promise<AutoRole[]> {
-    return await db.select().from(autoRoles).where(eq(autoRoles.serverId, serverId));
+    return listAutoRoleRecords(serverId);
   }
   async createAutoRole(serverId: number, data: any): Promise<AutoRole> {
-    const [created] = await db.insert(autoRoles).values({ ...data, serverId } as any).returning();
-    return created;
+    return createAutoRoleRecord(serverId, data);
   }
   async getAutoRoleById(id: number): Promise<AutoRole | undefined> {
-    const [entry] = await db.select().from(autoRoles).where(eq(autoRoles.id, id));
-    return entry;
+    return getAutoRoleRecord(id);
   }
   async deleteAutoRole(id: number): Promise<void> {
-    await db.delete(autoRoles).where(eq(autoRoles.id, id));
+    await deleteAutoRoleRecord(id);
   }
 
   // --- WARNINGS ---
   async getWarnings(serverId: number): Promise<Warning[]> {
-    return await db.select().from(warnings).where(eq(warnings.serverId, serverId));
+    return listWarningRecords(serverId);
   }
   async createWarning(serverId: number, data: any): Promise<Warning> {
-    const [created] = await db.insert(warnings).values({ ...data, serverId } as any).returning();
-    return created;
+    return createWarningRecord(serverId, data);
   }
   async deleteWarning(id: number): Promise<void> {
-    await db.delete(warnings).where(eq(warnings.id, id));
+    await deleteWarningRecord(id);
   }
   async clearWarnings(serverId: number, userId: string): Promise<void> {
-    await db.delete(warnings).where(and(eq(warnings.serverId, serverId), eq(warnings.userId, userId)));
+    await clearWarningRecords(serverId, userId);
   }
 
   // --- PUNISHMENT CONFIG ---
   async getPunishmentConfig(serverId: number): Promise<PunishmentConfigType[]> {
-    return await db.select().from(punishmentConfig).where(eq(punishmentConfig.serverId, serverId));
+    return listPunishmentConfigRecords(serverId);
   }
   async upsertPunishmentConfig(serverId: number, data: any): Promise<PunishmentConfigType> {
-    const existing = await db.select().from(punishmentConfig)
-      .where(and(eq(punishmentConfig.serverId, serverId), eq(punishmentConfig.warningThreshold, data.warningThreshold)));
-    if (existing.length > 0) {
-      const [updated] = await db.update(punishmentConfig).set(data as any)
-        .where(eq(punishmentConfig.id, existing[0].id)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(punishmentConfig).values({ ...data, serverId } as any).returning();
-    return created;
+    return upsertPunishmentConfigRecord(serverId, data);
   }
   async deletePunishmentConfig(id: number): Promise<void> {
-    await db.delete(punishmentConfig).where(eq(punishmentConfig.id, id));
+    await deletePunishmentConfigRecord(id);
   }
 
   // --- LEVELING ---
   async getLevelingConfig(serverId: number): Promise<LevelingConfigType | undefined> {
-    const results = await db.select().from(levelingConfig).where(eq(levelingConfig.serverId, serverId));
-    return results[0];
+    return getLevelingConfigRecord(serverId);
   }
   async upsertLevelingConfig(serverId: number, data: any): Promise<LevelingConfigType> {
-    const existing = await db.select().from(levelingConfig).where(eq(levelingConfig.serverId, serverId));
-    if (existing.length > 0) {
-      const [updated] = await db.update(levelingConfig).set(data as any)
-        .where(eq(levelingConfig.serverId, serverId)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(levelingConfig).values({ ...data, serverId } as any).returning();
-    return created;
+    return upsertLevelingConfigRecord(serverId, data);
   }
 
   // --- STARBOARD ---
   async getStarboardConfig(serverId: number): Promise<StarboardConfigType | undefined> {
-    const results = await db.select().from(starboardConfig).where(eq(starboardConfig.serverId, serverId));
-    return results[0];
+    return getStarboardConfigRecord(serverId);
   }
   async upsertStarboardConfig(serverId: number, data: any): Promise<StarboardConfigType> {
-    const existing = await db.select().from(starboardConfig).where(eq(starboardConfig.serverId, serverId));
-    if (existing.length > 0) {
-      const [updated] = await db.update(starboardConfig).set(data as any)
-        .where(eq(starboardConfig.serverId, serverId)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(starboardConfig).values({ ...data, serverId } as any).returning();
-    return created;
+    return upsertStarboardConfigRecord(serverId, data);
   }
 
   // --- TICKETS ---
   async getTicketConfig(serverId: number): Promise<TicketConfigType | undefined> {
-    const results = await db.select().from(ticketConfig).where(eq(ticketConfig.serverId, serverId));
-    return results[0];
+    return getTicketConfigRecord(serverId);
   }
   async upsertTicketConfig(serverId: number, data: any): Promise<TicketConfigType> {
-    const existing = await db.select().from(ticketConfig).where(eq(ticketConfig.serverId, serverId));
-    if (existing.length > 0) {
-      const [updated] = await db.update(ticketConfig).set(data as any)
-        .where(eq(ticketConfig.serverId, serverId)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(ticketConfig).values({ ...data, serverId } as any).returning();
-    return created;
+    return upsertTicketConfigRecord(serverId, data);
   }
   async getTicketPanels(serverId: number): Promise<TicketPanel[]> {
-    return await db.select().from(ticketPanels).where(eq(ticketPanels.serverId, serverId));
+    return listTicketPanelRecords(serverId);
   }
   async createTicketPanel(serverId: number, data: any): Promise<TicketPanel> {
-    const [created] = await db.insert(ticketPanels).values({ ...data, serverId } as any).returning();
-    return created;
+    return createTicketPanelRecord(serverId, data);
   }
   async updateTicketPanel(id: number, data: any): Promise<TicketPanel> {
-    const [updated] = await db.update(ticketPanels).set(data as any).where(eq(ticketPanels.id, id)).returning();
-    return updated;
+    return updateTicketPanelRecord(id, data);
   }
   async deleteTicketPanel(id: number): Promise<void> {
-    await db.delete(ticketPanels).where(eq(ticketPanels.id, id));
+    await deleteTicketPanelRecord(id);
   }
 
   // --- SCHEDULED MESSAGES ---
   async getScheduledMessages(serverId: number): Promise<ScheduledMessage[]> {
-    return await db.select().from(scheduledMessages).where(eq(scheduledMessages.serverId, serverId));
+    return listScheduledMessageRecords(serverId);
   }
   async createScheduledMessage(serverId: number, data: any): Promise<ScheduledMessage> {
-    const [created] = await db.insert(scheduledMessages).values({ ...data, serverId } as any).returning();
-    return created;
+    return createScheduledMessageRecord(serverId, data);
   }
   async updateScheduledMessage(id: number, data: any): Promise<ScheduledMessage> {
-    const [updated] = await db.update(scheduledMessages).set(data as any)
-      .where(eq(scheduledMessages.id, id)).returning();
-    return updated;
+    return updateScheduledMessageRecord(id, data);
   }
   async deleteScheduledMessage(id: number): Promise<void> {
-    await db.delete(scheduledMessages).where(eq(scheduledMessages.id, id));
+    await deleteScheduledMessageRecord(id);
   }
 
   // --- AUDIT LOG ---
@@ -701,8 +567,7 @@ export class DatabaseStorage {
 
   // --- PREMIUM HELPERS ---
   async getServerByDiscordId(discordId: string): Promise<Server | undefined> {
-    const [server] = await db.select().from(servers).where(eq(servers.discordId, discordId));
-    return server;
+    return getServerByDiscordIdRecord(discordId);
   }
   async getPremiumUserCount(): Promise<number> {
     const result = await db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.isPremium, true));

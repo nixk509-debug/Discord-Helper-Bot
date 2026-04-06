@@ -264,32 +264,26 @@ function statusClasses(tone: ReturnType<typeof getStatusTone>) {
 
 function SectionCard({
   title,
-  description,
   summary,
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   summary?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card className="archivist-panel archivist-panel-muted overflow-hidden">
-      <CardHeader className="border-b border-white/8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle className="text-white">{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
-          </div>
-          {summary ? (
-            <span className="rounded-full border border-white/10 bg-[#0c0f13] px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-white/68">
-              {summary}
-            </span>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 p-4">{children}</CardContent>
-    </Card>
+    <div className="rounded-[20px] bg-white/[0.03]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{title}</p>
+        {summary ? (
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-white/50">
+            {summary}
+          </span>
+        ) : null}
+      </div>
+      <div className="space-y-4 p-4">{children}</div>
+    </div>
   );
 }
 
@@ -336,12 +330,11 @@ function PreviewPanel({
   const embeds = draft.workflow.steps.filter((step) => step.type === "send_embed");
 
   return (
-    <Card className="archivist-panel archivist-panel-muted overflow-hidden">
-      <CardHeader className="border-b border-white/8">
-        <CardTitle className="text-white">Discord Preview</CardTitle>
-        <CardDescription>See the likely output without reading the raw workflow.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 p-4">
+    <div className="rounded-[20px] bg-white/[0.03] overflow-hidden">
+      <div className="border-b border-white/[0.05] px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Discord Preview</p>
+      </div>
+      <div className="space-y-4 p-4">
         <div className="rounded-[28px] border border-white/8 bg-[#0b0d11] p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-11 w-11 items-center justify-center rounded-full bg-[#a91d31] text-sm font-semibold text-white">
@@ -379,8 +372,8 @@ function PreviewPanel({
               ? `${issueSummary.warnings} warning${issueSummary.warnings === 1 ? "" : "s"} to review before publishing.`
               : "No current validation warnings."}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -827,43 +820,35 @@ function CustomCommandV2ForgeBuilder({
   return (
     <>
       <div className="space-y-4">
-        <Card className="archivist-panel overflow-hidden">
-          <CardHeader className="border-b border-white/8">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-2">
-                <p className="archivist-eyebrow">Custom Commands</p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <CardTitle className="text-[1.85rem] text-white">{draft.meta.name?.trim() || "Untitled Command"}</CardTitle>
-                  <DraftBadge draft={draft} issues={lastIssues} />
-                  {draftDirty ? (
-                    <span className="rounded-full border border-[#c5485d]/30 bg-[#261219] px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-white/80">
-                      Unpublished Changes
-                    </span>
-                  ) : null}
-                </div>
-                <CardDescription>
-                  Build behavior and workflow here. Pull in saved Design Studio assets when you need richer message output, but keep the full Studio editor separate.
-                </CardDescription>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={handleOpenNewDraft}>
-                  <Plus className="h-4 w-4" />
-                  New Command
-                </Button>
-                {selectedCommand ? (
-                  <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={handleDelete}>
-                    <Trash2 className="h-4 w-4" />
-                    Delete
-                  </Button>
-                ) : null}
-                <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={() => validateCurrentDraft({ openReview: true })}>
-                  <Eye className="h-4 w-4" />
-                  Review
-                </Button>
-              </div>
+        <div className="rounded-[20px] bg-white/[0.03]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.05] px-4 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[17px] font-bold text-white">{draft.meta.name?.trim() || "Untitled Command"}</p>
+              <DraftBadge draft={draft} issues={lastIssues} />
+              {draftDirty ? (
+                <span className="rounded-full border border-[#c5485d]/30 bg-[#261219] px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-white/80">
+                  Unsaved
+                </span>
+              ) : null}
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-4 md:p-6">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={handleOpenNewDraft}>
+                <Plus className="h-4 w-4" />
+                New
+              </Button>
+              {selectedCommand ? (
+                <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={handleDelete}>
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              ) : null}
+              <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03]" onClick={() => validateCurrentDraft({ openReview: true })}>
+                <Eye className="h-4 w-4" />
+                Review
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-4 p-4 md:p-6">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="rounded-[24px] border border-white/8 bg-[#111318] p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1095,7 +1080,7 @@ function CustomCommandV2ForgeBuilder({
                   </div>
                 </SectionCard>
 
-                <SectionCard title="Advanced" description="Keep secondary control separate from the main flow so the builder stays readable.">
+                <SectionCard title="Advanced">
                   <Accordion type="multiple" defaultValue={["behavior"]} className="space-y-3">
                     <AccordionItem value="behavior" className="rounded-[20px] border border-white/8 bg-[#0b0d11] px-4">
                       <AccordionTrigger className="text-white hover:no-underline">Behavior</AccordionTrigger>
@@ -1135,12 +1120,11 @@ function CustomCommandV2ForgeBuilder({
 
               <div className={cn("space-y-4", previewMode === "build" && "hidden xl:block")}>
                 <PreviewPanel draft={draft} issueSummary={issueSummary} />
-                <Card className="archivist-panel archivist-panel-muted">
-                  <CardHeader>
-                    <CardTitle className="text-white">Review Readiness</CardTitle>
-                    <CardDescription>Refresh validation before you save or publish.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
+                <div className="rounded-[20px] bg-white/[0.03]">
+                  <div className="border-b border-white/[0.05] px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Review Readiness</p>
+                  </div>
+                  <div className="space-y-3 p-4">
                     {!hasFreshValidation ? (
                       <div className="rounded-[18px] border border-amber-500/20 bg-amber-500/[0.08] p-4 text-sm text-white/78">
                         You changed this draft after the last review. Refresh validation so the preview and issues stay honest.
@@ -1155,15 +1139,15 @@ function CustomCommandV2ForgeBuilder({
                       <Rocket className="h-4 w-4" />
                       Review & Publish
                     </Button>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090b0f]/95 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur md:px-6">
+      <div className="fixed inset-x-0 bottom-[max(4.5rem,calc(4rem+env(safe-area-inset-bottom)))] z-30 border-t border-white/10 bg-[#090b0f]/95 px-4 pb-3 pt-3 backdrop-blur md:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row">
           <Button variant="outline" className="rounded-[18px] border-white/10 bg-white/[0.03] sm:flex-1" onClick={handleOpenNewDraft}>
             New Draft

@@ -2,9 +2,6 @@ import type { Express, Request, Response } from "express";
 import type { Server } from "http";
 import { z } from "zod";
 import { api } from "@shared/routes";
-import { promises as fs } from "fs";
-import path from "path";
-import crypto from "crypto";
 import { storage } from "./storage";
 import {
   servers,
@@ -13,16 +10,9 @@ import {
   permissionRules,
   categoryLockSnapshots,
   economy,
-  studioDocuments,
-  studioPublications,
-  studioPublicationSnapshots,
-  studioRuntimeEvents,
   type EmbedComponentType,
   type EmbedComponentOption,
   type InteractiveActionConfig,
-  type StudioLibraryCategory,
-  type StudioLibraryScope,
-  type StudioDocument,
 } from "@shared/schema";
 import { db, hasDatabaseUrl } from "./db";
 import { eq, sql, and } from "drizzle-orm";
@@ -48,34 +38,6 @@ import {
 } from "discord.js";
 import { EMBED_ACTION_TOKEN_PREFIX, encodeEmbedActionToken } from "./bot/embed-action-token";
 import {
-  createStudioDocumentRecord,
-  createStudioPublicationRecord,
-  createStudioPublicationSnapshotRecord,
-  getCurrentStudioPublicationSnapshot,
-  getStudioDocumentById,
-  getStudioPublicationById,
-  getStudioPublicationByMessage,
-  getStudioPublicationSnapshotById,
-  listStudioDocuments,
-  listStudioLibraryItems,
-  listStudioPublicationSnapshots,
-  listStudioPublications,
-  listStudioRuntimeEvents,
-  normalizeStudioDocument,
-  recordStudioRuntimeEvent,
-  renderStudioDocumentView,
-  createStudioLibraryItem,
-  deleteStudioDocumentRecord,
-  deleteStudioLibraryItemRecord,
-  getStudioLibraryItemById,
-  updateStudioDocumentRecord,
-  updateStudioLibraryItemRecord,
-  updateStudioPublicationRecord,
-} from "./studio-service";
-import { buildStudioDiscordPayload } from "./studio-discord";
-import { buildStudioPublishPlan } from "@shared/studio-publish-plan";
-import type { StudioTokenContext } from "@shared/studio-tokens";
-import {
   buildChannelLockPatch,
   assertCommunityTypeAllowed,
   canSetNsfw,
@@ -99,25 +61,69 @@ import {
   normalizeLockrEventType,
   verifyLockrServerWebhookToken,
 } from "./lockr-webhook";
-
-const STUDIO_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads", "studio");
-
-function sanitizeStudioUploadName(value: string) {
-  const trimmed = value.trim().toLowerCase();
-  const stem = trimmed.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return stem.slice(0, 40) || "studio-asset";
-}
-
-function parseStudioImageDataUrl(dataUrl: string) {
-  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=]+)$/i);
-  if (!match) return null;
-
-  const mimeType = match[1].toLowerCase();
-  const buffer = Buffer.from(match[2], "base64");
-  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.replace("image/", "");
-
-  return { mimeType, buffer, extension };
-}
+import { registerStudioRoutes } from "./http/studio-routes";
+import { publishStudioMessage, registerStudioPublishRoutes } from "./http/studio-publish-routes";
+import { getServerRecord, listServerRecords } from "./repositories/server-repository";
+import {
+  createCustomCommandRecord,
+  createCustomCommandV2Record,
+  deleteCustomCommandRecord,
+  deleteCustomCommandV2Record,
+  getCustomCommandRecord,
+  getCustomCommandV2Record,
+  listCustomCommandRecords,
+  listCustomCommandV2Records,
+  updateCustomCommandRecord,
+  updateCustomCommandV2Record,
+} from "./repositories/custom-command-repository";
+import {
+  createEmbedRecord,
+  deleteEmbedRecord,
+  getEmbedRecord,
+  listEmbedRecords,
+  updateEmbedRecord,
+} from "./repositories/embed-repository";
+import {
+  createAutoRoleRecord,
+  createReactionRoleRecord,
+  deleteAutoRoleRecord,
+  deleteChannelSettingRecord,
+  deleteReactionRoleRecord,
+  getAutoRoleRecord,
+  getChannelSettingRecord,
+  getReactionRoleRecord,
+  listAutoRoleRecords,
+  listChannelSettingRecords,
+  listReactionRoleRecords,
+  upsertChannelSettingRecord,
+} from "./repositories/access-config-repository";
+import {
+  clearWarningRecords,
+  createWarningRecord,
+  deletePunishmentConfigRecord,
+  deleteWarningRecord,
+  listPunishmentConfigRecords,
+  listWarningRecords,
+  upsertPunishmentConfigRecord,
+} from "./repositories/moderation-config-repository";
+import {
+  getLevelingConfigRecord,
+  getStarboardConfigRecord,
+  upsertLevelingConfigRecord,
+  upsertStarboardConfigRecord,
+} from "./repositories/community-config-repository";
+import {
+  createScheduledMessageRecord,
+  createTicketPanelRecord,
+  deleteScheduledMessageRecord,
+  deleteTicketPanelRecord,
+  getTicketConfigRecord,
+  listScheduledMessageRecords,
+  listTicketPanelRecords,
+  updateScheduledMessageRecord,
+  updateTicketPanelRecord,
+  upsertTicketConfigRecord,
+} from "./repositories/operations-config-repository";
 
 function consoleSyncLogger(scope: string) {
   return new ArchivistLogger(scope, getArchivistEnv().logLevel);
@@ -292,7 +298,7 @@ async function filterVisibleServersForRequest(req: Request, servers: any[]) {
 }
 
 async function getVisibleServerForRequest(req: Request, serverId: number) {
-  const server = await storage.getServer(serverId);
+  const server = await getServerRecord(serverId);
   if (!server) return null;
   const visibleServers = await filterVisibleServersForRequest(req, [server]);
   return visibleServers[0] ?? null;
@@ -339,7 +345,7 @@ async function findConflictingSlashCommandV2(input: {
   const normalizedName = normalizeCustomCommandV2SlashName(input.definition.trigger.name || input.definition.meta.name);
   if (!normalizedName) return null;
 
-  const commands = await storage.getCommandsV2(input.serverId);
+  const commands = await listCustomCommandV2Records(input.serverId);
   const conflictingCommand = commands.find((command) => {
     if (input.excludeId && command.id === input.excludeId) return false;
     if (command.enabled === false || command.definition.behavior.enabled === false) return false;
@@ -403,7 +409,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const command = await storage.getCommandV2ById(Number.parseInt(match[1], 10));
+    const command = await getCustomCommandV2Record(Number.parseInt(match[1], 10));
     if (!command) return res.status(404).json({ message: "Command not found" });
     if (!ownerServerIds.includes(command.serverId)) {
       return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
@@ -431,7 +437,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const command = await storage.getCommandById(Number.parseInt(match[1], 10));
+    const command = await getCustomCommandRecord(Number.parseInt(match[1], 10));
     if (!command) return res.status(404).json({ message: "Command not found" });
 
     const server = await getVisibleServerForRequest(req, command.serverId);
@@ -446,7 +452,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const embed = await storage.getEmbedById(Number.parseInt(match[1], 10));
+    const embed = await getEmbedRecord(Number.parseInt(match[1], 10));
     if (!embed) return res.status(404).json({ message: "Embed not found" });
 
     const server = await getVisibleServerForRequest(req, embed.serverId);
@@ -461,7 +467,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const entry = await storage.getChannelSettingsById(Number.parseInt(match[1], 10));
+    const entry = await getChannelSettingRecord(Number.parseInt(match[1], 10));
     if (!entry) return res.status(404).json({ message: "Channel settings not found" });
 
     const server = await getVisibleServerForRequest(req, entry.serverId);
@@ -476,7 +482,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const entry = await storage.getReactionRoleById(Number.parseInt(match[1], 10));
+    const entry = await getReactionRoleRecord(Number.parseInt(match[1], 10));
     if (!entry) return res.status(404).json({ message: "Reaction role not found" });
 
     const server = await getVisibleServerForRequest(req, entry.serverId);
@@ -491,7 +497,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const entry = await storage.getAutoRoleById(Number.parseInt(match[1], 10));
+    const entry = await getAutoRoleRecord(Number.parseInt(match[1], 10));
     if (!entry) return res.status(404).json({ message: "Auto role not found" });
 
     const server = await getVisibleServerForRequest(req, entry.serverId);
@@ -506,49 +512,12 @@ export async function registerRoutes(_server: Server, app: Express) {
     const match = req.path.match(/^\/(\d+)(?:\/|$)/);
     if (!match) return next();
 
-    const command = await storage.getCommandV2ById(Number.parseInt(match[1], 10));
+    const command = await getCustomCommandV2Record(Number.parseInt(match[1], 10));
     if (!command) return res.status(404).json({ message: "Command not found" });
 
     const server = await getVisibleServerForRequest(req, command.serverId);
     if (!server) {
       return res.status(403).json({ message: "You do not have access to that Archivist server." });
-    }
-
-    return next();
-  });
-
-  app.use("/api/studio", async (req, res, next) => {
-    const ownerServerIds = getOwnerSessionServerIds(req as any);
-    if (!ownerServerIds?.length) return next();
-
-    const documentMatch = req.path.match(/^\/documents\/(\d+)(?:\/|$)/);
-    if (documentMatch) {
-      const document = await getStudioDocumentById(Number.parseInt(documentMatch[1], 10));
-      if (!document) return res.status(404).json({ message: "Studio document not found" });
-      if (!ownerServerIds.includes(document.serverId)) {
-        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
-      }
-      return next();
-    }
-
-    const libraryMatch = req.path.match(/^\/library\/(\d+)(?:\/|$)/);
-    if (libraryMatch) {
-      const item = await getStudioLibraryItemById(Number.parseInt(libraryMatch[1], 10));
-      if (!item) return res.status(404).json({ message: "Studio library item not found" });
-      if (!ownerServerIds.includes(item.serverId)) {
-        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
-      }
-      return next();
-    }
-
-    const publicationMatch = req.path.match(/^\/publications\/(\d+)(?:\/|$)/);
-    if (publicationMatch) {
-      const publication = await getStudioPublicationById(Number.parseInt(publicationMatch[1], 10));
-      if (!publication) return res.status(404).json({ message: "Studio publication not found" });
-      if (!ownerServerIds.includes(publication.serverId)) {
-        return res.status(403).json({ message: "Owner access is limited to the configured dashboard servers." });
-      }
-      return next();
     }
 
     return next();
@@ -704,408 +673,13 @@ export async function registerRoutes(_server: Server, app: Express) {
   });
 
   // --- STUDIO ---
-  app.get(api.servers.studioDocuments.list.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const items = await listStudioDocuments(serverId, getStudioActorUserId(req as Request));
-    res.json(items);
+  registerStudioRoutes(app, {
+    getStudioActorUserId,
+    normalizeStudioOwnedScope,
+    hasStudioRecordAccess,
   });
+  registerStudioPublishRoutes(app);
 
-  app.post(api.servers.studioDocuments.create.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioDocuments.create.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const document = normalizeStudioDocument(parsed.data.document, parsed.data.name);
-    const scope = normalizeStudioOwnedScope(req as Request, parsed.data.scope);
-    const created = await createStudioDocumentRecord({
-      serverId,
-      ownerUserId: getStudioActorUserId(req as Request),
-      scope,
-      kind: parsed.data.kind,
-      name: parsed.data.name,
-      slug: parsed.data.slug,
-      moduleBinding: parsed.data.moduleBinding || null,
-      document,
-      isArchived: parsed.data.isArchived,
-    });
-    res.status(201).json(created);
-  });
-
-  app.patch(api.studio.documents.update.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid document ID" });
-
-    const existing = await getStudioDocumentById(id);
-    if (!existing) return res.status(404).json({ message: "Document not found" });
-    if (!(await hasStudioRecordAccess(req as Request, existing))) {
-      return res.status(403).json({ message: "Not allowed to edit this document" });
-    }
-
-    const parsed = api.studio.documents.update.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const updated = await updateStudioDocumentRecord(id, {
-      ...parsed.data,
-      document: parsed.data.document ? normalizeStudioDocument(parsed.data.document, existing.name) : existing.document,
-    } as any);
-    res.json(updated);
-  });
-
-  app.delete(api.studio.documents.delete.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid document ID" });
-
-    const existing = await getStudioDocumentById(id);
-    if (!existing) return res.status(404).json({ message: "Document not found" });
-    if (!(await hasStudioRecordAccess(req as Request, existing))) {
-      return res.status(403).json({ message: "Not allowed to delete this document" });
-    }
-
-    await deleteStudioDocumentRecord(id);
-    res.status(204).send();
-  });
-
-  app.get(api.servers.studioLibrary.list.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const scopeRaw = String(req.query.scope || "all");
-    const categoryRaw = String(req.query.category || "all");
-    const scope = (["all", "personal", "server"] as const).includes(scopeRaw as any) ? (scopeRaw as "all" | StudioLibraryScope) : "all";
-    const category = ([
-      "all",
-      "divider",
-      "symbol",
-      "emoji",
-      "format",
-      "style_block",
-      "style_pack",
-      "asset_link",
-      "snippet",
-    ] as const).includes(categoryRaw as any)
-      ? (categoryRaw as "all" | StudioLibraryCategory)
-      : "all";
-    const search = typeof req.query.q === "string" ? req.query.q : "";
-    const favoritesOnly = String(req.query.favorites || "").toLowerCase() === "true" || String(req.query.favorites || "") === "1";
-
-    const items = await listStudioLibraryItems(serverId, getStudioActorUserId(req as Request), {
-      scope,
-      category,
-      search,
-      favoritesOnly,
-    });
-    res.json(items);
-  });
-
-  app.post(api.servers.studioLibrary.create.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioLibrary.create.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const scope = normalizeStudioOwnedScope(req as Request, parsed.data.scope);
-    const created = await createStudioLibraryItem({
-      serverId,
-      ownerUserId: getStudioActorUserId(req as Request),
-      scope,
-      category: parsed.data.category,
-      name: parsed.data.name,
-      payload: parsed.data.payload,
-      tags: parsed.data.tags,
-      favorite: parsed.data.favorite,
-    });
-    res.status(201).json(created);
-  });
-
-  app.post(api.servers.studioUploads.create.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioUploads.create.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const decoded = parseStudioImageDataUrl(parsed.data.dataUrl);
-    if (!decoded) {
-      return res.status(400).json({ message: "Upload must be a PNG, JPG, GIF, or WEBP image." });
-    }
-
-    if (decoded.buffer.byteLength > 8 * 1024 * 1024) {
-      return res.status(400).json({ message: "Upload is too large. Keep images under 8 MB." });
-    }
-
-    const safeName = sanitizeStudioUploadName(parsed.data.name);
-    const fileName = `${safeName}-${crypto.randomUUID().slice(0, 8)}.${decoded.extension}`;
-    const serverFolder = path.join(STUDIO_UPLOAD_ROOT, String(serverId));
-    await fs.mkdir(serverFolder, { recursive: true });
-
-    const filePath = path.join(serverFolder, fileName);
-    await fs.writeFile(filePath, decoded.buffer);
-
-    const relativePath = `/uploads/studio/${serverId}/${fileName}`;
-    const origin =
-      process.env.PUBLIC_BASE_URL ||
-      process.env.APP_URL ||
-      `${req.protocol}://${req.get("host")}`;
-    const publicUrl = new URL(relativePath, origin).toString();
-
-    const libraryItem = await createStudioLibraryItem({
-      serverId,
-      ownerUserId: getStudioActorUserId(req as Request),
-      scope: normalizeStudioOwnedScope(req as Request, parsed.data.scope),
-      category: "asset_link",
-      name: parsed.data.name.trim(),
-      payload: {
-        url: publicUrl,
-        mimeType: decoded.mimeType,
-        source: "upload",
-      },
-      tags: ["asset", "uploaded", "image"],
-      favorite: false,
-    });
-
-    res.status(201).json({
-      url: publicUrl,
-      name: parsed.data.name.trim(),
-      libraryItem,
-    });
-  });
-
-  app.patch(api.studio.library.update.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
-    const existing = await getStudioLibraryItemById(id);
-    if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (!(await hasStudioRecordAccess(req as Request, existing))) {
-      return res.status(403).json({ message: "Not allowed to edit this item" });
-    }
-
-    const parsed = api.studio.library.update.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const patch: any = { ...parsed.data };
-    if (patch.scope === "personal") {
-      patch.scope = normalizeStudioOwnedScope(req as Request, patch.scope);
-      patch.ownerUserId = patch.scope === "personal" ? getStudioActorUserId(req as Request) : null;
-    }
-    if (patch.scope === "server") {
-      patch.ownerUserId = null;
-    }
-
-    const updated = await updateStudioLibraryItemRecord(id, patch);
-    res.json(updated);
-  });
-
-  app.patch(api.studio.library.favorite.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
-    const existing = await getStudioLibraryItemById(id);
-    if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (!(await hasStudioRecordAccess(req as Request, existing))) {
-      return res.status(403).json({ message: "Not allowed to edit this item" });
-    }
-
-    const parsed = api.studio.library.favorite.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const updated = await updateStudioLibraryItemRecord(id, { favorite: parsed.data.favorite } as any);
-    res.json(updated);
-  });
-
-  app.delete(api.studio.library.delete.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid library item ID" });
-    const existing = await getStudioLibraryItemById(id);
-    if (!existing) return res.status(404).json({ message: "Library item not found" });
-    if (!(await hasStudioRecordAccess(req as Request, existing))) {
-      return res.status(403).json({ message: "Not allowed to delete this item" });
-    }
-    await deleteStudioLibraryItemRecord(id);
-    res.status(204).send();
-  });
-
-  app.get(api.servers.studioPublications.list.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const publications = await listStudioPublications(serverId);
-    const events = await listStudioRuntimeEvents(serverId);
-    const eventMap = new Map<number, any[]>();
-    for (const event of events) {
-      if (!event.publicationId) continue;
-      const current = eventMap.get(event.publicationId) || [];
-      current.push(event);
-      eventMap.set(event.publicationId, current);
-    }
-    const payload = await Promise.all(publications.map(async (publication) => {
-      const snapshots = await listStudioPublicationSnapshots(publication.id);
-      const document = await getStudioDocumentById(publication.documentId);
-      return {
-        ...publication,
-        documentName: document?.name || `Document ${publication.documentId}`,
-        snapshots: snapshots.slice(0, 10),
-        recentEvents: (eventMap.get(publication.id) || []).slice(0, 5),
-      };
-    }));
-    res.json(payload);
-  });
-
-  app.post(api.servers.studioPublish.publish.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioPublish.publish.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    try {
-      const result = await publishStudioMessage({
-        serverId,
-        actorUserId: req.user!.id,
-        actorDiscordId: req.user!.discordId,
-        documentId: parsed.data.documentId,
-        documentInput: parsed.data.document,
-        allowDowngrade: parsed.data.allowDowngrade,
-        target: parsed.data.target,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to publish Studio document." });
-    }
-  });
-
-  app.post(api.servers.studioPublish.preflight.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioPublish.preflight.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    try {
-      const result = await buildStudioPreflight({
-        serverId,
-        actorUserId: req.user!.id,
-        documentId: parsed.data.documentId,
-        documentInput: parsed.data.document,
-        viewId: parsed.data.viewId,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to build Studio preflight." });
-    }
-  });
-
-  app.post(api.servers.studioPublish.test.path, async (req, res) => {
-    const serverId = parseInt(req.params.serverId);
-    if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-
-    const parsed = api.servers.studioPublish.test.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    try {
-      const result = await sendStudioTestMessage({
-        serverId,
-        actorUserId: req.user!.id,
-        actorDiscordId: req.user!.discordId,
-        documentId: parsed.data.documentId,
-        documentInput: parsed.data.document,
-        target: parsed.data.target,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to send Studio test." });
-    }
-  });
-
-  app.post(api.studio.publications.clone.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
-    const parsed = api.studio.publications.clone.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    try {
-      const result = await cloneStudioPublication({
-        publicationId: id,
-        actorUserId: req.user!.id,
-        targetChannelId: parsed.data.channelId,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to clone publication." });
-    }
-  });
-
-  app.post(api.studio.publications.rollback.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
-    const parsed = api.studio.publications.rollback.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    try {
-      const result = await rollbackStudioPublication({
-        publicationId: id,
-        snapshotId: parsed.data.snapshotId,
-        actorUserId: req.user!.id,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(err?.statusCode || 400).json({ message: err?.message || "Failed to rollback publication." });
-    }
-  });
-
-  app.post(api.studio.publications.archive.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
-    const publication = await getStudioPublicationById(id);
-    if (!publication) return res.status(404).json({ message: "Publication not found" });
-    if (!(await hasStudioRecordAccess(req as Request, publication))) {
-      return res.status(403).json({ message: "Not allowed to archive this publication" });
-    }
-
-    const updated = await updateStudioPublicationRecord(id, { active: false, status: "archived" });
-    res.json(updated);
-  });
-
-  app.patch(api.studio.publications.status.path, async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ message: "Invalid publication ID" });
-    const publication = await getStudioPublicationById(id);
-    if (!publication) return res.status(404).json({ message: "Publication not found" });
-    if (!(await hasStudioRecordAccess(req as Request, publication))) {
-      return res.status(403).json({ message: "Not allowed to update this publication" });
-    }
-
-    const parsed = api.studio.publications.status.input.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
-    }
-
-    const updated = await updateStudioPublicationRecord(id, parsed.data);
-    res.json(updated);
-  });
   // --- STATS ---
   app.get(api.stats.get.path, async (_req, res) => {
     const bot = getBotStatus();
@@ -1116,7 +690,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     let commandsExecuted = 0;
 
     try {
-      allServers = await storage.getServers();
+      allServers = await listServerRecords();
       totalMembers = allServers.reduce((sum, s) => sum + (s.memberCount || 0), 0);
     } catch (err: any) {
       console.error("[Stats] Failed to load server totals:", err?.message || err);
@@ -1151,7 +725,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   // --- SERVERS ---
   app.get(api.servers.list.path, async (_req, res) => {
     try {
-      const allServers = await storage.getServers();
+      const allServers = await listServerRecords();
       const visibleServers = await filterVisibleServersForRequest(_req as Request, allServers);
       return res.json(visibleServers);
     } catch (err: any) {
@@ -1293,7 +867,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.commands.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getCommands(serverId));
+    res.json(await listCustomCommandRecords(serverId));
   });
 
   app.post(api.commands.create.path, async (req, res) => {
@@ -1305,7 +879,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const created = await storage.createCommand(serverId, parsed.data);
+    const created = await createCustomCommandRecord(serverId, parsed.data);
     invalidateCustomCommandCache(serverId);
 
     let syncWarning: string | null = null;
@@ -1334,7 +908,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
-    const existing = await storage.getCommandById(id);
+    const existing = await getCustomCommandRecord(id);
     if (!existing) return res.status(404).json({ message: "Command not found" });
 
     const parsed = api.commands.update.input.safeParse(req.body);
@@ -1342,7 +916,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const updated = await storage.updateCommand(id, parsed.data);
+    const updated = await updateCustomCommandRecord(id, parsed.data);
     invalidateCustomCommandCache(existing.serverId);
 
     let syncWarning: string | null = null;
@@ -1371,10 +945,10 @@ export async function registerRoutes(_server: Server, app: Express) {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
-    const existing = await storage.getCommandById(id);
+    const existing = await getCustomCommandRecord(id);
     if (!existing) return res.status(404).json({ message: "Command not found" });
 
-    await storage.deleteCommand(id);
+    await deleteCustomCommandRecord(id);
     invalidateCustomCommandCache(existing.serverId);
 
     const client = getBotClient();
@@ -1401,7 +975,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     if (!await ensureVisibleServerForRequest(req, res, serverId)) return;
-    res.json(await storage.getCommandsV2(serverId));
+    res.json(await listCustomCommandV2Records(serverId));
   });
 
   app.get(api.commandWorkflowsV2.template.path, async (_req, res) => {
@@ -1469,7 +1043,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       });
     }
 
-    const created = await storage.createCommandV2(serverId, {
+    const created = await createCustomCommandV2Record(serverId, {
       ...prepared.createInput,
       slug: buildCustomCommandV2Slug(prepared.createInput.name),
       createdByUserId: getPersistentActorUserId(req),
@@ -1523,7 +1097,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       source: parsed.data.importSource ?? { kind: "dashboard", importedAt: new Date().toISOString() },
     });
 
-    const created = await storage.createCommandV2(serverId, {
+    const created = await createCustomCommandV2Record(serverId, {
       ...createInput,
       createdByUserId: getPersistentActorUserId(req),
       updatedByUserId: getPersistentActorUserId(req),
@@ -1547,7 +1121,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
-    const existing = await storage.getCommandV2ById(id);
+    const existing = await getCustomCommandV2Record(id);
     if (!existing) return res.status(404).json({ message: "Command not found" });
 
     const parsed = api.commandWorkflowsV2.update.input.safeParse(req.body);
@@ -1573,7 +1147,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: conflictIssue.message, issues: [conflictIssue] });
     }
 
-    const updated = await storage.updateCommandV2(id, {
+    const updated = await updateCustomCommandV2Record(id, {
       name: definition.meta.name,
       slug: buildCustomCommandV2Slug(definition.meta.name),
       schemaVersion: parsed.data.schemaVersion ?? existing.schemaVersion,
@@ -1605,10 +1179,10 @@ export async function registerRoutes(_server: Server, app: Express) {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
 
-    const existing = await storage.getCommandV2ById(id);
+    const existing = await getCustomCommandV2Record(id);
     if (!existing) return res.status(404).json({ message: "Command not found" });
 
-    await storage.deleteCommandV2(id);
+    await deleteCustomCommandV2Record(id);
     invalidateCustomCommandV2Cache(existing.serverId);
     invalidateCustomCommandV2RuntimeCache(existing.serverId);
 
@@ -1663,14 +1237,14 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.embeds.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getEmbeds(serverId));
+    res.json(await listEmbedRecords(serverId));
   });
 
   app.post(api.embeds.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     try {
-      const created = await storage.createEmbed(serverId, req.body);
+    const created = await createEmbedRecord(serverId, req.body);
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -1681,7 +1255,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.patch(api.embeds.update.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    const updated = await storage.updateEmbed(id, req.body);
+    const updated = await updateEmbedRecord(id, req.body);
     res.json(updated);
   });
 
@@ -1697,7 +1271,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found" });
 
     const [embedRecord] = await db.select().from(embedsTable)
@@ -1988,7 +1562,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.delete(api.embeds.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteEmbed(id);
+    await deleteEmbedRecord(id);
     res.status(204).send();
   });
 
@@ -1996,13 +1570,13 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.channelSettings.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getChannelSettings(serverId));
+    res.json(await listChannelSettingRecords(serverId));
   });
 
   app.put(api.channelSettings.upsert.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const result = await storage.upsertChannelSettings(serverId, req.body);
+    const result = await upsertChannelSettingRecord(serverId, req.body);
     res.json(result);
   });
 
@@ -2015,7 +1589,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found" });
 
     const client = getBotClient();
@@ -2107,7 +1681,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid payload" });
     }
 
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found" });
 
     const client = getBotClient();
@@ -2300,7 +1874,7 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.delete(api.channelSettings.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteChannelSettings(id);
+    await deleteChannelSettingRecord(id);
     res.status(204).send();
   });
 
@@ -2308,20 +1882,20 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.reactionRoles.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getReactionRoles(serverId));
+    res.json(await listReactionRoleRecords(serverId));
   });
 
   app.post(api.reactionRoles.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createReactionRole(serverId, req.body);
+    const created = await createReactionRoleRecord(serverId, req.body);
     res.status(201).json(created);
   });
 
   app.delete(api.reactionRoles.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteReactionRole(id);
+    await deleteReactionRoleRecord(id);
     res.status(204).send();
   });
 
@@ -2329,20 +1903,20 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.autoRoles.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getAutoRoles(serverId));
+    res.json(await listAutoRoleRecords(serverId));
   });
 
   app.post(api.autoRoles.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createAutoRole(serverId, req.body);
+    const created = await createAutoRoleRecord(serverId, req.body);
     res.status(201).json(created);
   });
 
   app.delete(api.autoRoles.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteAutoRole(id);
+    await deleteAutoRoleRecord(id);
     res.status(204).send();
   });
 
@@ -2350,20 +1924,20 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.warnings.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getWarnings(serverId));
+    res.json(await listWarningRecords(serverId));
   });
 
   app.post(api.warnings.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createWarning(serverId, req.body);
+    const created = await createWarningRecord(serverId, req.body);
     res.status(201).json(created);
   });
 
   app.delete(api.warnings.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteWarning(id);
+    await deleteWarningRecord(id);
     res.status(204).send();
   });
 
@@ -2371,7 +1945,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const serverId = parseInt(req.params.serverId);
     const userId = req.params.userId;
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    await storage.clearWarnings(serverId, userId);
+    await clearWarningRecords(serverId, userId);
     res.status(204).send();
   });
 
@@ -2379,20 +1953,20 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.punishments.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getPunishmentConfig(serverId));
+    res.json(await listPunishmentConfigRecords(serverId));
   });
 
   app.put(api.punishments.upsert.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const result = await storage.upsertPunishmentConfig(serverId, req.body);
+    const result = await upsertPunishmentConfigRecord(serverId, req.body);
     res.json(result);
   });
 
   app.delete(api.punishments.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deletePunishmentConfig(id);
+    await deletePunishmentConfigRecord(id);
     res.status(204).send();
   });
 
@@ -2400,14 +1974,14 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.leveling.get.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const config = await storage.getLevelingConfig(serverId);
+    const config = await getLevelingConfigRecord(serverId);
     res.json(config || { enabled: false });
   });
 
   app.put(api.leveling.upsert.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const result = await storage.upsertLevelingConfig(serverId, req.body);
+    const result = await upsertLevelingConfigRecord(serverId, req.body);
     res.json(result);
   });
 
@@ -2415,14 +1989,14 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.starboard.get.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const config = await storage.getStarboardConfig(serverId);
+    const config = await getStarboardConfigRecord(serverId);
     res.json(config || { enabled: false });
   });
 
   app.put(api.starboard.upsert.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const result = await storage.upsertStarboardConfig(serverId, req.body);
+    const result = await upsertStarboardConfigRecord(serverId, req.body);
     res.json(result);
   });
 
@@ -2430,41 +2004,41 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.tickets.getConfig.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const config = await storage.getTicketConfig(serverId);
+    const config = await getTicketConfigRecord(serverId);
     res.json(config || { enabled: false });
   });
 
   app.put(api.tickets.upsertConfig.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const result = await storage.upsertTicketConfig(serverId, req.body);
+    const result = await upsertTicketConfigRecord(serverId, req.body);
     res.json(result);
   });
 
   app.get(api.tickets.listPanels.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getTicketPanels(serverId));
+    res.json(await listTicketPanelRecords(serverId));
   });
 
   app.post(api.tickets.createPanel.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createTicketPanel(serverId, req.body);
+    const created = await createTicketPanelRecord(serverId, req.body);
     res.status(201).json(created);
   });
 
   app.patch(api.tickets.updatePanel.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    const updated = await storage.updateTicketPanel(id, req.body);
+    const updated = await updateTicketPanelRecord(id, req.body);
     res.json(updated);
   });
 
   app.delete(api.tickets.deletePanel.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteTicketPanel(id);
+    await deleteTicketPanelRecord(id);
     res.status(204).send();
   });
 
@@ -2472,27 +2046,27 @@ export async function registerRoutes(_server: Server, app: Express) {
   app.get(api.scheduledMessages.list.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    res.json(await storage.getScheduledMessages(serverId));
+    res.json(await listScheduledMessageRecords(serverId));
   });
 
   app.post(api.scheduledMessages.create.path, async (req, res) => {
     const serverId = parseInt(req.params.serverId);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
-    const created = await storage.createScheduledMessage(serverId, req.body);
+    const created = await createScheduledMessageRecord(serverId, req.body);
     res.status(201).json(created);
   });
 
   app.patch(api.scheduledMessages.update.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    const updated = await storage.updateScheduledMessage(id, req.body);
+    const updated = await updateScheduledMessageRecord(id, req.body);
     res.json(updated);
   });
 
   app.delete(api.scheduledMessages.delete.path, async (req, res) => {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
-    await storage.deleteScheduledMessage(id);
+    await deleteScheduledMessageRecord(id);
     res.status(204).send();
   });
 
@@ -2692,7 +2266,7 @@ export async function registerRoutes(_server: Server, app: Express) {
       return res.status(403).json({ message: "Invalid Lockr webhook token." });
     }
 
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found." });
 
     const eventType = normalizeLockrEventType(req.body);
@@ -2861,7 +2435,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const serverId = srvId(req);
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     const actorId = (req as any).user?.discordId ?? "dashboard";
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found" });
     const code = await generateCode({
       ...req.body,
@@ -2877,7 +2451,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (isNaN(serverId)) return res.status(400).json({ message: "Invalid server ID" });
     const { code, userId } = req.body;
     if (!code || !userId) return res.status(400).json({ message: "code and userId are required" });
-    const server = await storage.getServer(serverId);
+    const server = await getServerRecord(serverId);
     if (!server) return res.status(404).json({ message: "Server not found" });
     const result = await redeemCode(code.toUpperCase(), userId, server.discordId);
     if (!result.success) return res.status(400).json({ message: result.error });
@@ -2922,7 +2496,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     const [template] = await db.select().from(channelSyncTemplates).where(eq(channelSyncTemplates.id, templateId));
     if (!template) return res.status(404).json({ message: "Template not found" });
 
-    const channelSettingsList = await storage.getChannelSettings(serverId);
+    const channelSettingsList = await listChannelSettingRecords(serverId);
     const targetChannels = scope === "channels" && channelIds?.length
       ? channelSettingsList.filter((c: any) => channelIds.includes(c.channelId))
       : channelSettingsList;
@@ -2936,7 +2510,7 @@ export async function registerRoutes(_server: Server, app: Express) {
     if (preview) return res.json({ diff });
 
     for (const ch of targetChannels) {
-      await storage.upsertChannelSettings(serverId, { ...ch, ...templateSettings });
+      await upsertChannelSettingRecord(serverId, { ...ch, ...templateSettings });
     }
     res.json({ applied: true, channels: targetChannels.length });
   });
@@ -3375,534 +2949,6 @@ function buildActionRows(input: {
   return rows.slice(0, 5);
 }
 
-function studioHttpError(statusCode: number, message: string) {
-  const error = new Error(message) as Error & { statusCode: number };
-  error.statusCode = statusCode;
-  return error;
-}
-
-async function resolveStudioGuildChannel(serverId: number, channelId: string) {
-  const server = await storage.getServer(serverId);
-  if (!server) throw studioHttpError(404, "Server not found");
-
-  const client = getBotClient();
-  if (!client?.isReady()) throw studioHttpError(503, "Bot is offline. Start the bot before publishing.");
-
-  const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-  if (!guild) throw studioHttpError(404, "Bot is not in this Discord server.");
-
-  const channel = await guild.channels.fetch(channelId.trim()).catch(() => null);
-  if (!channel || !channel.isTextBased() || channel.isThread()) {
-    throw studioHttpError(400, "Selected channel is not a valid text channel.");
-  }
-
-  return { server, guild, channel };
-}
-
-function buildStudioStaticTokenContext(input: {
-  guild: any;
-  channel: any;
-  messageId?: string | null;
-}): StudioTokenContext {
-  const now = new Date();
-  const channelName = "name" in input.channel ? String(input.channel.name || "") : "";
-  const channelId = String(input.channel?.id || "");
-
-  return {
-    serverName: String(input.guild?.name || ""),
-    serverId: String(input.guild?.id || ""),
-    memberCount: Number.isFinite(Number(input.guild?.memberCount)) ? Number(input.guild.memberCount) : undefined,
-    channelName,
-    channelId,
-    channelMention: channelId ? `<#${channelId}>` : channelName,
-    messageId: input.messageId || null,
-    date: now.toLocaleDateString(),
-    time: now.toLocaleTimeString(),
-    unix: Math.floor(now.getTime() / 1000),
-    randomMode: "runtime",
-  };
-}
-
-async function buildStudioMemberTokenContext(input: {
-  guild: any;
-  memberDiscordId?: string;
-  channel?: any | null;
-  messageId?: string | null;
-}): Promise<StudioTokenContext> {
-  const now = new Date();
-  const member = input.memberDiscordId
-    ? await input.guild.members.fetch(input.memberDiscordId).catch(() => null)
-    : null;
-  const user = member?.user || null;
-  const channelName = input.channel && "name" in input.channel ? String(input.channel.name || "") : "";
-  const channelId = String(input.channel?.id || "");
-
-  return {
-    username: user?.username || member?.displayName || null,
-    displayName: member?.displayName || user?.username || null,
-    userId: user?.id || null,
-    userMention: user?.id ? `<@${user.id}>` : null,
-    userAvatar: user?.displayAvatarURL?.() || user?.avatarURL?.() || null,
-    serverName: String(input.guild?.name || ""),
-    serverId: String(input.guild?.id || ""),
-    memberCount: Number.isFinite(Number(input.guild?.memberCount)) ? Number(input.guild.memberCount) : undefined,
-    channelName: channelName || (input.channel ? String(input.channel.id || "") : "Direct Message"),
-    channelId,
-    channelMention: channelId ? `<#${channelId}>` : (channelName || "Direct Message"),
-    messageId: input.messageId || null,
-    date: now.toLocaleDateString(),
-    time: now.toLocaleTimeString(),
-    unix: Math.floor(now.getTime() / 1000),
-    randomMode: "runtime",
-  };
-}
-
-async function resolveStudioDocumentForRequest(input: {
-  serverId: number;
-  actorUserId: number;
-  documentId?: number;
-  documentInput?: unknown;
-  fallbackName: string;
-  createIfMissing?: boolean;
-}) {
-  let documentRecord = input.documentId ? await getStudioDocumentById(input.documentId) : null;
-  if (documentRecord && documentRecord.serverId !== input.serverId) {
-    throw studioHttpError(404, "Studio document not found for this server.");
-  }
-
-  let document: StudioDocument;
-  if (documentRecord) {
-    document = input.documentInput
-      ? normalizeStudioDocument(input.documentInput, documentRecord.name)
-      : normalizeStudioDocument(documentRecord.document, documentRecord.name);
-
-    if (input.documentInput) {
-      documentRecord = await updateStudioDocumentRecord(documentRecord.id, {
-        name: document.meta.name,
-        document,
-      } as any);
-    }
-  } else if (input.documentInput && input.createIfMissing) {
-    document = normalizeStudioDocument(input.documentInput, input.fallbackName);
-    documentRecord = await createStudioDocumentRecord({
-      serverId: input.serverId,
-      ownerUserId: input.actorUserId,
-      scope: "server",
-      kind: "surface",
-      name: document.meta.name,
-      slug: undefined,
-      moduleBinding: null,
-      document,
-    });
-  } else if (input.documentInput) {
-    document = normalizeStudioDocument(input.documentInput, input.fallbackName);
-  } else {
-    throw studioHttpError(400, "A Studio documentId or document payload is required.");
-  }
-
-  return { documentRecord, document };
-}
-
-async function buildStudioPreflight(input: {
-  serverId: number;
-  actorUserId: number;
-  documentId?: number;
-  documentInput?: unknown;
-  viewId?: string;
-}) {
-  const resolved = await resolveStudioDocumentForRequest({
-    serverId: input.serverId,
-    actorUserId: input.actorUserId,
-    documentId: input.documentId,
-    documentInput: input.documentInput,
-    fallbackName: "Untitled Project",
-    createIfMissing: false,
-  });
-  const plan = buildStudioPublishPlan(resolved.document, input.viewId, {
-    tokenAvailability: {
-      static: true,
-      member: false,
-      postSend: false,
-    },
-  });
-
-  return {
-    documentId: resolved.documentRecord?.id || input.documentId || null,
-    document: resolved.document,
-    publishPlan: plan,
-    diagnostics: plan.diagnostics,
-    normalizedNodes: plan.normalizedNodes,
-    debug: plan.debug,
-  };
-}
-
-async function publishStudioMessage(input: {
-  serverId: number;
-  actorUserId: number;
-  actorDiscordId?: string;
-  documentId?: number;
-  documentInput?: unknown;
-  allowDowngrade?: boolean;
-  target: {
-    channelId: string;
-    messageId?: string;
-    viewId?: string;
-  };
-}) {
-  const resolved = await resolveStudioDocumentForRequest({
-    serverId: input.serverId,
-    actorUserId: input.actorUserId,
-    documentId: input.documentId,
-    documentInput: input.documentInput,
-    fallbackName: "Untitled Project",
-    createIfMissing: true,
-  });
-  let documentRecord = resolved.documentRecord;
-  const document = resolved.document;
-  if (!documentRecord) {
-    throw studioHttpError(404, "Studio document could not be resolved for publish.");
-  }
-
-  const targetChannelId = input.target.channelId.trim();
-  const { guild, channel } = await resolveStudioGuildChannel(input.serverId, targetChannelId);
-  const plan = buildStudioPublishPlan(document, input.target.viewId, {
-    tokenAvailability: {
-      static: true,
-      member: false,
-      postSend: Boolean(input.target.messageId?.trim()),
-    },
-  });
-
-  if (!plan.payloadReady) {
-    throw studioHttpError(400, "Nothing to publish. Add content, embeds, or interactive components.");
-  }
-  if (plan.mode === "blocked") {
-    throw studioHttpError(400, plan.summary);
-  }
-  if (plan.mode === "downgraded" && !input.allowDowngrade) {
-    throw studioHttpError(400, "This page will publish in a simplified form. Review the downgrade details, then confirm with Publish simplified.");
-  }
-
-  let publication = input.target.messageId?.trim()
-    ? await getStudioPublicationByMessage(input.serverId, targetChannelId, input.target.messageId.trim())
-    : null;
-
-  if (!publication) {
-    publication = await createStudioPublicationRecord({
-      serverId: input.serverId,
-      documentId: documentRecord.id,
-      channelId: targetChannelId,
-      messageId: input.target.messageId?.trim() || "pending",
-      currentViewId: plan.viewId,
-    });
-  }
-
-  const snapshotPayload = {
-    documentId: documentRecord.id,
-    documentName: documentRecord.name,
-    documentVersion: document.version,
-    publishedViewId: plan.viewId,
-    channelId: targetChannelId,
-    guildId: guild.id,
-    render: {
-      content: plan.liveMessage.content,
-      embeds: plan.liveMessage.embeds,
-      components: plan.liveMessage.components,
-      flags: plan.liveMessage.flags,
-      publishPath: plan.publishPath,
-    },
-    diagnostics: plan.diagnostics,
-    publishPlan: plan,
-    document,
-  };
-
-  const snapshotRecord = await createStudioPublicationSnapshotRecord({
-    publicationId: publication.id,
-    createdByUserId: input.actorUserId,
-    snapshot: snapshotPayload,
-  });
-
-  publication = await updateStudioPublicationRecord(publication.id, {
-    currentSnapshotId: snapshotRecord.id,
-    currentViewId: plan.viewId,
-    status: plan.mode === "downgraded" ? "degraded" : "published",
-  });
-
-  const payload = buildStudioDiscordPayload(
-    plan,
-    publication.id,
-    buildStudioStaticTokenContext({
-      guild,
-      channel,
-      messageId: input.target.messageId?.trim() || null,
-    }),
-  );
-
-  try {
-    let messageId = input.target.messageId?.trim();
-    if (messageId) {
-      const existing = await (channel as any).messages.fetch(messageId).catch(() => null);
-      if (!existing) throw studioHttpError(404, "Message not found for update.");
-      const updated = await existing.edit({
-        content: payload.content,
-        embeds: payload.embeds,
-        components: payload.components,
-        files: payload.files,
-        flags: payload.flags,
-      });
-      messageId = updated.id;
-    } else {
-      const sent = await (channel as any).send({
-        content: payload.content,
-        embeds: payload.embeds,
-        components: payload.components,
-        files: payload.files,
-        flags: payload.flags,
-      });
-      messageId = sent.id;
-    }
-
-    publication = await updateStudioPublicationRecord(publication.id, {
-      messageId,
-      channelId: targetChannelId,
-      currentSnapshotId: snapshotRecord.id,
-      currentViewId: plan.viewId,
-      lastPublishedAt: new Date(),
-      active: true,
-      status: plan.mode === "downgraded" ? "degraded" : "published",
-      lastFailureAt: null,
-      lastFailureSummary: null,
-    } as any);
-
-    await recordStudioRuntimeEvent({
-      serverId: input.serverId,
-      publicationId: publication.id,
-      documentId: documentRecord.id,
-      severity: payload.diagnostics.some((diag) => diag.level === "warning") ? "warning" : "info",
-      eventType: "publish",
-      summary: `Published ${documentRecord.name} to ${targetChannelId}.`,
-      details: { diagnostics: payload.diagnostics, viewId: plan.viewId, messageId, debug: plan.debug },
-    });
-
-    return {
-      publicationId: publication.id,
-      messageId,
-      channelId: targetChannelId,
-      snapshotVersion: snapshotRecord.version,
-      diagnostics: payload.diagnostics,
-      publishPlan: plan,
-    };
-  } catch (err: any) {
-    await updateStudioPublicationRecord(publication.id, {
-      status: "failed",
-      lastFailureAt: new Date(),
-      lastFailureSummary: err?.message || "Publish failed",
-    } as any);
-    await recordStudioRuntimeEvent({
-      serverId: input.serverId,
-      publicationId: publication.id,
-      documentId: documentRecord.id,
-      severity: "error",
-      eventType: "publish_failed",
-      summary: err?.message || "Publish failed",
-      details: { diagnostics: payload.diagnostics, targetChannelId, debug: plan.debug },
-    });
-    throw err;
-  }
-}
-
-async function sendStudioTestMessage(input: {
-  serverId: number;
-  actorUserId: number;
-  actorDiscordId?: string;
-  documentId?: number;
-  documentInput?: unknown;
-  target: {
-    kind: "channel" | "dm";
-    channelId?: string;
-    viewId?: string;
-  };
-}) {
-  const resolved = await resolveStudioDocumentForRequest({
-    serverId: input.serverId,
-    actorUserId: input.actorUserId,
-    documentId: input.documentId,
-    documentInput: input.documentInput,
-    fallbackName: "Untitled Studio Document",
-    createIfMissing: false,
-  });
-  const document = resolved.document;
-
-  const client = getBotClient();
-  if (!client?.isReady()) throw studioHttpError(503, "Bot is offline. Start the bot before sending a test.");
-
-  const server = await storage.getServer(input.serverId);
-  if (!server) throw studioHttpError(404, "Server not found");
-  const guild = client.guilds.cache.get(server.discordId) ?? await client.guilds.fetch(server.discordId).catch(() => null);
-  if (!guild) throw studioHttpError(404, "Bot is not in this Discord server.");
-
-  const plan = buildStudioPublishPlan(document, input.target.viewId, {
-    tokenAvailability: {
-      static: true,
-      member: true,
-      postSend: false,
-    },
-  });
-
-  if (!plan.payloadReady) {
-    throw studioHttpError(400, "Nothing to test. Add content, embeds, or interactive components.");
-  }
-  if (plan.mode === "blocked") {
-    throw studioHttpError(400, plan.summary);
-  }
-
-  if (input.target.kind === "dm") {
-    if (!input.actorDiscordId) {
-      throw studioHttpError(400, "Your Discord account is not linked for DM test sends.");
-    }
-
-    const user = await client.users.fetch(input.actorDiscordId).catch(() => null);
-    if (!user) throw studioHttpError(404, "Could not find your Discord user for the DM test.");
-
-    const tokenContext = await buildStudioMemberTokenContext({
-      guild,
-      memberDiscordId: input.actorDiscordId,
-      channel: null,
-      messageId: null,
-    });
-
-    const payload = buildStudioDiscordPayload(plan, 0, tokenContext);
-
-    await user.send({
-      content: payload.content,
-      embeds: payload.embeds,
-      components: payload.components,
-      files: payload.files,
-      flags: payload.flags,
-    }).catch((err: any) => {
-      throw studioHttpError(400, err?.message || "Could not send the Studio DM test.");
-    });
-
-    return { ok: true, mode: "dm", diagnostics: payload.diagnostics, publishPlan: plan };
-  }
-
-  const channelId = String(input.target.channelId || "").trim();
-  if (!channelId) throw studioHttpError(400, "Choose a channel before sending a test.");
-  const { channel } = await resolveStudioGuildChannel(input.serverId, channelId);
-  const tokenContext = await buildStudioMemberTokenContext({
-    guild,
-    memberDiscordId: input.actorDiscordId,
-    channel,
-    messageId: null,
-  });
-
-  const payload = buildStudioDiscordPayload(plan, 0, tokenContext);
-
-  await (channel as any).send({
-    content: payload.content,
-    embeds: payload.embeds,
-    components: payload.components,
-    files: payload.files,
-    flags: payload.flags,
-  }).catch((err: any) => {
-    throw studioHttpError(400, err?.message || "Could not send the Studio test message.");
-  });
-
-  return { ok: true, mode: "channel", diagnostics: payload.diagnostics, channelId, publishPlan: plan };
-}
-
-async function cloneStudioPublication(input: {
-  publicationId: number;
-  actorUserId: number;
-  targetChannelId: string;
-}) {
-  const publication = await getStudioPublicationById(input.publicationId);
-  if (!publication) throw studioHttpError(404, "Publication not found");
-
-  const snapshot = await getCurrentStudioPublicationSnapshot(publication.id);
-  if (!snapshot) throw studioHttpError(404, "Publication snapshot not found");
-
-  return publishStudioMessage({
-    serverId: publication.serverId,
-    actorUserId: input.actorUserId,
-    documentId: publication.documentId,
-    documentInput: (snapshot.snapshot as any)?.document,
-    target: {
-      channelId: input.targetChannelId,
-      viewId: (snapshot.snapshot as any)?.publishedViewId,
-    },
-  });
-}
-
-async function rollbackStudioPublication(input: {
-  publicationId: number;
-  snapshotId: number;
-  actorUserId: number;
-}) {
-  const publication = await getStudioPublicationById(input.publicationId);
-  if (!publication) throw studioHttpError(404, "Publication not found");
-
-  const snapshotRecord = await getStudioPublicationSnapshotById(input.snapshotId);
-  if (!snapshotRecord || snapshotRecord.publicationId !== publication.id) {
-    throw studioHttpError(404, "Snapshot not found for this publication.");
-  }
-
-  const snapshot = snapshotRecord.snapshot as any;
-  const { guild, channel } = await resolveStudioGuildChannel(publication.serverId, publication.channelId);
-  const rollbackPlan = snapshot.publishPlan || buildStudioPublishPlan(snapshot.document, snapshot.publishedViewId, {
-    tokenAvailability: {
-      static: true,
-      member: false,
-      postSend: true,
-    },
-  });
-  const payload = buildStudioDiscordPayload(
-    rollbackPlan,
-    publication.id,
-    buildStudioStaticTokenContext({
-      guild,
-      channel,
-      messageId: publication.messageId,
-    }),
-  );
-  const existing = await (channel as any).messages.fetch(publication.messageId).catch(() => null);
-  if (!existing) throw studioHttpError(404, "Published message no longer exists.");
-
-  await existing.edit({
-    content: payload.content,
-    embeds: payload.embeds,
-    components: payload.components,
-    files: payload.files,
-    flags: payload.flags,
-  });
-
-  await updateStudioPublicationRecord(publication.id, {
-    currentSnapshotId: snapshotRecord.id,
-    currentViewId: snapshot.publishedViewId,
-    lastPublishedAt: new Date(),
-    active: true,
-    status: rollbackPlan.mode === "downgraded" ? "degraded" : "published",
-  });
-
-  await recordStudioRuntimeEvent({
-    serverId: publication.serverId,
-    publicationId: publication.id,
-    documentId: publication.documentId,
-    severity: "info",
-    eventType: "rollback",
-    summary: `Rolled back publication ${publication.id} to snapshot ${snapshotRecord.version}.`,
-    details: { snapshotId: snapshotRecord.id },
-  });
-
-  return {
-    publicationId: publication.id,
-    messageId: publication.messageId,
-    channelId: publication.channelId,
-    snapshotVersion: snapshotRecord.version,
-    diagnostics: payload.diagnostics,
-  };
-}
-
 function generateMockInsights(serverId: number) {
   const insights = [];
   const now = new Date();
@@ -3971,7 +3017,7 @@ async function seedDatabase() {
     logEvents: ["messageDelete", "memberJoin", "memberLeave"],
   } as any);
 
-  await storage.createCommand(s1.id, {
+      await createCustomCommandRecord(s1.id, {
     name: "rules",
     response: "1. Be respectful to all members\n2. No spamming or flooding\n3. No NSFW content\n4. Use channels appropriately\n5. Have fun!",
     description: "Display server rules",
@@ -3981,7 +3027,7 @@ async function seedDatabase() {
     responseType: "text",
   });
 
-  await storage.createCommand(s1.id, {
+      await createCustomCommandRecord(s1.id, {
     name: "ping",
     response: "Pong! Bot latency: {random:12,15,18,22,25}ms",
     description: "Check bot latency",
@@ -4016,7 +3062,7 @@ async function seedDatabase() {
     logEvents: [],
   } as any);
 
-  await storage.createCommand(s2.id, {
+      await createCustomCommandRecord(s2.id, {
     name: "recommend",
     response: "Check out Frieren: Beyond Journey's End!",
     description: "Get an anime recommendation",

@@ -1,5 +1,6 @@
 import { ChannelType, PermissionFlagsBits, SlashCommandBuilder, type GuildTextBasedChannel } from "discord.js";
-import { storage } from "../../../storage";
+import { createScheduledMessageRecord } from "../../../repositories/operations-config-repository";
+import { getServerByDiscordIdRecord } from "../../../repositories/server-repository";
 import type { CommandModule } from "../../commands/types";
 import { CommandError } from "../../lib/errors";
 import {
@@ -245,12 +246,12 @@ export const autoPosterCommand: CommandModule = {
         throw new CommandError("VALIDATION_FAILED", "No matching run was found in the next 90 days.");
       }
 
-      const server = await storage.getServerByDiscordId(ctx.guild.id);
+      const server = await getServerByDiscordIdRecord(ctx.guild.id);
       if (!server) {
         throw new CommandError("NOT_FOUND", "This server is not registered with Archivist yet.");
       }
 
-      const stored = await storage.createScheduledMessage(server.id, {
+      const stored = await createScheduledMessageRecord(server.id, {
         channelId: sendChannel.id,
         content: payload.content || null,
         embedData: {

@@ -143,12 +143,12 @@ function normalizeEmbedColor(color?: string) {
   if (/^#[\da-f]{3}$/i.test(raw)) {
     return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`;
   }
-  return "#5865F2";
+  return "#E0001A";
 }
 
 function inlineCountTone(current: number, limit: number) {
   if (current > limit) return "text-[#ff7d8d]";
-  if (current >= Math.floor(limit * 0.85)) return "text-[#f2c66d]";
+  if (current >= Math.floor(limit * 0.85)) return "text-[#f0a0ae]";
   return "text-[#7e838b]";
 }
 
@@ -179,7 +179,7 @@ function InlineFieldInput({
       placeholder={placeholder}
       autoFocus={autoFocus}
       className={cn(
-        "w-full rounded-md border border-transparent bg-transparent px-0 py-0 text-sm outline-none placeholder:text-[#7e838b] focus:border-transparent focus:outline-none focus:ring-0",
+        "mobile-entry-safe w-full rounded-md border border-transparent bg-transparent px-0 py-0 text-sm outline-none placeholder:text-[#7e838b] focus:border-transparent focus:outline-none focus:ring-0",
         className,
       )}
     />
@@ -209,7 +209,7 @@ function InlineFieldTextarea({
       placeholder={placeholder}
       autoFocus={autoFocus}
       className={cn(
-        "min-h-0 w-full resize-none rounded-md border border-transparent bg-transparent px-0 py-0 text-sm outline-none placeholder:text-[#7e838b] focus:border-transparent focus:outline-none focus:ring-0",
+        "mobile-entry-safe min-h-0 w-full resize-none rounded-md border border-transparent bg-transparent px-0 py-0 text-sm outline-none placeholder:text-[#7e838b] focus:border-transparent focus:outline-none focus:ring-0",
         className,
       )}
       rows={1}
@@ -549,7 +549,7 @@ function EmbedPreviewCard({
                     draft.authorName = value;
                   })}
                   placeholder="Author name"
-                  className={cn("text-xs font-semibold", embed.authorUrl ? "text-[#00A8FC]" : "text-white")}
+                  className={cn("text-xs font-semibold", embed.authorUrl ? "text-[#ff8d9c]" : "text-white")}
                 />
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -591,7 +591,7 @@ function EmbedPreviewCard({
                 {embed.authorIconUrl ? <img src={embed.authorIconUrl} alt="" className="h-6 w-6 rounded-full object-cover" /> : null}
                 <DiscordRichText
                   text={String(embed.authorName || "Tap to add an author label or icon.")}
-                  className={cn(embed.authorName ? (embed.authorUrl ? "text-[#00A8FC]" : "text-white") : "text-[#949ba4]")}
+                  className={cn(embed.authorName ? (embed.authorUrl ? "text-[#ff8d9c]" : "text-white") : "text-[#949ba4]")}
                   emojiSize={16}
                 />
               </div>
@@ -609,7 +609,7 @@ function EmbedPreviewCard({
                   draft.title = value;
                 })}
                 placeholder="Add a title"
-                className={cn("text-sm font-semibold", embed.url ? "text-[#00A8FC]" : "text-white")}
+                className={cn("text-sm font-semibold", embed.url ? "text-[#ff8d9c]" : "text-white")}
               />
               {titleUrlVisible ? (
                 <div className="space-y-2">
@@ -619,7 +619,7 @@ function EmbedPreviewCard({
                       draft.url = value;
                     })}
                     placeholder="Title link URL"
-                    className="text-xs text-[#8dc8ff]"
+                    className="text-xs text-[#f2b8c0]"
                   />
                   <div className="flex justify-end">
                     <InlineEmbedButton tone="danger" onClick={() => {
@@ -650,7 +650,7 @@ function EmbedPreviewCard({
           ) : (
             <PreviewRegion label="Edit title" onClick={editable ? () => edit("title") : null} selected={selected && activeRegion === "title"} className={embed.title || editable ? "p-1" : ""}>
               {embed.title ? (
-                <p className={cn("text-sm font-semibold", embed.url ? "text-[#00A8FC]" : "text-white")}>
+                <p className={cn("text-sm font-semibold", embed.url ? "text-[#ff8d9c]" : "text-white")}>
                   <DiscordRichText text={String(embed.title)} emojiSize={18} />
                 </p>
               ) : editable ? (
@@ -1057,7 +1057,7 @@ function NodePreview({
     return <PreviewRegion label="Edit divider" onClick={edit} selected={selected} className={cn("p-2", edge)}><p className="whitespace-pre-wrap text-xs tracking-[0.15em] text-[#949ba4]"><DiscordRichText text={dividerText(node)} emojiSize={14} /></p></PreviewRegion>;
   }
   if (node.type === "style_block") {
-    const accent = String(node.props.accentColor || "#5865F2");
+    const accent = String(node.props.accentColor || "#E0001A");
     return <PreviewRegion label="Edit notice panel" onClick={edit} selected={selected} className={edge}><div className="rounded-lg border border-white/10 bg-[#2b2d31] p-3" style={{ borderLeftColor: accent, borderLeftWidth: 4 }}><p className="text-sm font-semibold text-white"><DiscordRichText text={String(node.props.title || "Add notice heading")} emojiSize={16} /></p><p className={cn("whitespace-pre-wrap text-xs", node.props.description ? "text-[#dbdee1]" : "text-[#949ba4]")}><DiscordRichText text={String(node.props.description || (editable ? "Tap to add notice details" : ""))} emojiSize={15} /></p></div></PreviewRegion>;
   }
   if (node.type === "media_gallery") {
@@ -1090,7 +1090,15 @@ function NodePreview({
   if (node.type === "button") {
     const style = Number(node.props.style || 1);
     const parsedEmoji = node.props.emoji ? parseDiscordEmojiToken(String(node.props.emoji)) : null;
-    const styleClass = style === 1 ? "bg-[#5865F2] text-white" : style === 2 ? "bg-[#4e5058] text-white" : style === 3 ? "bg-[#248046] text-white" : style === 4 ? "bg-[#da373c] text-white" : "bg-[#00a8fc] text-[#101114]";
+    const styleClass = style === 1
+      ? "bg-[#8b1a2b] text-white"
+      : style === 2
+        ? "bg-[#4e5058] text-white"
+        : style === 3
+          ? "bg-[#6f1723] text-white"
+          : style === 4
+            ? "bg-[#da373c] text-white"
+            : "border border-white/20 bg-transparent text-white";
     return <button type="button" onClick={edit || undefined} className={cn("rounded-md px-3 py-1.5 text-xs font-medium transition", styleClass, edge, selected ? "ring-2 ring-white/28" : "")}>{parsedEmoji ? <InlineDiscordEmoji emoji={parsedEmoji} size={15} className="mr-1" /> : null}<DiscordRichText text={String(node.props.label || (editable ? "Add button label" : "Button"))} emojiSize={15} /></button>;
   }
 
@@ -1105,7 +1113,7 @@ function PlannedComponentPreview({ component, depth = 0 }: { component: EmbedCom
   if (component.type === COMPONENT_TYPES.MEDIA_GALLERY) return <div className={cn("grid grid-cols-2 gap-2", edge)}>{(component.items || []).slice(0, 4).map((item, index) => <div key={`planned-media-${index}`} className="relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#1e1f22]"><img src={String(item.url)} alt={String(item.description || "")} className="h-full w-full object-cover" /></div>)}</div>;
   if (component.type === COMPONENT_TYPES.FILE) return <div className={cn("rounded-lg border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><span>Attachment </span><DiscordRichText text={String(component.label || "Add attachment label")} emojiSize={14} /></div>;
   if (component.type === COMPONENT_TYPES.ACTION_ROW) return <div className={cn("flex flex-wrap gap-2", edge)}>{(component.components || []).map((child, index) => <PlannedComponentPreview key={`${component.id || "row"}-${child.id || child.type}-${index}`} component={child} depth={depth + 1} />)}</div>;
-  if (component.type === COMPONENT_TYPES.BUTTON) return <button type="button" className={cn("rounded-md bg-[#5865F2] px-3 py-1.5 text-xs font-medium text-white", edge)}><DiscordRichText text={String(component.label || "Add button label")} emojiSize={15} /></button>;
+  if (component.type === COMPONENT_TYPES.BUTTON) return <button type="button" className={cn("rounded-md bg-[#8b1a2b] px-3 py-1.5 text-xs font-medium text-white", edge)}><DiscordRichText text={String(component.label || "Add button label")} emojiSize={15} /></button>;
   return <div className={cn("min-w-[180px] rounded-md border border-white/10 bg-[#1e1f22] px-3 py-2 text-xs text-[#dbdee1]", edge)}><DiscordRichText text={String(component.placeholder || component.label || "Add dropdown placeholder")} emojiSize={15} /></div>;
 }
 
@@ -1203,7 +1211,7 @@ export function StudioPreview({
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[15px] font-semibold text-white">Archivist</span>
-                  {surface === "preview" ? <span className="rounded-md bg-[#5865F2] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">APP</span> : null}
+                  {surface === "preview" ? <span className="rounded-md bg-[#8b1a2b] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">APP</span> : null}
                   <span className="text-xs text-[#949ba4]">{surface === "editor" ? "Live draft editor" : previewSurface === "studio" ? "Studio preview" : "Live publish preview"}</span>
                 </div>
 
@@ -1218,7 +1226,7 @@ export function StudioPreview({
                           onChange={(event) => onChangeMessage?.(event.target.value)}
                           placeholder="Write your message."
                           rows={Math.max(3, messageValue.split("\n").length)}
-                          className="min-h-[88px] w-full resize-none border-0 bg-transparent text-sm text-[#dbdee1] outline-none placeholder:text-[#949ba4]"
+                          className="mobile-entry-safe min-h-[88px] w-full resize-none border-0 bg-transparent text-sm text-[#dbdee1] outline-none placeholder:text-[#949ba4]"
                         />
                         <InlineComposerFooter
                           value={messageValue}

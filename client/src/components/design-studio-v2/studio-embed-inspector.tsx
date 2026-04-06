@@ -7,9 +7,10 @@ import type { StudioEmbedDraft, EmbedFieldType } from "@shared/schema";
 import { EMBED_TEMPLATES } from "./studio-embed-templates";
 
 const SWATCHES = [
-  "#5865F2", "#EB459E", "#57F287", "#FEE75C", "#ED4245",
-  "#E67E22", "#9B59B6", "#1ABC9C", "#3498DB", "#E0001A",
-  "#FF6B6B", "#FFFFFF", "#99AAB5", "#2ECC71", "#C0392B", "#F1C40F",
+  "#E0001A", "#FF3448", "#FF4D5E", "#C81D31",
+  "#991324", "#6F0D19", "#F4EDEF", "#C4B8BE",
+  "#8E8188", "#5F555B", "#FFFFFF", "#D94A58",
+  "#B51226", "#7A0F1C", "#43282D", "#191418",
 ];
 
 const EMOJI_GROUPS = [
@@ -224,8 +225,8 @@ function EmojiSheet({
 
 // ── Shared input styling ───────────────────────────────────────────────────────
 
-const inputCls = "w-full rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
-const textareaCls = "w-full resize-none rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
+const inputCls = "mobile-entry-safe w-full rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
+const textareaCls = "mobile-entry-safe w-full resize-none rounded-[12px] border border-white/[0.08] bg-[rgba(255,255,255,0.035)] px-3 py-2.5 text-[14px] text-white placeholder-white/20 outline-none transition focus:border-white/[0.16] focus:bg-white/[0.05]";
 
 // ── Section label ─────────────────────────────────────────────────────────────
 
@@ -495,7 +496,7 @@ export function EmbedInspector({ embeds, embedIndex, onSwitchEmbed, onAddEmbed, 
               value={currentColor}
               onChange={e => set("color", e.target.value)}
               style={{ fontSize: 16 }}
-              className="flex-1 rounded-[8px] border-0 bg-transparent px-1 py-0.5 font-mono text-[13px] text-white/55 outline-none focus:text-white/80 transition"
+              className="mobile-entry-safe flex-1 rounded-[8px] border-0 bg-transparent px-1 py-0.5 font-mono text-[13px] text-white/55 outline-none focus:text-white/80 transition"
             />
           </div>
         </div>
@@ -594,7 +595,7 @@ export function EmbedInspector({ embeds, embedIndex, onSwitchEmbed, onAddEmbed, 
                       <input type="text"
                         {...fieldInputProps(field.name, v => setField(i, { name: v }))}
                         placeholder="Field name"
-                        className="w-full rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
+                        className="mobile-entry-safe w-full rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
                     </div>
                     <div>
                       <div className="mb-1 flex items-center justify-between">
@@ -604,7 +605,7 @@ export function EmbedInspector({ embeds, embedIndex, onSwitchEmbed, onAddEmbed, 
                       <textarea
                         {...fieldInputProps(field.value, v => setField(i, { value: v }))}
                         placeholder="Field value"
-                        className="min-h-[60px] w-full resize-none rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
+                        className="mobile-entry-safe min-h-[60px] w-full resize-none rounded-[10px] border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-[14px] text-white placeholder-white/20 outline-none focus:border-white/[0.14] focus:bg-white/[0.05] transition" />
                     </div>
                     <div className="flex items-center justify-between pt-0.5">
                       <span className="text-[12px] text-white/35">Inline</span>

@@ -28,11 +28,6 @@ export interface StudioEntryIntent {
   eyebrow?: string;
   title?: string;
   description?: string;
-  badges?: string[];
-  recommendedFlowLabel?: string;
-  recommendedFlowTitle?: string;
-  recommendedFlowDescription?: string;
-  preferredKinds?: StudioCreateKind[];
 }
 
 const CREATE_CARDS = [
@@ -78,9 +73,9 @@ export function StudioV2EmptyState({
   onOpenDraft,
   entryIntent,
 }: StudioV2EmptyStateProps) {
-  const heroEyebrow = entryIntent?.eyebrow || "Design Studio";
-  const heroTitle = entryIntent?.title || "Build Discord messages live.";
-  const heroDescription = entryIntent?.description || "Draft, preview, and publish directly to your server. Every design stays reusable.";
+  const heroEyebrow = entryIntent?.eyebrow || "Studio";
+  const heroTitle = entryIntent?.title || "Choose a surface";
+  const heroDescription = entryIntent?.description?.trim() || "";
 
   const onCreate = (id: StudioCreateKind) => {
     if (id === "message") onCreateMessage();
@@ -121,8 +116,8 @@ export function StudioV2EmptyState({
           </div>
 
           {/* headline */}
-          <h1 className="mb-2 text-[1.7rem] font-bold leading-tight tracking-tight text-white md:text-[2.1rem]">{heroTitle}</h1>
-          <p className="mb-7 max-w-xl text-[14px] leading-6 text-white/50">{heroDescription}</p>
+          <h1 className={cn("text-[1.7rem] font-bold leading-tight tracking-tight text-white md:text-[2.1rem]", heroDescription ? "mb-2" : "mb-7")}>{heroTitle}</h1>
+          {heroDescription ? <p className="mb-7 max-w-xl text-[14px] leading-6 text-white/50">{heroDescription}</p> : null}
 
           {/* create cards */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-lg">
@@ -224,7 +219,7 @@ export function StudioV2EmptyState({
         </div>
       ) : !isLoading ? (
         <div className="rounded-[16px] border border-dashed border-white/[0.07] bg-white/[0.015] px-4 py-6 text-center">
-          <p className="text-[13px] text-white/30">No drafts yet — create one above to get started</p>
+          <p className="text-[13px] text-white/30">No drafts yet.</p>
         </div>
       ) : null}
 

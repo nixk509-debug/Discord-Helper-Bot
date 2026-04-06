@@ -83,6 +83,19 @@ import {
   ReactionRolesPage,
   PollsPage,
 } from "@/pages/dashboard/community-modules";
+import {
+  AutoModPage,
+  WelcomePage,
+  RaidProtectionPage,
+  VerificationConfigPage,
+  EconomyConfigPage,
+  CountingPage,
+  LoggingConfigPage,
+  RoleRewardsPage,
+  AutoRolePage,
+  BoostPerksPage,
+  BirthdayPage,
+} from "@/pages/dashboard/advanced-modules";
 
 const COMMAND_FILTERS = [
   { label: "All", value: "all" },
@@ -856,7 +869,7 @@ export default function WorkspacePage() {
       <div className="space-y-4">
         <PageHeader
           item={item}
-          title={item.label}
+          title={["commands-overview", "studio-overview", "fun-overview", "settings-overview", "creative-overview", "community-overview"].includes(item.id) ? "" : item.label}
           description={item.description}
           primaryAction={getPrimaryAction(item, serverId, navigate)}
           secondaryAction={getSecondaryAction(item, serverId, navigate)}
@@ -944,8 +957,8 @@ function renderPageContent({
 
   if (item.id === "commands-all") {
     return (
-      <Card className="archivist-panel">
-        <CardContent className="space-y-2 p-3">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="space-y-2">
           {filteredCommands.map((command: any) => (
             <button
               key={command.id}
@@ -970,8 +983,8 @@ function renderPageContent({
             </button>
           ))}
           {!filteredCommands.length ? <EmptyState label="No commands match this filter yet." /> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -1010,12 +1023,11 @@ function renderPageContent({
       : "Review the command subset tied to this trigger type and jump straight into editing.";
 
     return (
-      <Card className="archivist-panel">
-        <CardHeader>
-          <CardTitle className="text-white">{title}</CardTitle>
-          <CardDescription>{body}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{title}</p>
+        </div>
+        <div className="space-y-2">
           {subset.map((command: any) => (
             <button
               key={command.id}
@@ -1031,8 +1043,8 @@ function renderPageContent({
             </button>
           ))}
           {!subset.length ? <EmptyState label="No commands are in this lane yet." /> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -1046,20 +1058,19 @@ function renderPageContent({
             { label: "Channels", value: String(context?.channels.length || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Reusable variables</CardTitle>
-            <CardDescription>Keep the common variable language visible so command builders do not feel blank or dead.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Reusable variables</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             {VARIABLE_CARDS.map((variable) => (
               <div key={variable.label} className="rounded-[20px] border border-white/8 bg-[#0a0c0f] p-4">
                 <p className="text-sm font-semibold text-white">{variable.label}</p>
                 <p className="mt-2 text-sm text-white/46">{variable.description}</p>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1067,12 +1078,11 @@ function renderPageContent({
   if (item.id === "commands-cooldowns") {
     const sorted = [...commands].sort((a: any, b: any) => getWorkflowCommandCooldown(b) - getWorkflowCommandCooldown(a));
     return (
-      <Card className="archivist-panel">
-        <CardHeader>
-          <CardTitle className="text-white">Cooldown map</CardTitle>
-          <CardDescription>See which commands are rate-limited hardest before you tune them.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Cooldown map</p>
+        </div>
+        <div className="space-y-2">
           {sorted.map((command: any) => (
             <div key={command.id} className="flex items-center justify-between gap-3 rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
               <div className="min-w-0">
@@ -1083,8 +1093,8 @@ function renderPageContent({
             </div>
           ))}
           {!sorted.length ? <EmptyState label="No commands with cooldowns yet." /> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -1099,12 +1109,11 @@ function renderPageContent({
             { label: "Recent Failures", value: String(overview?.metrics.recentFailures || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Command analytics</CardTitle>
-            <CardDescription>See which command lanes are carrying the most traffic before you change logic or imports.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Command analytics</p>
+          </div>
+          <div className="space-y-2">
             {topCommands.map((entry: any) => (
               <div key={entry.command} className="flex items-center justify-between gap-3 rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] px-4 py-4">
                 <div className="min-w-0">
@@ -1115,8 +1124,8 @@ function renderPageContent({
               </div>
             ))}
             {!topCommands.length ? <EmptyState label="No command analytics have been recorded yet." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1147,24 +1156,22 @@ function renderPageContent({
             { label: "Templates", value: String(templates.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Brand kit</CardTitle>
-            <CardDescription>Keep reusable visual direction visible without turning Studio into a giant launcher.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Brand kit</p>
+          </div>
+          <div className="space-y-2">
             {recentBrandDocs.map((document: any) => (
               <QuickActionRow
                 key={document.id}
                 icon={Sparkles}
                 title={document.name}
-                description={document.moduleBinding ? document.moduleBinding.replace(/_/g, " ") : "Styled Studio surface"}
                 href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: document.id } })}
               />
             ))}
             {!recentBrandDocs.length ? <EmptyState label="No reusable brand-facing Studio surfaces are ready yet." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1180,24 +1187,22 @@ function renderPageContent({
             { label: "Published", value: String(publications.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Assets</CardTitle>
-            <CardDescription>Documents carrying media-backed assets, attachments, or reusable payloads.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Assets</p>
+          </div>
+          <div className="space-y-2">
             {assetDocuments.map((document: any) => (
               <QuickActionRow
                 key={document.id}
                 icon={FileStack}
                 title={document.name}
-                description={`${document.assets.length} attached asset${document.assets.length === 1 ? "" : "s"}`}
                 href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: document.id } })}
               />
             ))}
             {!assetDocuments.length ? <EmptyState label="No Studio documents with attached assets are available yet." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1205,8 +1210,8 @@ function renderPageContent({
   if (item.id === "studio-overview") {
     return (
       <div className="space-y-4">
-        <Card className="archivist-panel">
-          <CardContent className="space-y-5 p-4">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="space-y-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-white">Start in Studio</p>
@@ -1244,15 +1249,14 @@ function renderPageContent({
                 <MiniRouteLink label="Templates" href={buildArchivistItemPath(serverId, "studio", "templates")} />
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
         <div className="grid gap-4 xl:grid-cols-[1.1fr_minmax(0,0.9fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Recent drafts</CardTitle>
-              <CardDescription>Return to the surfaces you touched last without reopening the full Studio shell first.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Recent drafts</p>
+            </div>
+            <div className="space-y-2">
               {drafts.slice(0, 4).map((draft: any) => (
                 <button
                   key={draft.id}
@@ -1270,26 +1274,24 @@ function renderPageContent({
                 </button>
               ))}
               {!drafts.length ? <EmptyState label="No drafts yet. Start with a fresh surface." /> : null}
-            </CardContent>
-          </Card>
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Templates</CardTitle>
-              <CardDescription>Reusable welcome, verify, and support surfaces that are worth keeping visible but not oversized.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
+            </div>
+          </div>
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Templates</p>
+            </div>
+            <div className="space-y-2">
               {templates.slice(0, 4).map((template: any) => (
                 <QuickActionRow
                   key={template.id}
                   icon={CopyPlus}
                   title={template.name}
-                  description={template.moduleBinding ? template.moduleBinding.replace(/_/g, " ") : "Reusable template"}
                   href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: template.id } })}
                 />
               ))}
               {!templates.length ? <EmptyState label="No templates saved yet." /> : null}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1297,8 +1299,8 @@ function renderPageContent({
 
   if (item.id === "studio-drafts") {
     return (
-      <Card className="archivist-panel">
-        <CardContent className="space-y-2 p-3">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="space-y-2">
           {drafts.map((draft: any) => (
             <button
               key={draft.id}
@@ -1314,27 +1316,26 @@ function renderPageContent({
             </button>
           ))}
           {!drafts.length ? <EmptyState label="No drafts available." /> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
   if (item.id === "studio-templates") {
     return (
-      <Card className="archivist-panel">
-        <CardContent className="space-y-2 p-3">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="space-y-2">
           {templates.map((template: any) => (
             <QuickActionRow
               key={template.id}
               icon={LayoutTemplate}
               title={template.name}
-              description={template.moduleBinding ? template.moduleBinding.replace(/_/g, " ") : "Template"}
               href={buildArchivistItemPath(serverId, "studio", "create-new", { search: { documentId: template.id } })}
             />
           ))}
           {!templates.length ? <EmptyState label="No templates have been created yet." /> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -1377,12 +1378,11 @@ function renderPageContent({
             { label: "Published", value: String(publications.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">{item.label}</CardTitle>
-            <CardDescription>{item.description}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{item.label}</p>
+          </div>
+          <div className="space-y-2">
             {subset.map((document: any) => (
               <button
                 key={document.id}
@@ -1402,18 +1402,16 @@ function renderPageContent({
               <QuickActionRow
                 icon={BadgePlus}
                 title="Open Builder"
-                description="Create or edit a matching Studio asset."
                 href={buildArchivistItemPath(serverId, "studio", "create-new")}
               />
               <QuickActionRow
                 icon={FileStack}
                 title="Open Drafts"
-                description="Review the recent draft list for this server."
                 href={buildArchivistItemPath(serverId, "studio", "drafts")}
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1441,15 +1439,14 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Module control center</CardTitle>
-              <CardDescription>See what is live, what still needs setup, and jump straight into the next useful lane.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Module control center</p>
+            </div>
+            <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <QuickActionRow icon={Gamepad2} title="Modules" description="Enable and configure the engagement systems quickly." href={buildArchivistItemPath(serverId, "creative", "modules")} />
-                <QuickActionRow icon={Users} title="Leaderboards" description="Review visible rankings and recurring engagement outputs." href={buildArchivistItemPath(serverId, "creative", "leaderboards")} />
+                <QuickActionRow icon={Gamepad2} title="Modules" href={buildArchivistItemPath(serverId, "creative", "modules")} />
+                <QuickActionRow icon={Users} title="Leaderboards" href={buildArchivistItemPath(serverId, "creative", "leaderboards")} />
               </div>
               <div className="grid gap-3">
                 {MODULE_CARDS.map((module) => {
@@ -1477,38 +1474,35 @@ function renderPageContent({
                   );
                 })}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <div className="space-y-4">
-            <Card className="archivist-panel">
-              <CardHeader>
-                <CardTitle className="text-white">Ready next</CardTitle>
-                <CardDescription>Fast wins so the creative side never feels like a dead branch of the dashboard.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+              <div className="mb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Ready next</p>
+              </div>
+              <div className="space-y-3">
                 {enabledModuleCards.length ? (
                   enabledModuleCards.slice(0, 3).map((module) => (
                     <QuickActionRow
                       key={module.id}
                       icon={Sparkles}
                       title={`${module.title} setup`}
-                      description={MODULE_BLUEPRINTS[module.id].starterChecklist[0]}
                       href={buildArchivistItemPath(serverId, "creative", module.id === "daily" ? "daily-rewards" : module.id)}
                     />
                   ))
                 ) : (
                   <EmptyState label="No creative modules are enabled yet. Open Modules and flip on the ones you want to grow first." />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            <Card className="archivist-panel">
-              <CardHeader>
-                <CardTitle className="text-white">Needs first pass</CardTitle>
-                <CardDescription>Disabled lanes are still one click away from a usable setup path.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
+            <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+              <div className="mb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Needs first pass</p>
+              </div>
+              <div className="space-y-2">
                 {disabledModuleCards.length ? disabledModuleCards.map((module) => (
                   <div key={module.id} className="rounded-[18px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
                     <div className="flex items-center justify-between gap-3">
@@ -1522,8 +1516,8 @@ function renderPageContent({
                 )) : (
                   <EmptyState label="Everything in Fun & Games is already enabled, so this lane becomes a quick status board instead." />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1540,15 +1534,14 @@ function renderPageContent({
             { label: "Members", value: String(context?.memberCount || overview?.server.memberCount || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Module switchboard</CardTitle>
-            <CardDescription>These switches are saved per server in the dashboard so you can keep track of which lanes you are actively building out.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Module switchboard</p>
+          </div>
+          <div className="grid gap-3">
         {MODULE_CARDS.map((module) => (
-          <Card key={module.id} className="archivist-panel">
-            <CardContent className="flex flex-col items-start gap-4 p-4 sm:flex-row sm:items-center">
+          <div key={module.id} className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="flex flex-col items-start gap-4 p-4 sm:flex-row sm:items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-[16px] border border-white/8 bg-[#120d11] text-[#ff6276]">
                 <Gamepad2 className="h-5 w-5" />
               </div>
@@ -1592,11 +1585,11 @@ function renderPageContent({
                   Next up: {MODULE_BLUEPRINTS[module.id].starterChecklist[0]}
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1607,12 +1600,11 @@ function renderPageContent({
 
     if (item.id === "creative-leaderboards") {
       return (
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Leaderboards</CardTitle>
-            <CardDescription>Visible rankings and the most active command or module lanes right now.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Leaderboards</p>
+          </div>
+          <div className="space-y-2">
             {(overview?.commandUsage || []).slice(0, 6).map((entry: any) => (
               <div key={entry.command} className="flex items-center justify-between gap-3 rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4">
                 <p className="text-sm font-medium text-white">{entry.command}</p>
@@ -1620,8 +1612,8 @@ function renderPageContent({
               </div>
             ))}
             {!(overview?.commandUsage || []).length ? <EmptyState label="No leaderboard activity has been recorded yet." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       );
     }
 
@@ -1635,12 +1627,11 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">{moduleCard?.title || item.label}</CardTitle>
-              <CardDescription>{moduleCard?.description || item.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{moduleCard?.title || item.label}</p>
+            </div>
+            <div className="space-y-4">
               <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1680,61 +1671,54 @@ function renderPageContent({
                 <QuickActionRow
                   icon={ScrollText}
                   title="Command lane"
-                  description="Open the matching command surface for this module."
                   href={buildArchivistItemPath(serverId, "commands", MODULE_BLUEPRINTS[moduleId].commandRoute)}
                 />
                 <QuickActionRow
                   icon={LayoutTemplate}
                   title="Studio lane"
-                  description="Build the visible messages or panels tied to this module."
                   href={buildArchivistItemPath(serverId, "studio", MODULE_BLUEPRINTS[moduleId].studioRoute)}
                 />
                 <QuickActionRow
                   icon={Settings2}
                   title="Server lane"
-                  description="Open the supporting server-management route that normally matters next."
                   href={buildArchivistItemPath(serverId, "operations", MODULE_BLUEPRINTS[moduleId].settingsRoute)}
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <div className="space-y-4">
-            <Card className="archivist-panel">
-              <CardHeader>
-                <CardTitle className="text-white">Best next actions</CardTitle>
-                <CardDescription>Jump directly to the supporting surfaces instead of backing out and hunting through the sidebar.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+              <div className="mb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Best next actions</p>
+              </div>
+              <div className="space-y-3">
                 <QuickActionRow
                   icon={Gamepad2}
                   title="Back to Modules"
-                  description="Return to the switchboard and compare every engagement lane."
                   href={buildArchivistItemPath(serverId, "creative", "modules")}
                 />
                 <QuickActionRow
                   icon={Users}
                   title="Open Leaderboards"
-                  description="Review the visible rankings and competitive output around this module."
                   href={buildArchivistItemPath(serverId, "creative", "leaderboards")}
                 />
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            <Card className="archivist-panel">
-              <CardHeader>
-                <CardTitle className="text-white">Module focus</CardTitle>
-                <CardDescription>Keep the design goal visible while you wire commands, panels, and settings together.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
+            <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+              <div className="mb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Module focus</p>
+              </div>
+              <div className="space-y-2">
                 <div className="rounded-[20px] border border-white/8 bg-[#0a0c0f] px-4 py-4 text-sm text-white/68">
                   {MODULE_BLUEPRINTS[moduleId]?.focus}
                 </div>
                 <div className="rounded-[20px] border border-dashed border-white/10 bg-[#0a0c0f] px-4 py-4 text-sm text-white/46">
-                  Saved here: module tracking is stored per server in this dashboard so your “working on now” state survives refreshes.
+                  Saved here: module tracking is stored per server in this dashboard so your "working on now" state survives refreshes.
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1744,6 +1728,18 @@ function renderPageContent({
   // ─── Community module pages ────────────────────────────────────────────────
   const communityRoles: any[] = context?.roles || [];
 
+  if (item.id === "creative-role-rewards") {
+    return <RoleRewardsPage serverId={serverId} server={server} roles={context?.roles ?? []} channels={textChannels} />;
+  }
+  if (item.id === "creative-auto-role") {
+    return <AutoRolePage serverId={serverId} server={server} roles={context?.roles ?? []} />;
+  }
+  if (item.id === "creative-boost-perks") {
+    return <BoostPerksPage serverId={serverId} server={server} roles={context?.roles ?? []} channels={textChannels} />;
+  }
+  if (item.id === "creative-birthday") {
+    return <BirthdayPage serverId={serverId} channels={textChannels} roles={context?.roles ?? []} />;
+  }
   if (item.id === "community-profile") {
     return <LevelingPage serverId={serverId} channels={textChannels} />;
   }
@@ -1764,6 +1760,12 @@ function renderPageContent({
   }
   if (item.id === "community-polls") {
     return <PollsPage serverId={serverId} channels={textChannels} />;
+  }
+  if (item.id === "creative-counting") {
+    return <CountingPage serverId={serverId} channels={textChannels} />;
+  }
+  if (item.id === "creative-economy") {
+    return <EconomyConfigPage serverId={serverId} server={server} />;
   }
 
   if (item.id === "settings-overview") {
@@ -1790,12 +1792,11 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.1fr_minmax(0,0.9fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Settings groups</CardTitle>
-              <CardDescription>Open smaller control lanes instead of one long settings wall.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Settings groups</p>
+            </div>
+            <div className="space-y-3">
               {SETTINGS_HELPERS.map((group) => (
                 <div key={group.id} className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
                   <p className="text-sm font-semibold text-white">{group.title}</p>
@@ -1806,28 +1807,26 @@ function renderPageContent({
                         key={route.slug}
                         icon={route.section === "studio" ? LayoutTemplate : route.section === "settings" ? Settings2 : ScrollText}
                         title={route.label}
-                        description={`Open ${route.label.toLowerCase()} without backing out of the workspace.`}
                         href={buildArchivistItemPath(serverId, route.section, route.slug)}
                       />
                     ))}
                   </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Operator shortcuts</CardTitle>
-              <CardDescription>Quick jumps for the settings routes you are most likely to need first.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Operator shortcuts</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
               <QuickLaunchCard title="General" icon={Settings2} href={buildArchivistItemPath(serverId, "operations", "general")} />
               <QuickLaunchCard title="Server Config" icon={Braces} href={buildArchivistItemPath(serverId, "operations", "server-config")} />
               <QuickLaunchCard title="Notifications" icon={MessageSquareText} href={buildArchivistItemPath(serverId, "operations", "notifications")} />
               <QuickLaunchCard title="Backups" icon={CopyPlus} href={buildArchivistItemPath(serverId, "operations", "backups")} />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1851,12 +1850,11 @@ function renderPageContent({
             { label: "Channels", value: String(context?.channels?.length || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Server roles</CardTitle>
-            <CardDescription>All roles in this server, sorted by position. Colors and IDs are pulled live from Discord.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Server roles</p>
+          </div>
+          <div className="space-y-2">
             {sortedRoles.length ? sortedRoles.map((role) => {
               const hex = roleColorHex(role.color);
               return (
@@ -1876,19 +1874,17 @@ function renderPageContent({
             }) : (
               <EmptyState label="No roles returned from Discord context yet. Try reloading the workspace." />
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <QuickActionRow
             icon={MessageSquareText}
             title="View Channels"
-            description="See the channel structure alongside role access."
             href={buildArchivistItemPath(serverId, "operations", "channels")}
           />
           <QuickActionRow
             icon={ShieldCheck}
             title="Permission Rules"
-            description="Set which roles can access specific bot features."
             href={buildArchivistItemPath(serverId, "operations", "permissions")}
           />
         </div>
@@ -1919,12 +1915,11 @@ function renderPageContent({
             { label: "Channels", value: String(context?.channels.length || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Permission rules</CardTitle>
-            <CardDescription>Current server permission gates stored in Archivist, grouped by the permission they affect.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Permission rules</p>
+          </div>
+          <div className="space-y-4">
             {groupedRuleEntries.length ? groupedRuleEntries.map(([permission, rules]) => (
               <div key={permission} className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -1953,20 +1948,22 @@ function renderPageContent({
               <QuickActionRow
                 icon={Users}
                 title="Open Roles"
-                description="Review role groups that drive permission rules."
                 href={buildArchivistItemPath(serverId, "operations", "roles")}
               />
               <QuickActionRow
                 icon={MessageSquareText}
                 title="Open Channels"
-                description="Inspect the channels that these permission rules affect."
                 href={buildArchivistItemPath(serverId, "operations", "channels")}
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
+  }
+
+  if (item.id === "settings-member-flow" && server?.settings) {
+    return <WelcomePage serverId={serverId} server={server} channels={context?.channels ?? []} />;
   }
 
   if (item.id === "settings-member-flow") {
@@ -1980,32 +1977,28 @@ function renderPageContent({
             { label: "Channels", value: String(textChannels.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Onboarding</CardTitle>
-            <CardDescription>Keep member entry clean: welcome surfaces, verification paths, and staff-visible fallbacks.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Onboarding</p>
+          </div>
+          <div className="space-y-2">
             <QuickActionRow
               icon={LayoutTemplate}
               title="Welcome surfaces"
-              description="Open the Studio welcome and verify assets tied to entry flow."
               href={buildArchivistItemPath(serverId, "studio", "welcome")}
             />
             <QuickActionRow
               icon={ShieldCheck}
               title="Verification roles"
-              description="Review the roles that matter once a member passes verification."
               href={buildArchivistItemPath(serverId, "operations", "roles")}
             />
             <QuickActionRow
               icon={MessageSquareText}
               title="Entry channels"
-              description="Choose the visible lanes members land in first."
               href={buildArchivistItemPath(serverId, "operations", "channels")}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2020,18 +2013,17 @@ function renderPageContent({
             { label: "Tracked commands", value: String(commands.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Signals &amp; logging</CardTitle>
-            <CardDescription>Operational history, failure visibility, and alert routing without a bloated settings wall.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Signals &amp; logging</p>
+          </div>
+          <div className="space-y-2">
             {(logs?.activity || []).slice(0, 6).map((entry: any) => (
               <ActivityRow key={entry.id} title={`/${entry.commandPath}`} subtitle={entry.summary} status={entry.status} />
             ))}
             {!logs?.activity?.length ? <EmptyState label="No recent command activity is available right now." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2046,40 +2038,55 @@ function renderPageContent({
             { label: "Channels", value: String(context?.channels.length || 0) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle>Backups / sync</CardTitle>
-            <CardDescription>Use command exports, channel visibility, and operational context as the current recovery layer.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Backups / sync</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             <QuickActionRow
               icon={CopyPlus}
               title="Imports / Exports"
-              description="Move command logic safely before larger server changes."
               href={buildArchivistItemPath(serverId, "commands", "imports")}
             />
             <QuickActionRow
               icon={MessageSquareText}
               title="Channels"
-              description="Verify the live channel map before you copy or rebuild anything."
               href={buildArchivistItemPath(serverId, "operations", "channels")}
             />
             <QuickActionRow
               icon={Users}
               title="Roles"
-              description="Review protected roles and reward mappings before restore work."
               href={buildArchivistItemPath(serverId, "operations", "roles")}
             />
             <QuickActionRow
               icon={Logs}
               title="Logging"
-              description="Keep recent failures and change signals visible during recovery work."
               href={buildArchivistItemPath(serverId, "operations", "logging")}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
+  }
+
+  if (item.id === "settings-moderation") {
+    return <AutoModPage serverId={serverId} server={server} channels={context?.channels ?? []} roles={context?.roles ?? []} />;
+  }
+
+  if (item.id === "settings-member-flow" && server?.settings?.welcomeEnabled !== undefined) {
+    // Fall through to existing handler unless we have a full settings object
+  }
+
+  if (item.id === "settings-verification") {
+    return <VerificationConfigPage serverId={serverId} server={server} channels={context?.channels ?? []} roles={context?.roles ?? []} />;
+  }
+
+  if (item.id === "settings-security") {
+    return <RaidProtectionPage serverId={serverId} server={server} />;
+  }
+
+  if (item.id === "settings-signals-logging" && server?.settings) {
+    return <LoggingConfigPage serverId={serverId} server={server} channels={context?.channels ?? []} />;
   }
 
   if (item.id === "settings-general") {
@@ -2094,21 +2101,16 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">General server state</CardTitle>
-              <CardDescription>Live identity details plus the next lanes that usually matter after basic server context.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">General server state</p>
+            </div>
+            <div className="space-y-4">
               <div className="space-y-3">
                 <InfoRow label="Server name" value={server.name} />
                 <InfoRow label="Discord server ID" value={server.discordId} />
                 <InfoRow label="Member count" value={String(server.memberCount || 0)} />
                 <InfoRow label="Owner ID" value={server.ownerId || "Unknown"} />
-              </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
-                <p className="text-sm font-semibold text-white">Why this page matters</p>
-                <p className="mt-2 text-sm text-white/52">{generalBlueprint.focus}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {generalBlueprint.quickLinks.map((link) => (
@@ -2116,13 +2118,12 @@ function renderPageContent({
                     key={link.slug}
                     icon={link.icon}
                     title={link.label}
-                    description={link.description}
                     href={buildArchivistItemPath(serverId, link.section, link.slug)}
                   />
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <ChecklistPanel
             title="Identity checklist"
@@ -2146,21 +2147,16 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Runtime configuration</CardTitle>
-              <CardDescription>Turn the server config page into an operator lane instead of a static runtime dump.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Runtime configuration</p>
+            </div>
+            <div className="space-y-4">
               <div className="space-y-3">
                 <InfoRow label="Bot status" value={botStatus?.ready ? "Connected" : "Offline"} />
                 <InfoRow label="Gateway state" value={botStatus?.wsStatus || "Pending"} />
                 <InfoRow label="Guild count" value={String(botStatus?.guildCount || 0)} />
                 <InfoRow label="Last heartbeat" value={botStatus?.lastHeartbeatAt || "Not available"} />
-              </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
-                <p className="text-sm font-semibold text-white">Operator note</p>
-                <p className="mt-2 text-sm text-white/52">{configBlueprint.focus}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {configBlueprint.quickLinks.map((link) => (
@@ -2168,13 +2164,12 @@ function renderPageContent({
                     key={link.slug}
                     icon={link.icon}
                     title={link.label}
-                    description={link.description}
                     href={buildArchivistItemPath(serverId, link.section, link.slug)}
                   />
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <ChecklistPanel
             title="Runtime checklist"
@@ -2196,18 +2191,17 @@ function renderPageContent({
             { label: "Commands", value: String(commands.length) },
           ]}
         />
-        <Card className="archivist-panel">
-          <CardHeader>
-            <CardTitle className="text-white">Recent logging activity</CardTitle>
-            <CardDescription>Live command history and failures without leaving Settings.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Recent logging activity</p>
+          </div>
+          <div className="space-y-2">
             {logs?.activity?.slice(0, 5).map((entry: any) => (
               <ActivityRow key={entry.id} title={`/${entry.commandPath}`} subtitle={entry.summary} status={entry.status} />
             ))}
             {!logs?.activity?.length ? <EmptyState label="No recent activity is available right now." /> : null}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2226,12 +2220,11 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Notification targets</CardTitle>
-              <CardDescription>Give alerts, notices, and announcements a cleaner home without guessing which channels are best.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Notification targets</p>
+            </div>
+            <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <ChannelSuggestionCard
                   title="Likely staff targets"
@@ -2252,7 +2245,6 @@ function renderPageContent({
                     key={link.slug}
                     icon={link.icon}
                     title={link.label}
-                    description={link.description}
                     href={buildArchivistItemPath(serverId, link.section, link.slug)}
                   />
                 ))}
@@ -2269,8 +2261,8 @@ function renderPageContent({
                 ))}
                 {!textChannels.length ? <EmptyState label="No text channels are available for notification routing yet." /> : null}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <ChecklistPanel
             title="Delivery checklist"
@@ -2294,21 +2286,16 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Advanced identifiers</CardTitle>
-              <CardDescription>Put the deep-debug details next to the routes you usually need with them.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Advanced identifiers</p>
+            </div>
+            <div className="space-y-4">
               <div className="space-y-3">
                 <InfoRow label="Internal server ID" value={String(server.id)} />
                 <InfoRow label="Discord guild ID" value={server.discordId} />
                 <InfoRow label="Gateway ping" value={typeof botStatus?.gatewayPingMs === "number" ? `${Math.round(botStatus.gatewayPingMs)}ms` : "Pending"} />
                 <InfoRow label="Started at" value={botStatus?.startedAt || "Unknown"} />
-              </div>
-              <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
-                <p className="text-sm font-semibold text-white">Diagnostics lens</p>
-                <p className="mt-2 text-sm text-white/52">{advancedBlueprint.focus}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {advancedBlueprint.quickLinks.map((link) => (
@@ -2316,13 +2303,12 @@ function renderPageContent({
                     key={link.slug}
                     icon={link.icon}
                     title={link.label}
-                    description={link.description}
                     href={buildArchivistItemPath(serverId, link.section, link.slug)}
                   />
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <ChecklistPanel
             title="Deep-debug checklist"
@@ -2346,20 +2332,15 @@ function renderPageContent({
           ]}
         />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_minmax(0,0.85fr)]">
-          <Card className="archivist-panel">
-            <CardHeader>
-              <CardTitle className="text-white">Backup staging</CardTitle>
-              <CardDescription>Stage safer export and restore work from one place instead of bouncing around the dashboard.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-[22px] border border-white/8 bg-[#0a0c0f] p-4">
-                <p className="text-sm font-semibold text-white">Backup readiness</p>
-                <p className="mt-2 text-sm text-white/52">{backupBlueprint.focus}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-[18px] border border-white/8 bg-[#101216] px-3 py-3 text-sm text-white/68">Commands tracked: {commands.length}</div>
-                  <div className="rounded-[18px] border border-white/8 bg-[#101216] px-3 py-3 text-sm text-white/68">Roles visible: {context?.roles.length || 0}</div>
-                  <div className="rounded-[18px] border border-white/8 bg-[#101216] px-3 py-3 text-sm text-white/68">Channels visible: {context?.channels.length || 0}</div>
-                </div>
+          <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+            <div className="mb-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Backup staging</p>
+            </div>
+            <div className="space-y-4">
+              <div className="flex gap-4">
+                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-3 py-3 text-sm text-white/68">Commands: {commands.length}</div>
+                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-3 py-3 text-sm text-white/68">Roles: {context?.roles.length || 0}</div>
+                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-3 py-3 text-sm text-white/68">Channels: {context?.channels.length || 0}</div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {backupBlueprint.quickLinks.map((link) => (
@@ -2367,13 +2348,12 @@ function renderPageContent({
                     key={link.slug}
                     icon={link.icon}
                     title={link.label}
-                    description={link.description}
                     href={buildArchivistItemPath(serverId, link.section, link.slug)}
                   />
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           <ChecklistPanel
             title="Backup checklist"
@@ -2393,20 +2373,16 @@ function renderPageContent({
 }
 
 function getPrimaryAction(item: ArchivistNavItem, serverId: number, navigate: (path: string) => void) {
-  if (item.id === "commands-overview" || item.id === "commands-all") {
+  // Overview pages have their own action buttons built in
+  if (item.id === "commands-overview" || item.id === "studio-overview" || item.id === "studio-drafts") {
+    return null;
+  }
+
+  if (item.id === "commands-all") {
     return (
       <Button className="min-h-11 rounded-[18px] px-4" onClick={() => navigate(buildArchivistItemPath(serverId, "commands", "create-command"))}>
         <Plus className="h-4 w-4" />
-        Create Command
-      </Button>
-    );
-  }
-
-  if (item.id === "studio-overview" || item.id === "studio-drafts") {
-    return (
-      <Button className="min-h-11 rounded-[18px] px-4" onClick={() => navigate(buildArchivistItemPath(serverId, "studio", "create-new"))}>
-        <BadgePlus className="h-4 w-4" />
-        Create New
+        New
       </Button>
     );
   }
@@ -2453,41 +2429,34 @@ function PageHeader({
   secondaryAction?: ReactNode;
   tabs?: ReactNode;
 }) {
+  if (!title && !primaryAction && !secondaryAction && !tabs) return null;
+
   return (
-    <Card className="archivist-panel overflow-hidden">
-      <CardContent className="space-y-4 p-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-[16px] border border-[var(--border-strong)] bg-[linear-gradient(180deg,rgba(110,123,255,0.16),rgba(21,28,44,0.98))] text-[var(--brand-primary-strong)] shadow-[0_18px_36px_rgba(16,22,38,0.24)]">
-            <ItemIcon icon={item.icon} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-[0.32em] text-[var(--text-faint)]">{ARCHIVIST_NAVIGATION.find((entry) => entry.id === item.section)?.label}</p>
-            <h1 className="mt-2 text-xl font-bold text-[var(--text-primary)] sm:text-2xl">{title}</h1>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">{description}</p>
-          </div>
+    <div className="space-y-3">
+      {(title || primaryAction || secondaryAction) && (
+        <div className="flex items-center justify-between">
+          {title && <h1 className="text-[18px] font-bold text-white">{title}</h1>}
+          {(primaryAction || secondaryAction) && (
+            <div className="flex items-center gap-2 ml-auto">
+              {primaryAction}
+              {secondaryAction}
+            </div>
+          )}
         </div>
-        {(primaryAction || secondaryAction) ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap [&>*]:w-full sm:[&>*]:w-auto">
-            {primaryAction}
-            {secondaryAction}
-          </div>
-        ) : null}
-        {tabs}
-      </CardContent>
-    </Card>
+      )}
+      {tabs}
+    </div>
   );
 }
 
 function MetricGrid({ items }: { items: Array<{ label: string; value: string }> }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="flex gap-5">
       {items.map((item) => (
-        <Card key={item.label} className="archivist-panel">
-          <CardContent className="p-4">
-            <p className="text-[10px] uppercase tracking-[0.24em] text-[var(--text-faint)]">{item.label}</p>
-            <p className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{item.value}</p>
-          </CardContent>
-        </Card>
+        <div key={item.label}>
+          <p className="text-[22px] font-bold leading-none text-white">{item.value}</p>
+          <p className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-white/35">{item.label}</p>
+        </div>
       ))}
     </div>
   );
@@ -2496,25 +2465,20 @@ function MetricGrid({ items }: { items: Array<{ label: string; value: string }> 
 function QuickActionRow({
   icon: Icon,
   title,
-  description,
   href,
 }: {
   icon: typeof Plus;
   title: string;
-  description: string;
   href: string;
 }) {
   return (
     <Link href={href}>
-      <a className="flex min-h-[76px] items-center gap-3 rounded-[20px] border border-[var(--border-default)] bg-[linear-gradient(180deg,rgba(20,25,39,0.88),rgba(14,18,29,0.98))] px-4 py-4 transition hover:border-[var(--border-strong)] hover:bg-[linear-gradient(180deg,rgba(24,30,46,0.94),rgba(16,21,33,1))]">
-        <div className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-[var(--border-subtle)] bg-[rgba(110,123,255,0.1)] text-[var(--brand-primary-strong)]">
-          <Icon className="h-4 w-4" />
+      <a className="flex items-center gap-3 rounded-[16px] bg-white/[0.04] px-4 py-3 text-left active:bg-white/[0.07]">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-white/50">
+          <Icon className="h-3.5 w-3.5" />
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>
-        </div>
-        <ArrowRight className="h-4 w-4 text-[var(--text-faint)]" />
+        <p className="text-[13px] font-semibold text-white/80">{title}</p>
+        <ArrowRight className="ml-auto h-4 w-4 text-white/20" />
       </a>
     </Link>
   );
@@ -2590,22 +2554,21 @@ function ChecklistPanel({
   items: string[];
 }) {
   return (
-    <Card className="archivist-panel">
-      <CardHeader>
-        <CardTitle className="text-white">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
+    <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{title}</p>
+      </div>
+      <div className="space-y-2">
         {items.map((entry, index) => (
-          <div key={entry} className="flex items-start gap-3 rounded-[20px] border border-[var(--border-subtle)] bg-[var(--bg-panel-inset)] px-4 py-4">
-            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[rgba(110,123,255,0.12)] text-[11px] font-semibold text-[var(--brand-primary-strong)]">
+          <div key={entry} className="flex items-start gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-4 py-3">
+            <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[10px] font-semibold text-white/50">
               {index + 1}
             </div>
-            <p className="text-sm text-[var(--text-secondary)]">{entry}</p>
+            <p className="text-sm text-white/60">{entry}</p>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -2679,9 +2642,8 @@ function SettingsGroupCard({
   onOpenChannels: () => void;
 }) {
   return (
-    <Card className="archivist-panel">
-      <CardContent className="p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
             <p className="mt-1 text-sm text-[var(--text-muted)]">{description}</p>
@@ -2719,8 +2681,7 @@ function SettingsGroupCard({
             </div>
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 
@@ -3328,12 +3289,11 @@ function SettingsChannelsPage({
         ]}
       />
 
-      <Card className="archivist-panel">
-        <CardHeader>
-          <CardTitle className="text-white">Quick create</CardTitle>
-          <CardDescription>Spin up new Discord structure without leaving the dashboard. Archivist will refresh the channel tree after each create.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Quick create</p>
+        </div>
+        <div className="space-y-4">
           <div className="flex gap-2 overflow-x-auto pb-1">
             {CHANNEL_CREATE_TYPES.map((option) => (
               <button
@@ -3424,15 +3384,14 @@ function SettingsChannelsPage({
               Clear Form
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Card className="archivist-panel">
-        <CardHeader>
-          <CardTitle className="text-white">Channel control</CardTitle>
-          <CardDescription>Filter the live channel tree, open one lane at a time, and save Archivist-specific overrides without leaving mobile.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">Channel control</p>
+        </div>
+        <div className="space-y-4">
           <div className="grid gap-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
@@ -4166,8 +4125,8 @@ function SettingsChannelsPage({
               </div>
             ) : null}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4200,40 +4159,33 @@ function ToggleField({
 
 function ScaffoldPage({ item, serverId }: { item: ArchivistNavItem; serverId: number }) {
   return (
-    <Card className="archivist-panel">
-      <CardHeader>
-        <CardTitle className="text-white">{item.label}</CardTitle>
-        <CardDescription>{item.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-[22px] border border-dashed border-white/10 bg-[#0a0c0f] px-4 py-5 text-sm text-white/52">
-          This route is wired into the new mobile control center and intentionally scaffolded for the first redesign pass.
-        </div>
+    <div className="rounded-[20px] bg-white/[0.03] px-4 py-4">
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-white/35">{item.label}</p>
+      </div>
+      <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <QuickActionRow
             icon={Search}
             title="Back to Section Overview"
-            description="Return to the section landing page."
             href={buildArchivistItemPath(serverId, item.section, getDefaultArchivistItem(item.section).slug)}
           />
           {item.section === "commands" ? (
             <QuickActionRow
               icon={Plus}
               title="Open Builder"
-              description="Jump into the focused editor page."
               href={buildArchivistItemPath(serverId, "commands", "create-command")}
             />
           ) : (
             <QuickActionRow
               icon={Sparkles}
               title="Open Primary Workflow"
-              description="Jump into the main build or overview flow."
               href={buildArchivistItemPath(serverId, item.section, item.section === "studio" ? "create-new" : getDefaultArchivistItem(item.section).slug)}
             />
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 

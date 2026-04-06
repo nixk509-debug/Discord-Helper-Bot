@@ -76,6 +76,7 @@
   html {
     scroll-behavior: smooth;
     color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -100,6 +101,20 @@
 input, textarea, select {
   font-size: 16px !important;
   touch-action: manipulation;
+}
+
+[contenteditable="true"],
+[role="textbox"] {
+  touch-action: manipulation;
+}
+
+@media (max-width: 767px) {
+  .archivist-field,
+  .mobile-entry-safe,
+  [contenteditable="true"],
+  [role="textbox"] {
+    font-size: 16px !important;
+  }
 }
 
 @layer utilities {
@@ -131,7 +146,7 @@ input, textarea, select {
   }
 
   .archivist-field {
-    @apply h-11 w-full rounded-[12px] border border-[var(--border-default)] bg-[var(--bg-panel-inset)] px-4 text-sm text-[var(--text-primary)] outline-none transition-all focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-primary/20;
+    @apply h-11 w-full rounded-[12px] border border-[var(--border-default)] bg-[var(--bg-panel-inset)] px-4 text-base text-[var(--text-primary)] outline-none transition-all focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-primary/20 md:text-sm;
   }
 
   .glass-card {
@@ -169,4 +184,3 @@ input, textarea, select {
     @apply border-white/[0.1] bg-white/[0.035];
   }
 }
-

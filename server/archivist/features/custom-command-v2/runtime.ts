@@ -27,7 +27,14 @@ import {
 } from "discord.js";
 import type { CustomCommandV2Compiled, CustomCommandV2Definition, CustomCommandV2Embed, CustomCommandV2JsonValue } from "@shared/custom-command-v2";
 import type { CustomCommandV2Record, CustomCommandV2SessionRecord } from "@shared/schema";
-import { storage } from "../../../storage";
+import {
+  claimCustomCommandV2SessionRecord,
+  createCustomCommandV2SessionRecord,
+  getCustomCommandV2Record,
+  listPendingCustomCommandV2SessionRecords,
+  touchCustomCommandV2UsageRecord,
+} from "../../../repositories/custom-command-repository";
+import { getServerByDiscordIdRecord, getServerRecord } from "../../../repositories/server-repository";
 import { isPremiumEnabledForServer } from "../../../premium-service";
 import type { ArchivistEnv } from "../../config/env";
 import type { ArchivistLogger } from "../../lib/logger";
@@ -125,7 +132,7 @@ async function resolveServerIdForGuild(guildId: string) {
   const cached = serverCache.get(guildId);
   if (cached && cached.expiresAt > now()) return cached.serverId;
 
-  const server = await storage.getServerByDiscordId(guildId);
+  const server = await getServerByDiscordIdRecord(guildId);
   if (!server) return null;
 
   serverCache.set(guildId, { serverId: server.id, expiresAt: now() + CACHE_TTL_MS });
@@ -802,7 +809,7 @@ function createLiveExecutionAdapter(input: {
         variables: Record<string, CustomCommandV2JsonValue>;
         input: Record<string, CustomCommandV2JsonValue>;
       }) {
-        await storage.createCommandV2Session(input.serverId, {
+        await createCustomCommandV2SessionRecord(input.serverId, {
           commandId: input.command.id,
           continuationType: payload.continuationType,
           stepId: payload.stepId,
@@ -948,10 +955,10 @@ async function resumeCommandV2Session(
   logger: ArchivistLogger,
   options?: { entryStepId?: string },
 ) {
-  const claimedSession = await storage.claimCommandV2Session(session.id).catch(() => null);
+  const claimedSession = await claimCustomCommandV2SessionRecord(session.id).catch(() => null);
   if (!claimedSession) return true;
 
-  const liveCommand = await storage.getCommandV2ById(claimedSession.commandId).catch(() => undefined);
+  const liveCommand = await getCustomCommandV2Record(claimedSession.commandId).catch(() => undefined);
 
   if (!liveCommand || liveCommand.serverId !== serverId || liveCommand.enabled === false) {
     await sendRuntimeNotice(source, "This Archivist interaction is no longer active. Run the command again.", true).catch(() => null);
@@ -1030,7 +1037,7 @@ async function runCommandV2(
   if (options.countUsage !== false) {
     await maybeDeleteInvocation(executionCommand, source);
     const completedAt = source.kind === "schedule" ? source.scheduledAt : new Date();
-    await storage.touchCommandV2Usage(command.id, { lastRunAt: completedAt }).catch(() => null);
+    await touchCustomCommandV2UsageRecord(command.id, { lastRunAt: completedAt }).catch(() => null);
     lastScheduledRunCache.set(`v2:${command.id}`, completedAt.getTime());
     command.lastRunAt = completedAt;
     command.usageCount = Number(command.usageCount || 0) + 1;
@@ -1114,7 +1121,7 @@ export async function syncCustomCommandsV2ForServer(input: {
 }) {
   if (!input.env.clientId || !input.env.token) return;
 
-  const server = await storage.getServer(input.serverId);
+  const server = await getServerRecord(input.serverId);
   if (!server?.discordId) return;
 
   const rest = new REST({ version: "10" }).setToken(input.env.token);
@@ -1205,7 +1212,7 @@ export async function handleCustomV2ButtonInteraction(interaction: ButtonInterac
     member: interaction.member as GuildMember,
     channel: interaction.channel?.isTextBased() ? (interaction.channel as TextBasedChannel) : null,
   } as const;
-  const sessions = await storage.getPendingCommandV2Sessions(payload.serverId, "button");
+  const sessions = await listPendingCustomCommandV2SessionRecords(payload.serverId, "button");
   const sessionMatch = findPendingSessionMatch(sessions, (session) =>
     matchesButtonSession(session, interaction as ButtonInteraction<"cached">),
   );
@@ -1226,7 +1233,7 @@ export async function handleCustomV2ButtonInteraction(interaction: ButtonInterac
           return true;
         }
       }
-      const claimed = await storage.claimCommandV2Session(sessionMatch.session.id).catch(() => null);
+      const claimed = await claimCustomCommandV2SessionRecord(sessionMatch.session.id).catch(() => null);
       if (claimed) {
         await sendRuntimeNotice(source, "That Archivist button expired. Run the command again.", true).catch(() => null);
       }
@@ -1301,7 +1308,7 @@ export async function handleCustomV2SelectInteraction(interaction: StringSelectM
     channel: interaction.channel?.isTextBased() ? (interaction.channel as TextBasedChannel) : null,
     values: interaction.values,
   } as const;
-  const sessions = await storage.getPendingCommandV2Sessions(payload.serverId, "select");
+  const sessions = await listPendingCustomCommandV2SessionRecords(payload.serverId, "select");
   const sessionMatch = findPendingSessionMatch(sessions, (session) =>
     matchesSelectSession(session, interaction as StringSelectMenuInteraction<"cached">),
   );
@@ -1322,7 +1329,7 @@ export async function handleCustomV2SelectInteraction(interaction: StringSelectM
           return true;
         }
       }
-      const claimed = await storage.claimCommandV2Session(sessionMatch.session.id).catch(() => null);
+      const claimed = await claimCustomCommandV2SessionRecord(sessionMatch.session.id).catch(() => null);
       if (claimed) {
         await sendRuntimeNotice(source, "That Archivist menu expired. Run the command again.", true).catch(() => null);
       }
@@ -1396,7 +1403,7 @@ export async function handleCustomV2ModalInteraction(interaction: ModalSubmitInt
     member: interaction.member as GuildMember,
     channel: interaction.channel?.isTextBased() ? (interaction.channel as TextBasedChannel) : null,
   } as const;
-  const sessions = await storage.getPendingCommandV2Sessions(payload.serverId, "modal_submit");
+  const sessions = await listPendingCustomCommandV2SessionRecords(payload.serverId, "modal_submit");
   const sessionMatch = findPendingSessionMatch(sessions, (session) =>
     matchesModalSession(session, interaction as ModalSubmitInteraction<"cached">),
   );
@@ -1417,7 +1424,7 @@ export async function handleCustomV2ModalInteraction(interaction: ModalSubmitInt
           return true;
         }
       }
-      const claimed = await storage.claimCommandV2Session(sessionMatch.session.id).catch(() => null);
+      const claimed = await claimCustomCommandV2SessionRecord(sessionMatch.session.id).catch(() => null);
       if (claimed) {
         await sendRuntimeNotice(source, "That Archivist form expired. Run the command again.", true).catch(() => null);
       }

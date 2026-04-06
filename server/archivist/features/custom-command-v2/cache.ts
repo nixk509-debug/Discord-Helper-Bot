@@ -1,5 +1,5 @@
 import type { CustomCommandV2Record } from "@shared/schema";
-import { storage } from "../../../storage";
+import { listCustomCommandV2Records } from "../../../repositories/custom-command-repository";
 
 const CACHE_TTL_MS = 30_000;
 const commandV2Cache = new Map<number, { expiresAt: number; commands: CustomCommandV2Record[] }>();
@@ -20,7 +20,7 @@ export async function getCommandsV2ForServer(serverId: number) {
   const cached = commandV2Cache.get(serverId);
   if (cached && cached.expiresAt > now()) return cached.commands;
 
-  const commands = await storage.getCommandsV2(serverId);
+  const commands = await listCustomCommandV2Records(serverId);
   commandV2Cache.set(serverId, { expiresAt: now() + CACHE_TTL_MS, commands });
   return commands;
 }

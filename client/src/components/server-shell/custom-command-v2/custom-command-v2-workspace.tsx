@@ -767,30 +767,22 @@ export function CustomCommandV2Workspace({
       element instanceof HTMLElement
       && (element.matches("input, textarea, [contenteditable='true']") || element.getAttribute("role") === "textbox");
 
-    const initialHeight = window.visualViewport?.height || window.innerHeight;
     const refreshKeyboardState = () => {
       const active = document.activeElement;
-      const viewportHeight = window.visualViewport?.height || window.innerHeight;
-      const viewportCompressed = viewportHeight < initialHeight - 140;
-      setMobileKeyboardOpen(isEditableElement(active) || viewportCompressed);
+      setMobileKeyboardOpen(isEditableElement(active));
     };
 
     const handleFocusIn = () => refreshKeyboardState();
     const handleFocusOut = () => window.setTimeout(refreshKeyboardState, 40);
-    const viewport = window.visualViewport;
 
     window.addEventListener("focusin", handleFocusIn);
     window.addEventListener("focusout", handleFocusOut);
-    viewport?.addEventListener("resize", refreshKeyboardState);
-    viewport?.addEventListener("scroll", refreshKeyboardState);
 
     refreshKeyboardState();
 
     return () => {
       window.removeEventListener("focusin", handleFocusIn);
       window.removeEventListener("focusout", handleFocusOut);
-      viewport?.removeEventListener("resize", refreshKeyboardState);
-      viewport?.removeEventListener("scroll", refreshKeyboardState);
     };
   }, []);
 

@@ -900,6 +900,21 @@ export function useRerollGiveaway(serverId: number) {
   return useMutation({ mutationFn: (id: number) => fetch(buildApiUrl(`/api/servers/${serverId}/giveaways/${id}/reroll`), { method: "POST", credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to reroll giveaway"); return r.json(); }), onSuccess: () => qc.invalidateQueries({ queryKey: ["giveaways", serverId] }) });
 }
 
+// ─── Server Settings ─────────────────────────────────────────────────────────
+export function useUpdateSettings(serverId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) =>
+      fetch(buildApiUrl(`/api/servers/${serverId}/settings`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      }).then((r) => { if (!r.ok) throw new Error("Failed to update settings"); return r.json(); }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [api.servers.get.path, serverId] }),
+  });
+}
+
 // ─── Polls ───────────────────────────────────────────────────────────────────
 export function usePolls(serverId: number) {
   return useQuery({ queryKey: ["polls", serverId], queryFn: () => fetch(buildApiUrl(`/api/servers/${serverId}/polls`), { credentials: "include" }).then(r => { if (!r.ok) throw new Error("Failed to fetch polls"); return r.json(); }) });
