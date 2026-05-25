@@ -1,15 +1,45 @@
-node_modules
-dist
+node_modules/
+dist/
+server/public/
+.next/
+build/
+coverage/
+
+# Secrets stay on the laptop or droplet only.
+.env
+.env.*
+!.env.example
+
+# Logs and local runtime output.
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# Local caches and temporary files.
 .DS_Store
-server/public
-vite.config.ts.*
-*.tar.gztmp-edge-qa-*/
+.cache/
+.playwright-cli/
+.turbo/
+.vite/
+tmp/
+tmp-*/
+tmp-edge-qa-*/
 tmp-qa-*.png
 tmp-qa-*.json
-.claude/
-*.pma
-*.tar
-deploy-*.zip
-deploy-*.txt
 tmp-*.png
 tmp-*.tar
+output/
+
+# Local deploy artifacts.
+.deploy/
+vite.config.ts.*
+*.pma
+*.tar
+*.tar.gz
+deploy-*.zip
+deploy-*.txt
+
+.claude/
